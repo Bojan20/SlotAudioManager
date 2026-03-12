@@ -1,0 +1,8 @@
+{
+    "gameProjectPath": "../playa-slot-template-standard-game",
+    "JSONtemplate": "sounds.json",
+    "JSONtarget": "dist/sounds.json",
+    "SourceSoundDirectory": "sourceSoundFiles",
+    "DestinationSoundDirectory": "dist",
+    "DestinationAudioSpriteDirectory": "dist/soundFiles"
+}

@@ -1,0 +1,53 @@
+{
+  "name": "slot-audio-manager",
+  "version": "1.0.0",
+  "description": "Slot Game Audio Sprite Manager — Build, Deploy, Validate",
+  "main": "main.js",
+  "scripts": {
+    "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && node -e \\\"delete process.env.ELECTRON_RUN_AS_NODE; require('child_process').spawn(require('electron'), ['.'], {stdio:'inherit'}).on('close',()=>process.exit())\\\"\"",
+    "build-renderer": "vite build",
+    "build-win": "npm run build-renderer && electron-builder --win",
+    "build-mac": "npm run build-renderer && electron-builder --mac",
+    "build-all": "npm run build-renderer && electron-builder --win --mac"
+  },
+  "build": {
+    "appId": "com.slotaudio.manager",
+    "productName": "Slot Audio Manager",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "dist-renderer/**/*",
+      "template/**/*"
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "assets/icon.icns"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "assets/icon.ico"
+    }
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^26.8.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "@vitejs/plugin-react": "^6.0.0",
+    "concurrently": "^9.2.1",
+    "tailwindcss": "^4.2.1",
+    "vite": "^8.0.0",
+    "wait-on": "^9.0.4"
+  }
+}
