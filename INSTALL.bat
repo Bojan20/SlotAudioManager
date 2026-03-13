@@ -1,0 +1,51 @@
+@echo off
+echo =============================================
+echo   Slot Audio Manager - Windows Install
+echo =============================================
+echo.
+
+:: Check Node.js
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo ERROR: Node.js is not installed!
+    echo Download from: https://nodejs.org/
+    echo Install the LTS version, then run this again.
+    pause
+    exit /b 1
+)
+
+for /f "tokens=*" %%i in ('node -v') do set NODE_VER=%%i
+echo Node.js version: %NODE_VER%
+echo.
+
+:: Check Git
+where git >nul 2>&1
+if %errorlevel% neq 0 (
+    echo WARNING: Git is not installed. Git features will not work.
+    echo Download from: https://git-scm.com/
+    echo.
+) else (
+    for /f "tokens=*" %%i in ('git --version') do echo %%i
+    echo.
+)
+
+:: Install dependencies
+echo Installing dependencies (this may take a few minutes)...
+echo.
+call npm install --legacy-peer-deps
+if %errorlevel% neq 0 (
+    echo.
+    echo ERROR: npm install failed!
+    echo Try running: npm install --legacy-peer-deps
+    pause
+    exit /b 1
+)
+
+echo.
+echo =============================================
+echo   Install complete!
+echo.
+echo   To start the app, run:  npm run dev
+echo   Or double-click:        START.bat
+echo =============================================
+pause
