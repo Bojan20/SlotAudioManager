@@ -200,10 +200,12 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
   - `"Z"` → lazy load
 - **Game developer must call**:
   - `startSubLoader("A")` on first spin — loads main pool (symbols, bigwin, anticipation)
-  - `startSubLoader("B")` on scatter/bonus trigger — loads bonus pool (free spins, hold & win, picker)
-  - `unloadSubLoader("B")` when bonus ends — frees bonus audio from RAM
+  - `startSubLoader("B")` when bonus is **confirmed** (3+ scatters evaluated, not on single scatter land) — loads bonus pool (free spins, hold & win, picker, bonus music)
+  - `unloadSubLoader("B")` when bonus ends and player returns to base game — frees bonus audio from RAM
+- **Trigger timing**: Scatter landing on a reel is NOT the trigger. The trigger is when the spin result is evaluated and the game confirms bonus entry (e.g., 3+ scatters). This happens in `BonusTriggerCommand` or equivalent, AFTER reel evaluation, not in reel land handlers. The bonus intro animation (2-3 seconds) buys time for SubLoader B to complete loading.
 - **Runtime unload**: playa-core SoundLoader/SoundPlayer does not yet have `unloadHowl()` — `unloadable: true` is a metadata signal for the playa-core team
 - **Queue**: only one SubLoader loads at a time. If A and B are triggered simultaneously (scatter on first spin), B waits in queue until A completes
+- **Standalone vs sprite for music**: Base game music (loops for hours) MUST be standalone (separate M4A, clean Howler loop). Bonus music (loops for 30s-3min bonus sessions) CAN go in bonus sprite — Howler loops sprite segments with acceptable micro-gap for short sessions.
 - Reference: `/c/IGT/playa-core/src/ts/sound/SoundLoader.ts` and `SubLoader.ts`
 
 ### GLR Local Launch (no VPN)
@@ -291,17 +293,20 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 ```
 **Redosled prioriteta:** Tags iz soundsJson (Music tag → standalone) → pattern match → fallback (main)
 **Pool arhitektura (4 poola):**
-- `loading` — minimum za prvi spin: UI, reel land, payline, rollup (~200-700KB, immediate, no loadType)
-- `main` — base game: symbols, big win, anticipation, rollups (~1-3MB, deferred "A", `startSubLoader("A")` na prvom spinu)
-- `bonus` — svi bonus modovi: free spins, hold & win, picker, tranzicije (~1-3MB, deferred "B", `startSubLoader("B")` na scatter-u, unloadable — `unloadSubLoader("B")` na kraju bonusa)
-- `standalone` — muzika: previše velika za sprite, svaki zvuk kao poseban M4A (immediate, no loadType, loop-friendly)
-**Zašto standalone:** Sprite je jedan fajl sa zalepljenim zvucima — muzika mora da se loopuje beskonačno, nemoguće u sprajtu bez preklapanja. Svaki standalone = zaseban M4A = Howler `loop: true`.
+- `loading` — minimum za prvi spin: UI, reel land, payline, rollup, spins loop, coin counter (~200-700KB, immediate, no loadType)
+- `main` — base game: symbols, big win, anticipation, rollups, wild land, screen effects (~1-3MB, deferred "A", `startSubLoader("A")` na prvom spinu)
+- `bonus` — svi bonus modovi + bonus muzika: free spins, hold & win, picker, tranzicije, FreeSpinMusic, PickerMusicLoop (~1-3MB, deferred "B", `startSubLoader("B")` kad bonus bude POTVRĐEN — 3+ scattera evaluirana, ne na scatter land. unloadable — `unloadSubLoader("B")` na kraju bonusa)
+- `standalone` — SAMO base game muzika koja svira od prvog frejma i loopuje se satima. Svaki zvuk = zaseban M4A = Howler `loop: true`. Bonus muzika NE ide ovde — ide u bonus pool.
+**Zašto standalone samo za base muziku:** Sprite je jedan fajl sa zalepljenim zvucima — muzika koja loopuje satima mora biti zaseban fajl za čist loop bez mikro-pauze. Bonus muzika loopuje 30s-3min (kratka sesija) — prihvatljiv kvalitet iz sprajta.
 **Ključna pravila:**
 - `BaseToBonusStart` i `BonusToBaseStart` → bonus (tranzicije su deo bonus konteksta)
 - `SymbolB01Land1...5`, `SymbolB01Anticipation` → main (base game kontekst)
 - `PreBonusLoop` → main (svira pre ulaska u bonus, dok je igra još u base)
+- `SpinsLoop`, `CoinLoop`, `CoinLoopEnd` → loading (rollup/reel zvuci, potrebni od prvog spina)
+- `FreeSpinMusic`, `PickerMusicLoop` → bonus (NE standalone — učitava se sa bonus poolom)
+- `BaseGameMusicLoop1/2/3`, `AmbBg` → standalone (jedine prave base game muzike)
 - Fallback tier je `main` (ili poslednji tier u listi ako `main` ne postoji)
-- Bonus zvuci uključuju SVE bonus modove (free spins + hold & win) u jednom sprajtu
+- Bonus zvuci uključuju SVE bonus modove (free spins + hold & win) u jednom sprajtu + bonus muziku
 
 ## Known Pending Issues
 - playa-core tim treba da implementira `SoundPlayer.unloadHowl()` za runtime unload bonus audio-a

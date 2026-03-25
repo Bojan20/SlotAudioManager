@@ -1348,7 +1348,9 @@ ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc }
 
   const files = [];
   for (const s of sounds) {
-    const f = path.join(srcDir, s + '.wav');
+    const base = path.basename(s);
+    const f = path.join(srcDir, base + '.wav');
+    if (!f.startsWith(srcDir + path.sep)) continue;
     if (fs.existsSync(f)) files.push(f);
   }
   if (files.length === 0) return { sizeKB: 0, sounds: 0 };

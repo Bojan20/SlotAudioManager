@@ -71,10 +71,14 @@ function getTheme(tierCfg, tierName) {
 
 const fmtSize = (kb) => kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
 
-function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, tierOptions, onMove, onUpdate, onCopy, copied, config }) {
+function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, tierOptions, onMove, onUpdate, onCopy, copied, config, showToast }) {
   const [expanded, setExpanded] = useState(true);
   const [measuring, setMeasuring] = useState(false);
   const [measuredKB, setMeasuredKB] = useState(null);
+
+  // Reset measurement when sounds change
+  useEffect(() => { setMeasuredKB(null); }, [sounds.length]);
+
   const displayKB = measuredKB ?? (sizeInfo.isActual ? sizeInfo.kb : null);
   const over = maxKB > 0 && displayKB && displayKB > maxKB;
   const pct = maxKB > 0 && displayKB ? Math.min(100, (displayKB / maxKB) * 100) : 0;
@@ -85,13 +89,13 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
     if (sounds.length === 0) return;
     setMeasuring(true);
     try {
-      // Determine encoding for this tier
       const enc = isStandalone
         ? config?.encoding?.music || { bitrate: 96, channels: 2, samplerate: 44100 }
         : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
       const r = await window.api.measurePool({ tierName, sounds, encoding: enc });
-      if (r?.sizeKB !== undefined) setMeasuredKB(r.sizeKB);
-    } catch {}
+      if (r?.error) { showToast?.('Measure failed: ' + r.error, 'error'); }
+      else if (r?.sizeKB !== undefined) setMeasuredKB(r.sizeKB);
+    } catch (e) { showToast?.('Measure failed: ' + (e.message || 'unknown'), 'error'); }
     setMeasuring(false);
   };
 
@@ -197,7 +201,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   );
 }
 
-export default function SpriteConfigPage({ project, showToast }) {
+export default function SpriteConfigPage({ project, setProject, showToast }) {
   const [config, setConfig]           = useState(null);
   const [dirty, setDirty]             = useState(false);
   const [saving, setSaving]           = useState(false);
@@ -304,8 +308,11 @@ export default function SpriteConfigPage({ project, showToast }) {
     setSaving(true);
     try {
       const result = await window.api.saveSpriteConfig(config);
-      if (result?.success) { setDirty(false); showToast('Sprite config saved', 'success'); }
-      else showToast(result?.error || 'Save failed', 'error');
+      if (result?.success) {
+        setDirty(false);
+        showToast('Sprite config saved', 'success');
+        if (setProject) setProject(prev => ({ ...structuredClone(prev), spriteConfig: structuredClone(config) }));
+      } else showToast(result?.error || 'Save failed', 'error');
     } catch (e) { showToast('Save failed: ' + e.message, 'error'); }
     setSaving(false);
   };
@@ -378,22 +385,22 @@ export default function SpriteConfigPage({ project, showToast }) {
 
         {/* Immediate pools */}
         {immediateTiers.map(([name, cfg]) => (
-          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
         ))}
 
         {/* Standalone */}
         {(standaloneSounds.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
-          <PoolCard tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds, 5)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+          <PoolCard tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds, 5)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
         )}
 
         {/* Deferred pools */}
         {deferredOnly.map(([name, cfg]) => (
-          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
         ))}
 
         {/* Lazy pools */}
         {lazyTiers.map(([name, cfg]) => (
-          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
         ))}
 
         {/* Encoding */}

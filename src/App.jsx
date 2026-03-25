@@ -95,7 +95,7 @@ export default function App() {
     { id: 'project',  el: <ProjectPage project={project} onOpen={openProject} onReload={reloadProject} /> },
     { id: 'setup',    el: <SetupPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'sounds',   el: <SoundsPage project={project} setProject={setProject} showToast={showToast} /> },
-    { id: 'sprites',  el: <SpriteConfigPage project={project} showToast={showToast} /> },
+    { id: 'sprites',  el: <SpriteConfigPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'commands', el: <CommandsPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'build',    el: <BuildPage project={project} setProject={setProject} reloadProject={reloadProject} showToast={showToast} /> },
     { id: 'git',      el: <GitPage project={project} showToast={showToast} /> },

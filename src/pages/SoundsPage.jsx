@@ -597,9 +597,9 @@ export default function SoundsPage({ project, setProject, showToast }) {
                     onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      // Pause audio during drag
+                      // Pause audio during drag — set paused state so UI stays consistent
                       const wasPlaying = ctxRef.current && ctxRef.current.state === 'running';
-                      if (wasPlaying) ctxRef.current.suspend();
+                      if (wasPlaying) { ctxRef.current.suspend(); setPaused(true); }
                       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
 
                       const rect = e.currentTarget.getBoundingClientRect();
