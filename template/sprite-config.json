@@ -34,7 +34,7 @@
       "samplerate": 44100
     },
     "music": {
-      "bitrate": 96,
+      "bitrate": 128,
       "channels": 2,
       "samplerate": 44100
     }

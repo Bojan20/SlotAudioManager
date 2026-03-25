@@ -104,7 +104,7 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
   "standalone": { "sounds": ["BaseMusicLoop", "BonusMusicLoop"] },
   "encoding": {
     "sfx":   { "bitrate": 64, "channels": 1, "samplerate": 44100 },
-    "music": { "bitrate": 96, "channels": 2, "samplerate": 44100 }
+    "music": { "bitrate": 128, "channels": 2, "samplerate": 44100 }
   },
   "musicTags": ["Music"], "sfxTags": ["SoundEffects"]
 }
@@ -282,15 +282,11 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 
 ## SpriteConfigPage — Auto-Assign Logic
 `autoAssign()` funkcija — priority-ordered PATTERNS, first match wins:
-```js
-{ tier: 'standalone', re: /^(Base|Bonus|Main|Bg|Background)MusicLoop$/i }
-{ tier: 'standalone', re: /MusicLoop$/i }
-{ tier: 'loading',    re: /^(Ui[A-Z]|ReelLand|Payline|RollupLow|BaseGameStart)/i }
-{ tier: 'bonus',      re: /^(Bonus|Picker|BaseToBonusStart|BonusToBase|FreeS|HoldAnd)/i }
-{ tier: 'main',       re: /Symbol[A-Za-z]\d+(Land|Anticipation)/i }
-{ tier: 'main',       re: /^(BigWin|Anticipation[A-Z]|PreBonus)/i }
-{ tier: 'main',       re: /^(Symbol|Rollup[1-9]|ScreenShake|IntroStart|SymbolPreshow)/i }
-```
+Patterns are priority-ordered (first match wins), derived from analysis of all IGT audio repos:
+- **standalone**: `BaseGameMusicLoop*`, `AmbBg` — ONLY base game music
+- **loading**: `Ui*`, `UI_*`, `ReelLand*`, `SpinsLoop*`, `SpinningReels`, `Payline`, `RollupLow*`, `CoinLoop*`, `CoinCounter`, `Bell`, `TotalWin`, `IntroAnim*`, `GameIntro*`, `Tutorial*`, `PanelAppears`, `OptionsRoll`
+- **bonus**: `BonusGameMusic*`, `FreeSpinMusic*`, `PickerMusicLoop`, `MultiplierMusicLoop`, `RespinLoop*`, `WheelBonusMusicLoop`, `Bonus*`, `Picker*`, `FreeSpin*`, `HoldAnd*`, `Respin*`, `BaseToBonusStart*`, `TrnBaseToBonus`, `BonusToBase*`, `SymScatter*`, `SymbolFreeSpins*`, `Trigger*`, `Wheel*`, `Jackpot*`, `Progressive*`, `Gem*`, `Pot*`, `Lamp*`, `Genie*`, `Ignite*`, `VO*`, `BonusBuy*`, plus game-specific bonus patterns
+- **main** (fallback): `BigWin*`, `CoinShower*`, `Anticipation*`, `PreCog`, `ScreenShake`, `Sym*`, `Wild*`, `Win\d*`, `Rollup*`, everything else
 **Redosled prioriteta:** Tags iz soundsJson (Music tag → standalone) → pattern match → fallback (main)
 **Pool arhitektura (4 poola):**
 - `loading` — minimum za prvi spin: UI, reel land, payline, rollup, spins loop, coin counter (~200-700KB, immediate, no loadType)

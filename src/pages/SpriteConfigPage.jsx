@@ -32,13 +32,152 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
     return tierKeys.find(k => k === name) ?? tierKeys.find(k => k.toLowerCase() === name.toLowerCase()) ?? tierKeys.find(k => k.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(k.toLowerCase())) ?? null;
   };
   const PATTERNS = [
-    { tier: 'standalone', re: /^(Base|Bonus|Main|Bg|Background)MusicLoop$/i },
-    { tier: 'standalone', re: /MusicLoop$/i },
-    { tier: 'loading', re: /^(Ui[A-Z]|ReelLand|Payline|RollupLow|BaseGameStart)/i },
-    { tier: 'bonus', re: /^(Bonus|Picker|BaseToBonusStart|BonusToBase|FreeS|HoldAnd)/i },
-    { tier: 'main', re: /Symbol[A-Za-z]\d+(Land|Anticipation)/i },
-    { tier: 'main', re: /^(BigWin|Anticipation[A-Z]|PreBonus)/i },
-    { tier: 'main', re: /^(Symbol|Rollup[1-9]|ScreenShake|IntroStart|SymbolPreshow)/i },
+    // ── STANDALONE: only base game music that loops from first frame ──
+    { tier: 'standalone', re: /^BaseGameMusicLoop/i },
+    { tier: 'standalone', re: /^AmbBg$/i },
+
+    // ── LOADING: minimum for first spin ──
+    // UI controls
+    { tier: 'loading', re: /^Ui[A-Z]/i },
+    { tier: 'loading', re: /^UI_/i },
+    // Reel mechanics
+    { tier: 'loading', re: /^ReelLand/i },
+    { tier: 'loading', re: /^SpinsLoop/i },
+    { tier: 'loading', re: /^SpinningReels$/i },
+    { tier: 'loading', re: /^StopBlankReel$/i },
+    // Base win feedback
+    { tier: 'loading', re: /^Payline$/i },
+    { tier: 'loading', re: /^RollupLow/i },
+    { tier: 'loading', re: /^CoinLoop$/i },
+    { tier: 'loading', re: /^CoinLoopEnd$/i },
+    { tier: 'loading', re: /^CoinCounter$/i },
+    { tier: 'loading', re: /^Bell$/i },
+    { tier: 'loading', re: /^TotalWin$/i },
+    // Intro/tutorial
+    { tier: 'loading', re: /^IntroAnim/i },
+    { tier: 'loading', re: /^GameIntro/i },
+    { tier: 'loading', re: /^Tutorial/i },
+    { tier: 'loading', re: /^PanelAppears$/i },
+    { tier: 'loading', re: /^OptionsRoll$/i },
+
+    // ── BONUS: all bonus content + bonus music + transitions ──
+    // Bonus music (NOT standalone — loads with bonus pool)
+    { tier: 'bonus', re: /^BonusGameMusic/i },
+    { tier: 'bonus', re: /^BonusIntroLoop/i },
+    { tier: 'bonus', re: /^FreeSpinMusic/i },
+    { tier: 'bonus', re: /^FreeSpinsMusic/i },
+    { tier: 'bonus', re: /^PickerMusicLoop/i },
+    { tier: 'bonus', re: /^MultiplierMusicLoop/i },
+    { tier: 'bonus', re: /^RespinIntroLoop/i },
+    { tier: 'bonus', re: /^RespinLoop/i },
+    { tier: 'bonus', re: /^WheelBonusMusicLoop/i },
+    { tier: 'bonus', re: /^JumanjiMusicLoop/i },
+    { tier: 'bonus', re: /^FreeSpinsIntroLoop/i },
+    { tier: 'bonus', re: /^BaseToBonusMusic$/i },
+    // Bonus gameplay
+    { tier: 'bonus', re: /^Bonus/i },
+    { tier: 'bonus', re: /^Picker/i },
+    { tier: 'bonus', re: /^FreeSpins?/i },
+    { tier: 'bonus', re: /^HoldAnd/i },
+    { tier: 'bonus', re: /^Respin/i },
+    // Transitions base↔bonus
+    { tier: 'bonus', re: /^BaseToBonusStart/i },
+    { tier: 'bonus', re: /^BaseToBonus/i },
+    { tier: 'bonus', re: /^BonusToBase/i },
+    { tier: 'bonus', re: /^BaseToFreeSpins/i },
+    { tier: 'bonus', re: /^TrnBaseToBonus/i },
+    { tier: 'bonus', re: /^TrnPalmtree/i },
+    // Scatter/trigger
+    { tier: 'bonus', re: /^SymScatter/i },
+    { tier: 'bonus', re: /^SymbolFreeSpins/i },
+    { tier: 'bonus', re: /^ScatterSymbol/i },
+    { tier: 'bonus', re: /^Trigger/i },
+    { tier: 'bonus', re: /^TriggerBell/i },
+    // Wheel bonus
+    { tier: 'bonus', re: /^Wheel/i },
+    { tier: 'bonus', re: /^StartWheel/i },
+    // Jackpot
+    { tier: 'bonus', re: /^Jackpot/i },
+    { tier: 'bonus', re: /^GrandFanfare/i },
+    { tier: 'bonus', re: /^Progressive/i },
+    { tier: 'bonus', re: /^Stop(Mini|Minor|Major|Maxi|Grand|Super)/i },
+    // Gem/pot/lamp mechanics (mystery of the lamp bonus)
+    { tier: 'bonus', re: /^Gem/i },
+    { tier: 'bonus', re: /^Pot(Break|Grow|Shake)/i },
+    { tier: 'bonus', re: /^Lamp/i },
+    { tier: 'bonus', re: /^RubLamp/i },
+    { tier: 'bonus', re: /^Genie/i },
+    { tier: 'bonus', re: /^Ignite/i },
+    { tier: 'bonus', re: /^Icon(Burst|Particles|Pick|sOpen)/i },
+    { tier: 'bonus', re: /^Twirling/i },
+    { tier: 'bonus', re: /^SpinBonusButton/i },
+    { tier: 'bonus', re: /^SpinCount/i },
+    { tier: 'bonus', re: /^ReelBonusLand/i },
+    // Boost/collect features
+    { tier: 'bonus', re: /^Boost/i },
+    { tier: 'bonus', re: /^Collect/i },
+    { tier: 'bonus', re: /^Feature/i },
+    // VO lines (always bonus context)
+    { tier: 'bonus', re: /^VO[A-Z]/i },
+    // Bonus buy
+    { tier: 'bonus', re: /^BonusBuy/i },
+    // Plaque/outro
+    { tier: 'bonus', re: /^EntryPlaquete/i },
+    { tier: 'bonus', re: /^OutroPlaquete/i },
+    { tier: 'bonus', re: /^BonusEnd/i },
+    // Specific game bonus sounds
+    { tier: 'bonus', re: /^Pig(Fall|gy|Swalow)/i },
+    { tier: 'bonus', re: /^Safe(Grow|Land|Explode)/i },
+    { tier: 'bonus', re: /^BrickWall/i },
+    { tier: 'bonus', re: /^FireBall/i },
+    { tier: 'bonus', re: /^Fire(ball)?K/i },
+    { tier: 'bonus', re: /^BwSafe/i },
+    { tier: 'bonus', re: /^CoinBag$/i },
+    { tier: 'bonus', re: /^Board/i },
+    { tier: 'bonus', re: /^GhostCroco|^GhostElephant|^GhostMonkey|^GhostRhino/i },
+    { tier: 'bonus', re: /^Jaguar/i },
+    { tier: 'bonus', re: /^Jumanji/i },
+    { tier: 'bonus', re: /^Mandrill/i },
+    { tier: 'bonus', re: /^Ostrich/i },
+    { tier: 'bonus', re: /^Rhino/i },
+    { tier: 'bonus', re: /^Sparkles/i },
+    { tier: 'bonus', re: /^Powerbucks/i },
+    { tier: 'bonus', re: /^Smart\d/i },
+    { tier: 'bonus', re: /^BellLoop/i },
+    { tier: 'bonus', re: /^Enchanting/i },
+    { tier: 'bonus', re: /^Fireworks$/i },
+    { tier: 'bonus', re: /^Multiplier/i },
+    { tier: 'bonus', re: /^NewLineUnlocked/i },
+    { tier: 'bonus', re: /^Paper(Appears|Scroll)|^Papyrus/i },
+    { tier: 'bonus', re: /^Rise\d/i },
+    { tier: 'bonus', re: /^SpinsRemaining/i },
+    { tier: 'bonus', re: /^ValueAdded/i },
+    { tier: 'bonus', re: /^GateOpen|^GateClose/i },
+    { tier: 'bonus', re: /^MpFire|^MpParticles/i },
+
+    // ── MAIN: base game — symbols, big win, anticipation, effects ──
+    { tier: 'main', re: /^BigWin/i },
+    { tier: 'main', re: /^CoinShower/i },
+    { tier: 'main', re: /^Anticipation/i },
+    { tier: 'main', re: /^PreCog/i },
+    { tier: 'main', re: /^PreBonus/i },
+    { tier: 'main', re: /^TensionSpin/i },
+    { tier: 'main', re: /^ScreenShake/i },
+    { tier: 'main', re: /^Sym/i },
+    { tier: 'main', re: /^Wild/i },
+    { tier: 'main', re: /^Win\d/i },
+    { tier: 'main', re: /^WinEqual/i },
+    { tier: 'main', re: /^Rollup/i },
+    { tier: 'main', re: /^Credits/i },
+    { tier: 'main', re: /^Reels?Animate/i },
+    { tier: 'main', re: /^(2x|3x|4x|5x|6x)/i },
+    { tier: 'main', re: /^Fire$/i },
+    { tier: 'main', re: /^IntroAnimation$/i },
+    { tier: 'main', re: /^BankRoll/i },
+    { tier: 'main', re: /^Cleopatra|^Cleo/i },
+    { tier: 'main', re: /^WhatABigWin/i },
+    { tier: 'main', re: /^ThisBringsMe|^TwiceAsNice|^Magnificent/i },
+    { tier: 'main', re: /^IWish|^MyFortunes|^EnjoyYour|^ItsTime/i },
   ];
   const fallback = resolveTier('main') ?? tierKeys[tierKeys.length - 1] ?? null;
   return unassigned.map(s => {
@@ -90,7 +229,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
     setMeasuring(true);
     try {
       const enc = isStandalone
-        ? config?.encoding?.music || { bitrate: 96, channels: 2, samplerate: 44100 }
+        ? config?.encoding?.music || { bitrate: 128, channels: 2, samplerate: 44100 }
         : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
       const r = await window.api.measurePool({ tierName, sounds, encoding: enc });
       if (r?.error) { showToast?.('Measure failed: ' + r.error, 'error'); }
@@ -421,8 +560,9 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                 ) : (
                   <>
                     <span className="text-xs text-text-dim">Bitrate:</span>
-                    <input type="number" value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value) || 64; })} className="input-base !w-16 text-center text-xs !py-0.5 !px-1 !rounded-lg" />
-                    <span className="text-xs text-text-dim">kbps</span>
+                    <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-24 text-xs !py-0.5 !px-1 !rounded-lg">
+                      {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
+                    </select>
                     <span className="text-xs text-text-dim ml-2">Ch:</span>
                     <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-20 text-xs !py-0.5 !px-1 !rounded-lg">
                       <option value={1}>Mono</option>
