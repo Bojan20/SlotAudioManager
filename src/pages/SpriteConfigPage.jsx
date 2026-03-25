@@ -221,8 +221,9 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   const [measuring, setMeasuring] = useState(false);
   const [measuredKB, setMeasuredKB] = useState(null);
 
-  // Reset measurement when sounds change
-  useEffect(() => { setMeasuredKB(null); }, [sounds.length]);
+  // Reset measurement when sounds change (join detects swaps of same count)
+  const soundsKey = sounds.join(',');
+  useEffect(() => { setMeasuredKB(null); }, [soundsKey]);
 
   const displayKB = measuredKB ?? (sizeInfo.isActual ? sizeInfo.kb : null);
   const over = maxKB > 0 && displayKB && displayKB > maxKB;
