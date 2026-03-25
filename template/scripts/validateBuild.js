@@ -42,16 +42,19 @@ if (!fs.existsSync(soundsJsonPath)) {
     process.exit(1);
 }
 
-const soundsJson = JSON.parse(fs.readFileSync(soundsJsonPath));
+let soundsJson;
+try { soundsJson = JSON.parse(fs.readFileSync(soundsJsonPath, 'utf8')); }
+catch (e) { console.log(`FATAL: Failed to parse dist/sounds.json: ${e.message}`); process.exit(1); }
 const manifest = soundsJson.soundManifest || [];
-const soundSprites = soundsJson.soundDefinitions.soundSprites || {};
-const spriteLists = soundsJson.soundDefinitions.spriteList || {};
-const commands = soundsJson.soundDefinitions.commands || {};
+const soundSprites = soundsJson.soundDefinitions?.soundSprites || {};
+const spriteLists = soundsJson.soundDefinitions?.spriteList || {};
+const commands = soundsJson.soundDefinitions?.commands || {};
 
 // Load sprite-config if available
 let spriteConfig = null;
 if (fs.existsSync('sprite-config.json')) {
-    spriteConfig = JSON.parse(fs.readFileSync('sprite-config.json'));
+    try { spriteConfig = JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); }
+    catch (e) { console.log(`WARNING: Failed to parse sprite-config.json: ${e.message}`); }
 }
 
 console.log("\n=== AUDIO BUILD VALIDATION ===\n");
@@ -62,7 +65,7 @@ const manifestIds = new Set();
 for (const entry of manifest) {
     manifestIds.add(entry.id);
     for (const src of entry.src) {
-        const filePath = distDir + '/' + src;
+        const filePath = path.join(distDir, src);
         if (!fs.existsSync(filePath)) {
             error(`Missing file: ${src}`);
         } else {
@@ -72,7 +75,7 @@ for (const entry of manifest) {
             let maxKB = 1500; // default 1.5MB
             if (spriteConfig) {
                 for (const [tierName, tierConfig] of Object.entries(spriteConfig.sprites)) {
-                    if (entry.id.includes(tierName)) {
+                    if (entry.id.endsWith('_' + tierName)) {
                         maxKB = tierConfig.maxSizeKB;
                         break;
                     }
@@ -120,13 +123,12 @@ if (commandErrors === 0) {
 // 3. Check spriteList items exist in soundSprites
 console.log("\n3. SPRITE LIST CHECK");
 let spriteListErrors = 0;
-for (const [listName, listConfig] of Object.entries(spriteLists)) {
-    if (listConfig.items) {
-        for (const item of listConfig.items) {
-            if (!soundSprites[item]) {
-                error(`SpriteList '${listName}' references missing sprite '${item}'`);
-                spriteListErrors++;
-            }
+for (const [listName, listItems] of Object.entries(spriteLists)) {
+    const items = Array.isArray(listItems) ? listItems : (listItems?.items || []);
+    for (const item of items) {
+        if (!soundSprites[item]) {
+            error(`SpriteList '${listName}' references missing sprite '${item}'`);
+            spriteListErrors++;
         }
     }
 }
@@ -152,19 +154,16 @@ console.log("\n5. ORPHAN CHECK");
 const allReferencedSprites = new Set([...referencedSprites]);
 
 // Also add sprites referenced from sprite lists
-for (const [listName, listConfig] of Object.entries(spriteLists)) {
-    if (listConfig.items) {
-        listConfig.items.forEach(item => allReferencedSprites.add(item));
-    }
+for (const [listName, listItems] of Object.entries(spriteLists)) {
+    const items = Array.isArray(listItems) ? listItems : (listItems?.items || []);
+    items.forEach(item => allReferencedSprites.add(item));
 }
 
 // Also check if sprites are referenced by commands via spriteList
-for (const [listName] of Object.entries(spriteLists)) {
+for (const [listName, listItems] of Object.entries(spriteLists)) {
     if (referencedSpriteLists.has(listName)) {
-        const listConfig = spriteLists[listName];
-        if (listConfig.items) {
-            listConfig.items.forEach(item => allReferencedSprites.add(item));
-        }
+        const items = Array.isArray(listItems) ? listItems : (listItems?.items || []);
+        items.forEach(item => allReferencedSprites.add(item));
     }
 }
 

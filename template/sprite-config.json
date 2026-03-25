@@ -1,75 +1,31 @@
 {
   "sprites": {
-    "boot": {
-      "description": "Critical UI sounds needed immediately on game load",
-      "maxSizeKB": 500,
+    "loading": {
+      "description": "Minimum for first spin — UI controls, reel land, payline, rollup",
+      "maxSizeKB": 700,
       "priority": 1,
-      "sortOrder": [
-        "UiSpin", "UiSpinSlam", "ReelLand", "UiClick", "Payline", "RollupLow",
-        "UiBetUp", "UiBetDown", "UiBetMax", "UiOpen", "UiClose", "UiSelect",
-        "UiSkip", "BaseGameStart"
-      ],
-      "sounds": [
-        "UiSpin", "UiSpinSlam", "ReelLand", "UiClick", "Payline", "RollupLow",
-        "UiBetUp", "UiBetDown", "UiBetMax", "UiOpen", "UiClose", "UiSelect",
-        "UiSkip", "BaseGameStart"
-      ]
+      "sounds": []
     },
-    "reel_win": {
-      "description": "Symbol win sounds, rollups, preshow — needed during base game play",
-      "maxSizeKB": 1500,
+    "main": {
+      "description": "Base game — symbols, big win, anticipation, rollups. Loaded on first spin.",
+      "maxSizeKB": 3000,
       "priority": 2,
-      "sounds": [
-        "SymbolS01", "SymbolS02", "SymbolS03", "SymbolS04", "SymbolS05",
-        "SymbolS06", "SymbolS07", "SymbolS08", "SymbolS09", "SymbolS10",
-        "SymbolS11", "SymbolS12", "SymbolS13", "SymbolS14", "SymbolS15",
-        "SymbolW01", "SymbolW01Transform", "SymbolF01", "SymbolB01",
-        "Rollup1", "Rollup1End", "Rollup2Start", "Rollup2End",
-        "ScreenShake", "SymbolPreshow1", "SymbolPreshow2", "SymbolPreshow3",
-        "SymbolPreshow4", "SymbolPreshow5", "IntroStart"
-      ]
-    },
-    "bigwin": {
-      "description": "Big win, anticipation, scatter land sounds",
-      "maxSizeKB": 1500,
-      "priority": 3,
-      "sounds": [
-        "BigWinStart", "BigWinEnd", "BigWinTier",
-        "SymbolB01Land1", "SymbolB01Land2", "SymbolB01Land3",
-        "SymbolB01Land4", "SymbolB01Land5",
-        "SymbolB01Anticipation", "SymbolB01AnticipationEnd",
-        "SymbolF01Anticipation", "SymbolF01AnticipationEnd",
-        "AnticipationF01End", "PreBonusLoop",
-        "BaseToBonusStart", "BonusToBaseStart"
-      ]
+      "subLoaderId": "A",
+      "unloadable": false,
+      "sounds": []
     },
     "bonus": {
-      "description": "Bonus game sounds — loaded on demand or idle",
-      "maxSizeKB": 1500,
-      "priority": 4,
-      "sounds": [
-        "BonusSpinStart", "BonusSpinEnd",
-        "BonusGameSpinStart", "BonusGameSpinEnd",
-        "BonusRetrigger",
-        "BonusRollupStart", "BonusRollupEnd",
-        "BonusRollup2Start", "BonusRollup2End",
-        "BonusSymbolS01", "BonusSymbolS02", "BonusSymbolS03",
-        "BonusSymbolS04", "BonusSymbolS05", "BonusSymbolS06",
-        "BonusSymbolS07", "BonusSymbolS08", "BonusSymbolS09",
-        "BonusSymbolS10", "BonusSymbolS11", "BonusSymbolS12",
-        "BonusSymbolS13", "BonusSymbolS14", "BonusSymbolS15",
-        "BonusSymbolW01", "BonusSymbolWin",
-        "PickerMusicLoop", "PickerSelect", "PickerStart",
-        "BonusMusicLoopEnd"
-      ]
+      "description": "All bonus modes (free spins, hold & win, picker) + transitions. Loaded on scatter/trigger.",
+      "maxSizeKB": 3000,
+      "priority": 3,
+      "subLoaderId": "B",
+      "unloadable": true,
+      "sounds": []
     }
   },
   "standalone": {
-    "description": "Music files too large for sprites — each exported as individual M4A",
-    "sounds": [
-      "BaseMusicLoop",
-      "BonusMusicLoop"
-    ]
+    "description": "Music loops — too large for sprites, each exported as individual M4A",
+    "sounds": []
   },
   "encoding": {
     "sfx": {

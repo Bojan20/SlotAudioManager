@@ -48,106 +48,119 @@ export default function GitPage({ project, showToast }) {
   const hasChanges = files.length > 0;
 
   return (
-    <div className="anim-fade-up space-y-5 max-w-4xl">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Git</h2>
+    <div className="anim-fade-up h-full flex flex-col gap-2">
+
+      {/* Header */}
+      <div className="shrink-0 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold text-text-primary">Git</h2>
+          {status && !status.error && (
+            <span className="badge bg-purple-dim text-purple">{status.branch}</span>
+          )}
+          {hasChanges && (
+            <span className="badge bg-orange-dim text-orange">{files.length} change{files.length !== 1 ? 's' : ''}</span>
+          )}
+          {status && !status.error && !hasChanges && (
+            <span className="badge bg-green-dim text-green">Clean</span>
+          )}
+        </div>
         <button onClick={refresh} disabled={loading} className="btn-ghost text-xs">
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
       {status?.error && (
-        <div className="card p-4 border-danger/30 bg-danger-dim text-[13px] text-danger">{status.error}</div>
+        <div className="card p-3 border-danger/30 bg-danger-dim text-sm text-danger shrink-0">{status.error}</div>
       )}
 
       {status && !status.error && (
-        <>
-          {/* Branch */}
-          <div className="card p-4 flex items-center gap-4">
-            <p className="section-label w-16">Branch</p>
-            <span className="badge bg-purple-dim text-purple">{status.branch}</span>
-          </div>
+        <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
 
-          {/* Changed files */}
-          <div className="card p-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="section-label">Changes</p>
-              {hasChanges && <span className="badge bg-orange-dim text-orange">{files.length} file{files.length !== 1 ? 's' : ''}</span>}
-            </div>
+          {/* LEFT — Changed files */}
+          <div className="card p-3 flex flex-col min-h-0">
+            <p className="section-label mb-2 shrink-0">
+              {hasChanges ? `Changed Files (${files.length})` : 'Working Tree'}
+            </p>
 
             {hasChanges ? (
-              <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+              <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
                 {files.map((line, i) => {
                   const code = line.substring(0, 2);
                   const file = line.substring(3);
-                  let color = 'text-text-secondary';
                   let label = 'MOD';
-                  if (code.includes('?')) { color = 'text-cyan'; label = 'NEW'; }
-                  else if (code.includes('A')) { color = 'text-green'; label = 'ADD'; }
-                  else if (code.includes('D')) { color = 'text-danger'; label = 'DEL'; }
-                  else if (code.includes('M')) { color = 'text-orange'; label = 'MOD'; }
-                  else if (code.includes('R')) { color = 'text-purple'; label = 'REN'; }
+                  if (code.includes('?'))      { label = 'NEW'; }
+                  else if (code.includes('A')) { label = 'ADD'; }
+                  else if (code.includes('D')) { label = 'DEL'; }
+                  else if (code.includes('M')) { label = 'MOD'; }
+                  else if (code.includes('R')) { label = 'REN'; }
                   return (
-                    <div key={i} className="flex items-center gap-2 py-0.5">
-                      <span className={`badge text-[9px] w-8 justify-center ${
+                    <div key={i} className="flex items-center gap-2 py-1 border-b border-border/30 last:border-0">
+                      <span className={`badge text-[10px] w-9 justify-center ${
                         label === 'NEW' ? 'bg-cyan-dim text-cyan' :
                         label === 'ADD' ? 'bg-green-dim text-green' :
                         label === 'DEL' ? 'bg-danger-dim text-danger' :
                         label === 'REN' ? 'bg-purple-dim text-purple' :
                         'bg-orange-dim text-orange'
                       }`}>{label}</span>
-                      <span className={`text-[12px] font-mono truncate ${color}`}>{file}</span>
+                      <span className="text-xs font-mono truncate text-text-secondary">{file}</span>
                     </div>
                   );
                 })}
               </div>
             ) : (
-              <p className="text-[12px] text-text-dim">Working tree clean</p>
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <svg className="w-8 h-8 text-green mx-auto mb-2 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <p className="text-sm text-text-dim">Working tree clean</p>
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Commit + Push */}
-          {hasChanges && (
-            <div className="card p-5 space-y-3">
-              <p className="section-label">Commit & Push</p>
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Commit message..."
-                  value={commitMsg}
-                  onChange={(e) => setCommitMsg(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !pushing && handleCommitPush()}
-                  className="input-base flex-1"
-                />
-                <button
-                  onClick={handleCommitPush}
-                  disabled={pushing || !commitMsg.trim()}
-                  className={pushing ? 'btn-ghost text-accent border-accent/30 cursor-wait whitespace-nowrap' :
-                    !commitMsg.trim() ? 'btn-ghost opacity-40 cursor-not-allowed whitespace-nowrap' : 'btn-primary whitespace-nowrap'}
-                >
-                  {pushing ? 'Pushing...' : 'Commit & Push'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Recent commits */}
-          <div className="card p-5 space-y-3">
-            <p className="section-label">Recent Commits</p>
-            <div className="space-y-1 max-h-48 overflow-y-auto">
+          {/* RIGHT — Recent Commits */}
+          <div className="card p-3 flex flex-col min-h-0">
+            <p className="section-label mb-2 shrink-0">Recent Commits</p>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
               {(status.log || '').split('\n').filter(Boolean).map((line, i) => {
                 const hash = line.substring(0, 7);
-                const msg = line.substring(8);
+                const msg  = line.substring(8);
                 return (
-                  <div key={i} className="flex items-center gap-3 py-0.5">
-                    <span className="text-[11px] font-mono text-accent">{hash}</span>
-                    <span className="text-[12px] text-text-secondary truncate">{msg}</span>
+                  <div key={i} className="flex items-center gap-3 py-1.5 border-b border-border/30 last:border-0">
+                    <span className="text-xs font-mono text-accent shrink-0">{hash}</span>
+                    <span className="text-xs text-text-secondary truncate">{msg}</span>
                   </div>
                 );
               })}
             </div>
           </div>
-        </>
+        </div>
+      )}
+
+      {/* Commit & Push — full width at bottom */}
+      {status && !status.error && hasChanges && (
+        <div className="card p-3 shrink-0">
+          <div className="flex gap-2 items-center">
+            <p className="section-label shrink-0">Commit & Push</p>
+            <input
+              type="text"
+              placeholder="Commit message..."
+              value={commitMsg}
+              onChange={(e) => setCommitMsg(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !pushing && handleCommitPush()}
+              className="input-base flex-1 py-1.5 text-xs"
+            />
+            <button
+              onClick={handleCommitPush}
+              disabled={pushing || !commitMsg.trim()}
+              className={pushing ? 'btn-ghost text-accent border-accent/30 cursor-wait whitespace-nowrap text-xs' :
+                !commitMsg.trim() ? 'btn-ghost opacity-40 cursor-not-allowed whitespace-nowrap text-xs' : 'btn-primary whitespace-nowrap text-xs'}
+            >
+              {pushing ? 'Pushing...' : 'Commit & Push'}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

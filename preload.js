@@ -9,18 +9,40 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (data) => ipcRenderer.invoke('save-settings', data),
   runScript: (name) => ipcRenderer.invoke('run-script', name),
   runDeploy: (name) => ipcRenderer.invoke('run-deploy', name),
+  onScriptOutput: (cb) => ipcRenderer.on('script-output', cb),
+  offScriptOutput: (cb) => ipcRenderer.removeListener('script-output', cb),
+  cleanDist: () => ipcRenderer.invoke('clean-dist'),
   gitStatus: () => ipcRenderer.invoke('git-status'),
   gitCommitPush: (message) => ipcRenderer.invoke('git-commit-push', message),
   importSounds: () => ipcRenderer.invoke('import-sounds'),
+  readAudioFile: (filename) => ipcRenderer.invoke('read-audio-file', filename),
   deleteSound: (filename) => ipcRenderer.invoke('delete-sound', filename),
+  restoreSound: (filename) => ipcRenderer.invoke('restore-sound', filename),
+  listDeletedSounds: () => ipcRenderer.invoke('list-deleted-sounds'),
   // Template & health
   healthCheck: () => ipcRenderer.invoke('health-check'),
-  initFromTemplate: () => ipcRenderer.invoke('init-from-template'),
+  initFromTemplate: (opts) => ipcRenderer.invoke('init-from-template', opts),
   npmInstall: () => ipcRenderer.invoke('npm-install'),
   // Game configuration
   pickGameRepo: () => ipcRenderer.invoke('pick-game-repo'),
   configureGame: (config) => ipcRenderer.invoke('configure-game', config),
+  yarnInstallGame: () => ipcRenderer.invoke('yarn-install-game'),
   // Game launch
   getGameScripts: () => ipcRenderer.invoke('get-game-scripts'),
+  pullGameJson: () => ipcRenderer.invoke('pull-game-json'),
+  buildGame: () => ipcRenderer.invoke('build-game'),
   runGameScript: (name) => ipcRenderer.invoke('run-game-script', name),
+  killGame: () => ipcRenderer.invoke('kill-game'),
+  openUrl: (url) => ipcRenderer.invoke('open-url', url),
+  openGameWindow: (url) => ipcRenderer.invoke('open-game-window', url),
+  waitForPort: (opts) => ipcRenderer.invoke('wait-for-port', opts),
+  // Local GLR launch (no VPN)
+  listGlr: () => ipcRenderer.invoke('list-glr'),
+  launchLocalGlr: (opts) => ipcRenderer.invoke('launch-local-glr', opts),
+  gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
+  // Orphan analysis
+  analyzeOrphans: () => ipcRenderer.invoke('analyze-orphans'),
+  cleanOrphans: () => ipcRenderer.invoke('clean-orphans'),
+  // Game hook scanner
+  scanGameHooks: () => ipcRenderer.invoke('scan-game-hooks'),
 });

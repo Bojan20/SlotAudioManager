@@ -5,68 +5,77 @@
  *
  * Reads sprite-config.json and builds audio sprites grouped by game state priority.
  * Music files are exported as standalone M4A files (not in sprites).
- * SFX sprites use mono encoding with 50ms gap for smaller file sizes.
+ * Supports incremental builds via SHA256 hash cache (.build-cache.json).
+ * Sprite tiers are built in parallel for faster builds.
  */
 
 const audiosprite = require('./customAudioSprite');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const pathToFFmpeg = require('ffmpeg-static');
 
 console.log("pathToFFmpeg ->", pathToFFmpeg);
 
 // Read configs
-const settings = JSON.parse(fs.readFileSync("settings.json"));
-const spriteConfig = JSON.parse(fs.readFileSync("sprite-config.json"));
-const audioSettings = new Map(Object.entries(settings || {}));
-const gameProjectPath = audioSettings.get('gameProjectPath');
+let settings, spriteConfig;
+try { settings = JSON.parse(fs.readFileSync("settings.json", "utf8")); }
+catch (e) { console.error("Failed to read settings.json:", e.message); process.exit(1); }
+try { spriteConfig = JSON.parse(fs.readFileSync("sprite-config.json", "utf8")); }
+catch (e) { console.error("Failed to read sprite-config.json:", e.message); process.exit(1); }
 
+const gameProjectPath = settings.gameProjectPath;
+if (!gameProjectPath) { console.error("gameProjectPath not set in settings.json"); process.exit(1); }
 const pathArray = gameProjectPath.split(/[/\\]/);
 const gameName = pathArray[pathArray.length - 1];
 
 const sourceSndFiles = './sourceSoundFiles/';
 const distDir = './dist';
 const outDir = './dist/soundFiles/';
+const cacheFile = '.build-cache.json';
 
-// Clean and create output
-if (fs.existsSync(distDir)) {
-    fs.rmSync(distDir, { recursive: true });
+// ── Hash helpers ──────────────────────────────────────────────────────────────
+function fileHash(filePath) {
+    try {
+        return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex').slice(0, 16);
+    } catch { return null; }
 }
-fs.mkdirSync(outDir, { recursive: true });
 
-// Get all WAV files in source directory
+function loadCache() {
+    try { return JSON.parse(fs.readFileSync(cacheFile, 'utf8')); } catch { return {}; }
+}
+
+function saveCache(cache) {
+    fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 2));
+}
+
+// ── Source files ──────────────────────────────────────────────────────────────
+if (!fs.existsSync(sourceSndFiles)) { console.error(`Source sound directory not found: ${sourceSndFiles}`); process.exit(1); }
 const allWavFiles = fs.readdirSync(sourceSndFiles)
-    .filter(f => f.endsWith('.wav'))
+    .filter(f => f.endsWith('.wav') && !f.startsWith('.'))
     .map(f => f.replace('.wav', ''));
 
 console.log(`Found ${allWavFiles.length} WAV files in source directory`);
 
-// Determine which sounds are music (standalone) vs SFX (sprites)
 const standaloneSounds = spriteConfig.standalone.sounds || [];
 const spriteGroups = spriteConfig.sprites;
 const encoding = spriteConfig.encoding;
 
-// Collect all sounds assigned to sprites
+// Collect assigned sounds
 const assignedSounds = new Set();
-for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
-    tierConfig.sounds.forEach(s => assignedSounds.add(s));
-}
+for (const tierConfig of Object.values(spriteGroups)) tierConfig.sounds.forEach(s => assignedSounds.add(s));
 standaloneSounds.forEach(s => assignedSounds.add(s));
 
-// Find unassigned sounds
+// Auto-add unassigned to last tier
 const unassigned = allWavFiles.filter(f => !assignedSounds.has(f));
 if (unassigned.length > 0) {
-    console.log(`\nWARNING: ${unassigned.length} sounds not assigned to any tier:`);
+    console.log(`\nWARNING: ${unassigned.length} sounds not assigned to any tier — adding to last tier:`);
     unassigned.forEach(s => console.log(`  - ${s}`));
-    console.log(`These will be added to the last sprite tier automatically.\n`);
-
-    // Add unassigned to the last (lowest priority) tier
-    const tierNames = Object.keys(spriteGroups);
-    const lastTier = tierNames[tierNames.length - 1];
+    const lastTier = Object.keys(spriteGroups).at(-1);
     spriteGroups[lastTier].sounds.push(...unassigned);
 }
 
-// Find sounds in config but missing from source directory
+// Warn missing files
 for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
     const missing = tierConfig.sounds.filter(s => !allWavFiles.includes(s));
     if (missing.length > 0) {
@@ -75,146 +84,159 @@ for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
         tierConfig.sounds = tierConfig.sounds.filter(s => allWavFiles.includes(s));
     }
 }
-
 const missingStandalone = standaloneSounds.filter(s => !allWavFiles.includes(s));
 if (missingStandalone.length > 0) {
-    console.log(`NOTE: Standalone references ${missingStandalone.length} missing WAV files (skipped):`);
-    missingStandalone.forEach(s => console.log(`  - ${s}`));
+    console.log(`NOTE: Standalone references ${missingStandalone.length} missing WAV files (skipped)`);
 }
 
-// Build queue
-const buildQueue = [];
-let completedBuilds = 0;
-let totalBuilds = 0;
+// ── Incremental check ─────────────────────────────────────────────────────────
+const cache = loadCache();
+const newCache = {};
 
-// Queue sprite builds
+function tierCacheKey(sounds) {
+    return sounds.map(s => {
+        const p = sourceSndFiles + s + '.wav';
+        const h = fileHash(p);
+        newCache[s] = h;
+        return h;
+    }).join('|');
+}
+
+function tierNeedsRebuild(tierName, sounds) {
+    const key = tierCacheKey(sounds);
+    const outputPath = outDir + `${gameName}_${tierName}.m4a`;
+    if (!fs.existsSync(outputPath)) return true;
+    const cachedKey = sounds.map(s => cache[s]).join('|');
+    return key !== cachedKey;
+}
+
+function standaloneNeedsRebuild(soundName) {
+    const p = sourceSndFiles + soundName + '.wav';
+    const h = fileHash(p);
+    newCache[soundName] = h;
+    const outputPath = outDir + `${gameName}_${soundName}.m4a`;
+    if (!fs.existsSync(outputPath)) return true;
+    return cache[soundName] !== h;
+}
+
+// ── Ensure output dirs ────────────────────────────────────────────────────────
+if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+
+// ── Build queue ───────────────────────────────────────────────────────────────
+const buildQueue = [];
+
 for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
     const sounds = tierConfig.sounds.filter(s => allWavFiles.includes(s));
-    if (sounds.length === 0) {
-        console.log(`Skipping tier '${tierName}' — no WAV files found`);
-        continue;
-    }
+    if (sounds.length === 0) { console.log(`Skipping tier '${tierName}' — no WAV files found`); continue; }
 
-    // Use sortOrder if provided, otherwise keep config order
-    let sortedSounds;
-    if (tierConfig.sortOrder && tierConfig.sortOrder.length > 0) {
+    let sortedSounds = sounds;
+    if (tierConfig.sortOrder?.length > 0) {
         const ordered = tierConfig.sortOrder.filter(s => sounds.includes(s));
         const remaining = sounds.filter(s => !tierConfig.sortOrder.includes(s));
         sortedSounds = [...ordered, ...remaining];
-    } else {
-        sortedSounds = sounds;
     }
 
-    const files = sortedSounds.map(s => sourceSndFiles + s + '.wav');
+    if (!tierNeedsRebuild(tierName, sortedSounds)) {
+        console.log(`[SKIP] Tier '${tierName}' — no changes detected`);
+        continue;
+    }
 
     buildQueue.push({
         type: 'sprite',
         name: tierName,
-        tierConfig: tierConfig,
-        files: files,
+        tierConfig,
+        files: sortedSounds.map(s => sourceSndFiles + s + '.wav'),
         outputName: `${gameName}_${tierName}`
     });
 }
 
-// Queue standalone music builds
 const existingStandalone = standaloneSounds.filter(s => allWavFiles.includes(s));
-existingStandalone.forEach(soundName => {
+for (const soundName of existingStandalone) {
+    if (!standaloneNeedsRebuild(soundName)) {
+        console.log(`[SKIP] Standalone '${soundName}' — no changes detected`);
+        continue;
+    }
     buildQueue.push({
         type: 'standalone',
         name: soundName,
         files: [sourceSndFiles + soundName + '.wav'],
         outputName: `${gameName}_${soundName}`
     });
-});
-
-totalBuilds = buildQueue.length;
-console.log(`\nBuilding ${totalBuilds} audio files...`);
-console.log("=".repeat(50));
-
-// Process builds sequentially to avoid ffmpeg conflicts
-function processNext(index) {
-    if (index >= buildQueue.length) {
-        console.log("\n" + "=".repeat(50));
-        console.log("All builds complete!");
-        return;
-    }
-
-    const build = buildQueue[index];
-
-    if (build.type === 'standalone') {
-        console.log(`\n[${index + 1}/${totalBuilds}] Standalone: ${build.name} (stereo ${encoding.music.bitrate}kbps)`);
-
-        const opts = {
-            output: outDir + build.outputName,
-            format: 'howler2',
-            export: 'm4a',
-            bitrate: encoding.music.bitrate,
-            channels: encoding.music.channels,
-            samplerate: encoding.music.samplerate,
-            gap: 0,
-            silence: 0,
-            logger: {
-                debug: function() {},
-                info: console.log,
-                log: console.log
-            }
-        };
-
-        audiosprite(pathToFFmpeg, build.files, opts, 0, function(err, obj) {
-            if (err) {
-                console.error(`ERROR building standalone ${build.name}:`, err);
-                return processNext(index + 1);
-            }
-
-            const dataText = JSON.stringify(obj, null, 2);
-            fs.writeFileSync(outDir + "soundData_" + build.name + ".json", dataText);
-            console.log(`  -> ${build.outputName}.m4a`);
-
-            completedBuilds++;
-            processNext(index + 1);
-        });
-
-    } else {
-        console.log(`\n[${index + 1}/${totalBuilds}] Sprite: ${build.name} (${build.files.length} sounds, mono ${encoding.sfx.bitrate}kbps, ${spriteConfig.spriteGap * 1000}ms gap)`);
-
-        const opts = {
-            output: outDir + build.outputName,
-            format: 'howler2',
-            export: 'm4a',
-            bitrate: encoding.sfx.bitrate,
-            channels: encoding.sfx.channels,
-            samplerate: encoding.sfx.samplerate,
-            gap: spriteConfig.spriteGap,
-            silence: 0,
-            logger: {
-                debug: function() {},
-                info: console.log,
-                log: console.log
-            }
-        };
-
-        audiosprite(pathToFFmpeg, build.files, opts, 0, function(err, obj) {
-            if (err) {
-                console.error(`ERROR building sprite ${build.name}:`, err);
-                return processNext(index + 1);
-            }
-
-            const dataText = JSON.stringify(obj, null, 2);
-            fs.writeFileSync(outDir + "soundData_" + build.name + ".json", dataText);
-
-            // Check file size
-            const m4aPath = outDir + build.outputName + ".m4a";
-            if (fs.existsSync(m4aPath)) {
-                const sizeKB = Math.round(fs.statSync(m4aPath).size / 1024);
-                const maxKB = build.tierConfig.maxSizeKB;
-                const status = sizeKB <= maxKB ? "OK" : "WARNING: OVER LIMIT";
-                console.log(`  -> ${build.outputName}.m4a (${sizeKB}KB / ${maxKB}KB limit) ${status}`);
-            }
-
-            completedBuilds++;
-            processNext(index + 1);
-        });
-    }
 }
 
-processNext(0);
+if (buildQueue.length === 0) {
+    console.log('\nAll outputs up to date — nothing to rebuild.');
+    saveCache({ ...cache, ...newCache });
+    process.exit(0);
+}
+
+console.log(`\nBuilding ${buildQueue.length} audio file(s) in parallel...`);
+console.log("=".repeat(50));
+
+// ── Parallel build ────────────────────────────────────────────────────────────
+function buildOne(build, index, total) {
+    return new Promise((resolve) => {
+        const isStandalone = build.type === 'standalone';
+        const enc = isStandalone ? encoding.music : encoding.sfx;
+        const gap = isStandalone ? 0 : spriteConfig.spriteGap;
+
+        console.log(`\n[${index + 1}/${total}] ${isStandalone ? 'Standalone' : 'Sprite'}: ${build.name} (${build.files.length} file(s), ${enc.bitrate}kbps)`);
+
+        const opts = {
+            output: outDir + build.outputName,
+            format: 'howler2',
+            export: 'm4a',
+            bitrate: enc.keepOriginal ? 320 : enc.bitrate,
+            gap,
+            silence: 0,
+            logger: { debug: () => {}, info: console.log, log: console.log }
+        };
+        if (!enc.keepOriginal) {
+            opts.channels = enc.channels;
+            opts.samplerate = enc.samplerate;
+        }
+
+        audiosprite(pathToFFmpeg, build.files, opts, 0, (err, obj) => {
+            if (err) {
+                console.error(`ERROR building ${build.name}:`, err);
+                return resolve(false);
+            }
+
+            fs.writeFileSync(outDir + "soundData_" + build.name + ".json", JSON.stringify(obj, null, 2));
+
+            if (!isStandalone) {
+                const m4aPath = outDir + build.outputName + ".m4a";
+                if (fs.existsSync(m4aPath)) {
+                    const sizeKB = Math.round(fs.statSync(m4aPath).size / 1024);
+                    const maxKB = build.tierConfig.maxSizeKB;
+                    const overLimit = sizeKB > maxKB;
+                    console.log(`  -> ${build.outputName}.m4a (${sizeKB}KB / ${maxKB}KB limit) ${overLimit ? '⚠️  OVER LIMIT — consider moving some sounds to a lower-priority tier' : '✓ OK'}`);
+                }
+            } else {
+                console.log(`  -> ${build.outputName}.m4a`);
+            }
+
+            resolve(true);
+        });
+    });
+}
+
+async function runAll() {
+    const results = await Promise.all(buildQueue.map((b, i) => buildOne(b, i, buildQueue.length)));
+    const failed = results.filter(r => !r).length;
+
+    console.log("\n" + "=".repeat(50));
+    console.log(`Build complete: ${results.filter(Boolean).length} succeeded, ${failed} failed`);
+
+    // Only save cache for sounds that belong to successfully built tiers.
+    // If a tier failed, do NOT update its hashes — next build must retry it.
+    const failedTierNames = new Set(
+        buildQueue.filter((_, i) => !results[i]).map(b => b.files.map(f => path.basename(f, '.wav'))).flat()
+    );
+    const safeNewCache = Object.fromEntries(
+        Object.entries(newCache).filter(([sound]) => !failedTierNames.has(sound))
+    );
+    saveCache({ ...cache, ...safeNewCache });
+}
+
+runAll();

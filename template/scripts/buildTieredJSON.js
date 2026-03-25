@@ -14,8 +14,11 @@ const sox = require('sox');
 const exiftool = require('node-exiftool');
 const ep = new exiftool.ExiftoolProcess();
 
-const settings = JSON.parse(fs.readFileSync("settings.json"));
-const spriteConfig = JSON.parse(fs.readFileSync("sprite-config.json"));
+let settings, spriteConfig;
+try { settings = JSON.parse(fs.readFileSync("settings.json", "utf8")); }
+catch (e) { console.error("Failed to read settings.json:", e.message); process.exit(1); }
+try { spriteConfig = JSON.parse(fs.readFileSync("sprite-config.json", "utf8")); }
+catch (e) { console.error("Failed to read sprite-config.json:", e.message); process.exit(1); }
 const audioSettings = new Map(Object.entries(settings || {}));
 
 const JSONtemplate = audioSettings.get('JSONtemplate');
@@ -23,16 +26,25 @@ const JSONtarget = audioSettings.get('JSONtarget');
 const gameProjectPath = audioSettings.get('gameProjectPath');
 const SourceSoundDirectory = audioSettings.get('SourceSoundDirectory');
 
+if (!gameProjectPath) { console.error("gameProjectPath not set in settings.json"); process.exit(1); }
 const pathArray = gameProjectPath.split(/[/\\]/);
 const gameName = pathArray[pathArray.length - 1];
 
 const outDir = './dist/soundFiles/';
 
 // Read template sounds.json for commands, tags, spriteList, overlap etc.
-const originalFile = JSON.parse(fs.readFileSync(JSONtemplate));
+if (!JSONtemplate || !fs.existsSync(JSONtemplate)) { console.error(`Template JSON not found: ${JSONtemplate}`); process.exit(1); }
+let originalFile;
+try { originalFile = JSON.parse(fs.readFileSync(JSONtemplate)); }
+catch (e) { console.error(`Failed to parse template JSON: ${e.message}`); process.exit(1); }
 const originalSprites = originalFile.soundDefinitions.soundSprites || {};
 const originalCommands = originalFile.soundDefinitions.commands || {};
 const originalSpriteLists = originalFile.soundDefinitions.spriteList || {};
+
+if (!fs.existsSync(outDir)) {
+    console.error(`Output directory not found: ${outDir}\nRun 'npm run build' first to generate sprite files.`);
+    process.exit(1);
+}
 
 // Read all soundData_*.json files
 const soundDataFiles = fs.readdirSync(outDir).filter(f => f.startsWith('soundData_') && f.endsWith('.json'));
@@ -41,10 +53,13 @@ console.log(`Found ${soundDataFiles.length} sprite data files`);
 // Build a map: spriteId -> { soundId, startTime } from soundData files
 const spriteDataMap = {};
 const manifestEntries = [];
+const standaloneSounds = spriteConfig.standalone?.sounds || [];
 
 for (const dataFile of soundDataFiles) {
     const tierName = dataFile.replace('soundData_', '').replace('.json', '');
-    const data = JSON.parse(fs.readFileSync(outDir + dataFile));
+    let data;
+    try { data = JSON.parse(fs.readFileSync(outDir + dataFile, 'utf8')); }
+    catch (e) { console.error(`Failed to parse ${dataFile}: ${e.message}, skipping`); continue; }
     const spriteMap = data.sprite || {};
     const srcArray = data.src || [];
 
@@ -64,11 +79,20 @@ for (const dataFile of soundDataFiles) {
 
     const soundId = m4aFile.replace('.m4a', '');
 
-    // Add manifest entry
-    manifestEntries.push({
-        id: soundId,
-        src: ["soundFiles/" + m4aFile]
-    });
+    // Build manifest entry — add loadType (SubLoader ID) if tier has subLoaderId defined
+    // Standalone sounds (music) never get loadType — they're always part of main load
+    const tierConfig = spriteConfig.sprites[tierName];
+    const subLoaderId = tierConfig?.subLoaderId;
+    const isStandaloneTier = standaloneSounds.includes(tierName);
+
+    const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
+    if (subLoaderId && !isStandaloneTier) {
+        manifestEntry.loadType = subLoaderId;
+        const unloadable = tierConfig?.unloadable === true;
+        if (unloadable) manifestEntry.unloadable = true;
+        console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
+    }
+    manifestEntries.push(manifestEntry);
 
     // Map each sound in this sprite
     for (const [spriteName, spriteInfo] of Object.entries(spriteMap)) {
@@ -85,8 +109,8 @@ const spriteOrder = Object.keys(spriteConfig.sprites);
 const standaloneNames = spriteConfig.standalone.sounds || [];
 
 manifestEntries.sort((a, b) => {
-    const aIdx = spriteOrder.findIndex(tier => a.id.includes(tier));
-    const bIdx = spriteOrder.findIndex(tier => b.id.includes(tier));
+    const aIdx = spriteOrder.findIndex(tier => a.id.endsWith('_' + tier));
+    const bIdx = spriteOrder.findIndex(tier => b.id.endsWith('_' + tier));
     const aStandalone = standaloneNames.some(s => a.id.includes(s));
     const bStandalone = standaloneNames.some(s => b.id.includes(s));
 
@@ -99,16 +123,18 @@ manifestEntries.sort((a, b) => {
 
 // Build soundSprites
 const newSoundSprites = {};
-let processCount = 0;
-let totalToProcess = 0;
+
+if (!fs.existsSync(SourceSoundDirectory)) {
+    console.error(`Source sound directory not found: ${SourceSoundDirectory}`);
+    process.exit(1);
+}
 
 // Get all WAV files to process
 const wavFiles = fs.readdirSync(SourceSoundDirectory).filter(f => f.endsWith('.wav'));
 const spriteListFiles = wavFiles.filter(f => f.endsWith('_SL.wav'));
 const normalFiles = wavFiles.filter(f => !f.endsWith('_SL.wav'));
 
-totalToProcess = normalFiles.length + spriteListFiles.length;
-console.log(`Processing ${totalToProcess} sound entries...`);
+console.log(`Processing ${normalFiles.length + spriteListFiles.length} sound entries...`);
 
 // Process normal sounds
 for (const file of normalFiles) {
@@ -119,11 +145,8 @@ for (const file of normalFiles) {
     const spriteData = spriteDataMap[soundName];
     if (!spriteData) {
         console.log(`WARNING: ${soundName} not found in any sprite data, skipping`);
-        totalToProcess--;
         continue;
     }
-
-    processCount++;
 
     // Get properties from original template
     const origEntry = originalSprites[entryName] || {};
@@ -135,8 +158,9 @@ for (const file of normalFiles) {
         duration: spriteData.duration
     };
 
-    // Preserve tags from template
-    newEntry.tags = origEntry.tags || ["SoundEffects"];
+    // Preserve tags from template; standalone sounds get Music tag, everything else gets SFX tag
+    const isStandaloneSound = standaloneSounds.includes(soundName);
+    newEntry.tags = origEntry.tags || (isStandaloneSound ? spriteConfig.musicTags || ["Music"] : spriteConfig.sfxTags || ["SoundEffects"]);
 
     // Preserve overlap from template
     if (origEntry.overlap !== undefined) {
@@ -220,8 +244,10 @@ async function extractSpriteListData(element) {
         .open()
         .then(() => ep.readMetadata(element, ['-s3']))
         .then((x) => {
-            mySpriteListData.TracksMarkersName = x.data[0].TracksMarkersName;
-            mySpriteListData.TracksMarkersStartTime = x.data[0].TracksMarkersStartTime;
+            if (x.data && x.data[0]) {
+                mySpriteListData.TracksMarkersName = x.data[0].TracksMarkersName;
+                mySpriteListData.TracksMarkersStartTime = x.data[0].TracksMarkersStartTime;
+            }
         }, console.error)
         .then(() => {
             if (ep.isOpen) ep.close();
@@ -242,23 +268,61 @@ async function buildFinalJSON() {
         return obj;
     }, {});
 
+    // Strip broken references — commands/spriteList referencing sounds that no longer exist
+    // (happens when sounds are deleted from sourceSoundFiles without updating sounds.json)
+    const validSpriteKeys = new Set(Object.keys(sortedSoundSprites));
+    const validSoundIds = new Set(manifestEntries.map(m => m.id));
+
+    let removedSteps = 0, removedCmds = 0, removedListEntries = 0;
+
+    const cleanedCommands = {};
+    for (const [cmdName, steps] of Object.entries(originalCommands)) {
+        const arr = Array.isArray(steps) ? steps : [steps];
+        const clean = arr.filter(step => {
+            if (!step) return false;
+            if (step.spriteId && !validSpriteKeys.has(step.spriteId)) { removedSteps++; return false; }
+            if (step.soundId && !validSoundIds.has(step.soundId)) { removedSteps++; return false; }
+            return true;
+        });
+        cleanedCommands[cmdName] = clean;
+    }
+
+    const cleanedSpriteLists = {};
+    for (const [k, val] of Object.entries(originalSpriteLists)) {
+        // Support both array format ["id1","id2"] and object format {items:["id1","id2"], type, overlap}
+        const isObj = val && !Array.isArray(val) && Array.isArray(val.items);
+        const arr = isObj ? val.items : (Array.isArray(val) ? val : []);
+        const clean = arr.filter(id => { if (!validSpriteKeys.has(id)) { removedListEntries++; return false; } return true; });
+        if (clean.length > 0) cleanedSpriteLists[k] = isObj ? { ...val, items: clean } : clean;
+        else removedListEntries++;
+    }
+
+    if (removedSteps > 0 || removedCmds > 0 || removedListEntries > 0) {
+        console.log(`\nAuto-cleaned broken references (sounds deleted from project):`);
+        if (removedSteps) console.log(`  Removed ${removedSteps} command step(s) referencing missing sounds`);
+        if (removedCmds) console.log(`  Removed ${removedCmds} empty command(s)`);
+        if (removedListEntries) console.log(`  Removed ${removedListEntries} broken spriteList entry/entries`);
+    }
+
     // Build final JSON
     const finalJson = {
         soundManifest: manifestEntries,
         soundDefinitions: {
             soundSprites: sortedSoundSprites,
-            spriteList: originalSpriteLists,
-            commands: originalCommands
+            spriteList: cleanedSpriteLists,
+            commands: cleanedCommands
         }
     };
 
     // Write output
     const formatted = formatJson(JSON.stringify(finalJson));
+    const targetDir = path.dirname(JSONtarget);
+    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     fs.writeFileSync(JSONtarget, formatted);
     console.log(`\nWritten: ${JSONtarget}`);
     console.log(`  Manifest entries: ${manifestEntries.length}`);
     console.log(`  Sound sprites: ${Object.keys(sortedSoundSprites).length}`);
-    console.log(`  Commands: ${Object.keys(originalCommands).length}`);
+    console.log(`  Commands: ${Object.keys(cleanedCommands).length}`);
 
     // Clean up soundData files
     for (const dataFile of soundDataFiles) {

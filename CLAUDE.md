@@ -1,5 +1,8 @@
 # SlotAudioManager
 
+## Jezik / Language
+**UVEK** komuniciraj sa korisnikom na **srpskom jeziku sa ekavicom** (ne ijekavica). Bez izuzetka — čak i ako korisnik piše na engleskom.
+
 Cross-platform Electron desktop app for IGT slot game audio workflow management.
 Build, configure, deploy, and validate audio sprites for slot games.
 
@@ -14,7 +17,7 @@ Build, configure, deploy, and validate audio sprites for slot games.
 ```
 main.js              — ALL IPC handlers, file ops, git, npm, template logic
 preload.js           — contextBridge.exposeInMainWorld('api', {...})
-src/App.jsx          — sidebar nav (7 pages), page routing, toast system
+src/App.jsx          — sidebar nav (7 pages), always-mounted pages (display:none), toast system
 src/pages/           — ProjectPage, SetupPage, SoundsPage, SpriteConfigPage,
                        CommandsPage, BuildPage, GitPage
 src/index.css        — dark theme, custom properties, component classes, animations
@@ -36,26 +39,44 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 | `import-sounds` | renderer→main | Multi-select WAV dialog, copies to sourceSoundFiles/ |
 | `delete-sound` | renderer→main | Delete WAV from sourceSoundFiles/ (path traversal protected) |
 | `run-script` | renderer→main | Execute npm script (name validated, 300s timeout) |
+| `pull-game-json` | renderer→main | Copy sounds.json from game repo deploy path to audio repo root |
+| `build-game` | renderer→main | Run `yarn build-dev` in game repo (300s timeout, streams output) |
+| `yarn-install-game` | renderer→main | Run `yarn install` in game repo (300s timeout) |
+| `kill-game` | renderer→main | Kill spawned game dev server process |
+| `analyze-orphans` | renderer→main | Find orphan WAVs not referenced in sounds.json |
+| `clean-orphans` | renderer→main | Delete orphan WAVs and clean sounds.json references |
+| `scan-game-hooks` | renderer→main | Scan game repo TS source for soundManager.execute() calls |
 | `run-deploy` | renderer→main | Execute deploy script (120s timeout) |
 | `git-status` | renderer→main | Returns porcelain status, branch, last 10 commits |
 | `git-commit-push` | renderer→main | git add -A → commit -m → push (execFileSync, no shell) |
 | `health-check` | renderer→main | Validate project structure (configs, scripts, deps, dirs) |
-| `init-from-template` | renderer→main | Overwrite scripts/configs/deps from built-in template |
+| `init-from-template` | renderer→main | Overwrite scripts/configs/deps from template. Accepts `{ skipConfigs }` option |
 | `npm-install` | renderer→main | Run `npm install --legacy-peer-deps` (240s timeout) |
 | `pick-game-repo` | renderer→main | Directory picker for game repo |
 | `configure-game` | renderer→main | Link game repo: relative path, update pkg name/desc |
+| `get-game-scripts` | renderer→main | Read launch/start scripts from game repo package.json |
+| `run-game-script` | renderer→main | Spawn game dev server detached (playa launch — infinite process) |
+| `clean-dist` | renderer→main | Remove .m4a files + sounds.json from dist/ (try-catch, safe) |
+| `list-glr` | renderer→main | List GLR subdirs in game/GLR/, extract softwareId from launch script |
+| `launch-local-glr` | renderer→main | Spawn `playa launch --glr [name]` detached — no VPN needed |
+| `git-pull-game` | renderer→main | git pull in game repo, streams output via script-output event |
+| `open-url` | renderer→main | shell.openExternal — validates http/https only |
+| `wait-for-port` | renderer→main | Poll TCP port until available (1500ms interval) |
+| `list-deleted-sounds` | renderer→main | List WAVs in sourceSoundFiles/.deleted/ |
+| `restore-sound` | renderer→main | Move WAV from .deleted/ back to sourceSoundFiles/ |
+| `script-output` | main→renderer | IPC **event** (not invoke) — live streaming of subprocess stdout/stderr |
 
 ## Pages — Props & API Calls
 
 | Page | Props | API Calls |
 |------|-------|-----------|
 | ProjectPage | `project, onOpen, onReload, showToast` | None (display only) |
-| SetupPage | `project, setProject, showToast` | `healthCheck`, `initFromTemplate`, `npmInstall`, `pickGameRepo`, `configureGame` |
-| SoundsPage | `project, setProject, showToast` | `importSounds`, `deleteSound` |
-| SpriteConfigPage | `project, showToast` | `saveSpriteConfig` |
-| CommandsPage | `project, showToast` | None (reads from project.soundsJson) |
-| BuildPage | `project, showToast` | `runScript`, `runDeploy` |
-| GitPage | `project, showToast` | `gitStatus`, `gitCommitPush` |
+| SetupPage | `project, setProject, showToast` | `healthCheck`, `initFromTemplate(opts?)`, `npmInstall`, `pickGameRepo`, `configureGame`, `yarnInstallGame` |
+| SoundsPage | `project, setProject, showToast` | `importSounds`, `deleteSound`, `listDeletedSounds`, `restoreSound` — WAV list, import dialog, trash/restore |
+| SpriteConfigPage | `project, showToast` | `saveSpriteConfig` — tier editor, auto-assign unassigned sounds, subLoaderId/unloadable flags |
+| CommandsPage | `project, setProject, showToast` | `saveSoundsJson` — reads `project.soundsJson`, edits commands/spriteList/soundSprites in-memory |
+| BuildPage | `project, setProject, reloadProject, showToast` | `runScript`, `runDeploy`, `cleanDist`, `getGameScripts`, `runGameScript`, `buildGame`, `pullGameJson`, `listGlr`, `launchLocalGlr`, `gitPullGame`, `killGame`, `waitForPort`, `openUrl`, `scanGameHooks`, `analyzeOrphans`, `cleanOrphans` |
+| GitPage | `project, showToast` | `gitStatus`, `gitCommitPush` — branch, changed files (NEW/ADD/MOD/DEL/REN badges), commit msg input, commit+push, last 10 commits log |
 
 ## Project JSON Schemas
 
@@ -76,20 +97,30 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 {
   "spriteGap": 0.05,
   "sprites": {
-    "tierName": { "maxSizeKB": 1500, "priority": 1, "sounds": [], "sortOrder": [], "description": "" }
+    "loading": { "maxSizeKB": 700,  "priority": 1, "sounds": [...], "description": "Minimum for first spin" },
+    "main":    { "maxSizeKB": 3000, "priority": 2, "subLoaderId": "A", "unloadable": false, "sounds": [...] },
+    "bonus":   { "maxSizeKB": 3000, "priority": 3, "subLoaderId": "B", "unloadable": true,  "sounds": [...] }
   },
-  "standalone": { "sounds": ["MusicLoop1"] },
+  "standalone": { "sounds": ["BaseMusicLoop", "BonusMusicLoop"] },
   "encoding": {
-    "sfx": { "bitrate": 64, "channels": 1, "samplerate": 44100 },
+    "sfx":   { "bitrate": 64, "channels": 1, "samplerate": 44100 },
     "music": { "bitrate": 96, "channels": 2, "samplerate": 44100 }
-  }
+  },
+  "musicTags": ["Music"], "sfxTags": ["SoundEffects"]
 }
 ```
+- `subLoaderId`: playa-core SubLoader ID (`"A"`-`"F"` = deferred, `"Z"` = lazy). Omit for main-load tiers.
+- `unloadable`: if true, `buildTieredJSON.js` adds `"unloadable": true` to soundManifest entries (signal for playa-core team to implement runtime unload after bonus ends).
+- `maxSizeKB`: warning only — logged as `⚠️ OVER LIMIT`, does NOT fail the build.
 
 **sounds.json:**
 ```json
 {
-  "soundManifest": [{ "id": "spriteFileId", "src": ["soundFiles/sprite.m4a"] }],
+  "soundManifest": [
+    { "id": "loading_sprite", "src": ["soundFiles/loading.m4a"] },
+    { "id": "main_sprite",   "src": ["soundFiles/main.m4a"],   "loadType": "A" },
+    { "id": "bonus_sprite",  "src": ["soundFiles/bonus.m4a"],  "loadType": "B", "unloadable": true }
+  ],
   "soundDefinitions": {
     "soundSprites": { "s_Name": { "soundId": "", "spriteId": "", "startTime": 0, "duration": 0, "tags": [], "overlap": false } },
     "commands": { "cmdName": [{ "command": "play", "spriteId": "", "volume": 1.0, "delay": 0 }] },
@@ -104,9 +135,9 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 |--------|---------|
 | `buildTiered.js` | Main build: groups sounds by tier from sprite-config, creates M4A sprites |
 | `buildTieredJSON.js` | Generates sounds.json from sprite metadata (uses exiftool for durations) |
-| `validateBuild.js` | QA: sprite sizes, reference integrity, orphan detection, boot <500KB |
+| `validateBuild.js` | QA: 5 checks — (1) M4A exist+sizes vs maxSizeKB (tier matched by `endsWith`), (2) command→spriteId/spriteListId refs, (3) spriteList→sprite refs, (4) soundSprite→manifest refs, (5) orphan sprites. JSON.parse wrapped in try-catch. |
 | `customAudioSprite.js` | Modified audiosprite with custom encoding/bitrate |
-| `copyAudio.js` | Deploy: copies sprites + sounds.json to game repo sounds/ folder |
+| `copyAudio.js` | Deploy: copies sprites + sounds.json to game repo sounds/ folder. Cleans both .json and .json5 before copy (no `else if`). |
 | `convertAudio.js` | Single audio conversion (ffmpeg wrapper) |
 | `createAudioSprite.js` | Single sprite creation |
 | `createAudioSpritesBySize.js` | Size-based sprite grouping |
@@ -133,16 +164,55 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 
 ### Init from Template
 1. Overwrite all scripts from template/scripts/ → project/scripts/
-2. Overwrite sprite-config.json, sounds.json from template
+2. Overwrite sprite-config.json, sounds.json from template (skipped if `{ skipConfigs: true }`)
 3. Merge package.json: overwrite scripts + deps from template
-4. Update settings.json: overwrite with template defaults, **preserve gameProjectPath**
+4. Update settings.json: overwrite with template defaults (includes `DestinationSoundDirectory`, `DestinationAudioSpriteDirectory`), **preserve gameProjectPath**
 5. Create sourceSoundFiles/ if missing
+6. If game repo configured: auto-pull sounds.json from game repo deploy path → overwrites template sounds.json
 
 ### Configure Game
-1. Derive audio slug from audio repo folder name
-2. Set `settings.json → gameProjectPath` = `path.relative(audioRepo, gameRepo)`
-3. Set `package.json → name` = audioSlug, `description` = "Audio for {gameRepoName}"
-4. Verify game repo has assets/ folder
+1. Guard: reject if `gameRepoPath === projectPath` (self-reference)
+2. Derive audio slug from audio repo folder name
+3. Set `settings.json → gameProjectPath` = `path.relative(audioRepo, gameRepo)`
+4. Set `package.json → name` = audioSlug, `description` = "Audio for {gameRepoName}"
+5. Verify game repo has assets/ folder
+6. Returns `gameNodeModulesExists` flag for yarn install UI
+
+### Audio Build Pipeline (buildTiered.js + buildTieredJSON.js)
+1. `buildTiered.js` — reads sprite-config.json, groups WAVs by tier, runs parallel FFmpeg builds
+   - SHA256 hash cache → incremental build (only rebuilt changed sounds)
+   - Outputs: `dist/soundFiles/[tier].m4a` + `dist/soundData_[tier].json`
+   - If tier build fails, that tier's hashes are NOT saved (forces rebuild next time)
+   - Size warning: logs `⚠️ OVER LIMIT` if `.m4a > maxSizeKB`, sets no exit code
+2. `buildTieredJSON.js` — reads soundData_*.json, generates `dist/sounds.json`
+   - Adds `loadType` field for tiers with `subLoaderId` (playa-core SubLoader)
+   - Adds `unloadable: true` for tiers with `unloadable: true`
+   - Preserves spriteList entries (both array and `{items, type, overlap}` formats)
+   - Empty commands are kept (not auto-deleted) — user must manually delete
+   - JSON.parse wrapped in try-catch for corrupted soundData files
+   - Creates output directory if missing before writeFileSync
+   - Sorts soundManifest: loading → main → bonus → standalone
+
+### playa-core SubLoader System
+- `sounds.json → soundManifest → loadType` field controls loading behavior:
+  - `undefined` or `"-"` → loaded with main bundle at game start
+  - `"A"` through `"F"` → deferred SubLoader (loaded on demand)
+  - `"Z"` → lazy load
+- **Game developer must call**:
+  - `startSubLoader("A")` on first spin — loads main pool (symbols, bigwin, anticipation)
+  - `startSubLoader("B")` on scatter/bonus trigger — loads bonus pool (free spins, hold & win, picker)
+  - `unloadSubLoader("B")` when bonus ends — frees bonus audio from RAM
+- **Runtime unload**: playa-core SoundLoader/SoundPlayer does not yet have `unloadHowl()` — `unloadable: true` is a metadata signal for the playa-core team
+- **Queue**: only one SubLoader loads at a time. If A and B are triggered simultaneously (scatter on first spin), B waits in queue until A completes
+- Reference: `/c/IGT/playa-core/src/ts/sound/SoundLoader.ts` and `SubLoader.ts`
+
+### GLR Local Launch (no VPN)
+- `playa launch --glr [name]` serves the game using pre-recorded RGS responses
+- GLR dir: `{gameRepo}/GLR/` — each subdir is one recorded session
+- Common GLRs: `GLR` (full), `bonus`, `bigWin`, `wins`, `bonusNoWin`
+- Auto git-pull before every local launch
+- If git pull fails (no network), proceeds with local version (non-blocking)
+- softwareId extracted from game's `package.json → scripts.launch` via regex
 
 ### Deploy Target
 `{gameRepo}/assets/default/default/default/sounds/`
@@ -167,12 +237,16 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 - API exposed only via `contextBridge` — renderer cannot access Node directly
 
 ## State Management Rules
+- **Always-mounted pages**: App.jsx renders ALL pages simultaneously, hidden via `display:none`. Active page shown by removing `hidden` class. Pages are NEVER unmounted during navigation — state persists across page switches.
 - Use `structuredClone()` for deep state updates (NOT `{...spread}` — causes stale nested refs)
 - Every page resets state on `project?.path` change via `useEffect`
 - Every page has `if (!project)` early return guard (except ProjectPage which shows welcome)
 - All async handlers wrapped in try-catch with toast error feedback
 - Boolean flags (`running`, `pushing`, `installing`, etc.) prevent concurrent operations
 - `useRef` for toast timer cleanup (prevents stale closures)
+- **ALL hooks (useState, useEffect, useMemo, useCallback, useRef) MUST be declared BEFORE any early return** — React Rules of Hooks. Variables derived from props (e.g. `const commands = project?.soundsJson?...|| {}`) can go before the early return too, with `|| {}` fallback so they work when project is null.
+- `useEffect` with `[project?.path]` deps: guard API calls with `if (project)` — pages are mounted even when project is null
+- `script-output` listener in BuildPage is always active (mounted) — log accumulates even when page is hidden, visible on return
 
 ## CSS Theme System
 - Dark theme: `#08080d` primary bg, `#7c6aef` accent (purple)
@@ -187,6 +261,7 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 - **Windows:** NSIS installer, icon at `assets/icon.ico`
 - **Output:** `release/` directory
 - **Bundled files:** main.js, preload.js, dist-renderer/**, template/**
+- **Dependencies:** ALL packages in `devDependencies` — electron-builder excludes devDeps from asar. `dependencies: {}` is empty to prevent bloating the production build.
 
 ## Dev Commands
 - `npm run dev` — Vite dev server + Electron (concurrent, waits for :5173)
@@ -194,6 +269,44 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 - `npm run build-mac` — build-renderer + electron-builder --mac
 - `npm run build-win` — build-renderer + electron-builder --win
 - `npm run build-all` — build-renderer + electron-builder --win --mac
+
+## SoundsPage WAV Decoder
+`decodeWav()` in `SoundsPage.jsx` — custom pure-JS WAV decoder, **never calls `ctx.decodeAudioData()`**.
+- Reason: `decodeAudioData` crashes the Electron renderer process for 24-bit and 32-bit int PCM
+- Scans RIFF chunks properly (no hardcoded offsets) — handles JUNK/LIST chunks before `fmt`
+- Supported formats: PCM 8-bit, 16-bit (Int16Array fast path), 24-bit (manual), 32-bit int, IEEE float 32-bit (Float32Array fast path)
+- Unsupported format → throws descriptive error → caught by `handlePlay` → toast shown (no crash)
+- `AudioContext.close()` is always called with `.catch(() => {})` — prevent unhandled rejection renderer crash
+
+## SpriteConfigPage — Auto-Assign Logic
+`autoAssign()` funkcija — priority-ordered PATTERNS, first match wins:
+```js
+{ tier: 'standalone', re: /^(Base|Bonus|Main|Bg|Background)MusicLoop$/i }
+{ tier: 'standalone', re: /MusicLoop$/i }
+{ tier: 'loading',    re: /^(Ui[A-Z]|ReelLand|Payline|RollupLow|BaseGameStart)/i }
+{ tier: 'bonus',      re: /^(Bonus|Picker|BaseToBonusStart|BonusToBase|FreeS|HoldAnd)/i }
+{ tier: 'main',       re: /Symbol[A-Za-z]\d+(Land|Anticipation)/i }
+{ tier: 'main',       re: /^(BigWin|Anticipation[A-Z]|PreBonus)/i }
+{ tier: 'main',       re: /^(Symbol|Rollup[1-9]|ScreenShake|IntroStart|SymbolPreshow)/i }
+```
+**Redosled prioriteta:** Tags iz soundsJson (Music tag → standalone) → pattern match → fallback (main)
+**Pool arhitektura (4 poola):**
+- `loading` — minimum za prvi spin: UI, reel land, payline, rollup (~200-700KB, immediate, no loadType)
+- `main` — base game: symbols, big win, anticipation, rollups (~1-3MB, deferred "A", `startSubLoader("A")` na prvom spinu)
+- `bonus` — svi bonus modovi: free spins, hold & win, picker, tranzicije (~1-3MB, deferred "B", `startSubLoader("B")` na scatter-u, unloadable — `unloadSubLoader("B")` na kraju bonusa)
+- `standalone` — muzika: previše velika za sprite, svaki zvuk kao poseban M4A (immediate, no loadType, loop-friendly)
+**Zašto standalone:** Sprite je jedan fajl sa zalepljenim zvucima — muzika mora da se loopuje beskonačno, nemoguće u sprajtu bez preklapanja. Svaki standalone = zaseban M4A = Howler `loop: true`.
+**Ključna pravila:**
+- `BaseToBonusStart` i `BonusToBaseStart` → bonus (tranzicije su deo bonus konteksta)
+- `SymbolB01Land1...5`, `SymbolB01Anticipation` → main (base game kontekst)
+- `PreBonusLoop` → main (svira pre ulaska u bonus, dok je igra još u base)
+- Fallback tier je `main` (ili poslednji tier u listi ako `main` ne postoji)
+- Bonus zvuci uključuju SVE bonus modove (free spins + hold & win) u jednom sprajtu
+
+## Known Pending Issues
+- playa-core tim treba da implementira `SoundPlayer.unloadHowl()` za runtime unload bonus audio-a
+- Game developer mora za svaku igru dodati 3 linije: `startSubLoader("A")` na prvom spinu, `startSubLoader("B")` na scatter-u, `unloadSubLoader("B")` na kraju bonusa
+- SpriteConfigPage generiše snippet sa Copy dugmetom za svaki deferred pool — developer samo kopira
 
 ## Do NOT
 - Add TypeScript
@@ -205,38 +318,114 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 - Use unix-only commands in scripts or package.json
 - Add docstrings/comments to code that wasn't changed
 - Create new files unless absolutely necessary
+- Use `decodeAudioData` in SoundsPage — it crashes the renderer for certain WAV formats
+- Place hooks after conditional early returns — React Rules of Hooks violation ("Rendered more hooks than during previous render")
+- Use `new Float32Array(arrayBuffer, offset)` when offset may not be 4-byte aligned — use `arrayBuffer.slice(offset)` instead
+- Remove empty commands from sounds.json automatically — user must manually delete via Commands page
+- Unmount/remount pages on navigation — all pages are always-mounted with `display:none`
+- Put `electron`, `electron-builder`, `react`, `react-dom` in `dependencies` — they belong in `devDependencies`
 
 ## QA Review Roles
 
-When performing QA or analysis, apply these expert perspectives:
+When performing QA or analysis, apply ALL of these expert perspectives in sequence:
 
-### Security Auditor
-- Verify all IPC inputs are validated before file/process operations
-- Check for path traversal, shell injection, prototype pollution
-- Ensure no Node APIs leak to renderer
-- Validate timeout and maxBuffer on all subprocess calls
-- Check that contextIsolation is true and nodeIntegration is false
+### 1. Electron Security Auditor
+Aktivira se: svaki novi IPC handler, svaka promena preload.js
+- Sve IPC inpute validirati pre file/process operacija (`path.basename`, regex, `.wav` check)
+- Path traversal: `filePath.startsWith(sourceDir + path.sep)` na svakom file handler-u
+- Shell injection: `execFileSync` uvek niz argumenata (ne string), script name regex `/^[a-zA-Z0-9_-]+$/`
+- `contextIsolation: true`, `nodeIntegration: false` — nikad menjati
+- `shell: true` samo za `.cmd` fajlove na Windows-u, nikad sa `execFileSync`
+- Timeout na svakom subprocess pozivu — bez toga može visiti zauvek
+- `open-url` handler: validira samo `http://` i `https://` URL-ove
 
-### UX Reviewer
-- Every async action must show loading state and disable repeated clicks
-- All errors must surface via toast with actionable message
-- State must reset cleanly on project switch (no stale data from previous project)
-- Disabled buttons must be visually distinct (opacity, cursor)
-- Search/filter must be case-insensitive
+### 2. Audio Pipeline Engineer
+Aktivira se: buildTiered.js, buildTieredJSON.js, sprite-config.json, WAV decoder
+- SHA256 cache: failed tier ne sme da čuva hash (forces rebuild)
+- Paralelni FFmpeg buildovi — race condition na dist/ output direktorijum
+- `loadType` generisanje: tačno mapiranje `subLoaderId` → `soundManifest`
+- WAV decoder: **nikad `decodeAudioData`** — crashuje renderer za 24-bit/32-bit PCM
+- RIFF chunk scanning: ne sme da pretpostavlja fiksne offsets (JUNK/LIST pre `fmt`)
+- Over-limit: samo log upozorenje, nikad exit code koji bi srušio build ili CI
 
-### Performance Analyst
-- No synchronous file I/O in renderer process
-- Subprocess calls must have timeouts (no hang states)
-- maxBuffer prevents stdout overflow crashes
-- useMemo for derived data that depends on large objects
-- Auto-scroll logs with useRef (not re-render based)
+### 3. IGT Framework Specialist
+Aktivira se: sounds.json schema, SubLoader integracija, GLR, deploy
+- `loadType: "A"/"B"` → playa-core SubLoader.ts (deferred), `"Z"` → lazy
+- Deploy target: `{gameRepo}/assets/default/default/default/sounds/`
+- GLR format: `authenticate.json, initstate.json, play.N.json` — ne kontaktira server
+- `playa launch --glr [name] --softwareid [id] --port 8080`
+- `softwareId` se čita iz `package.json → scripts.launch` regex-om
+- `unloadable: true` = metadata signal za playa-core tim, runtime unload nije implementiran
+- SubLoader redosled: main="A" na prvom spinu, bonus="B" na scatter-u, unload "B" na kraju bonusa
+- Queue: samo jedan SubLoader se učitava istovremeno — FIFO redosled
 
-### Cross-Platform Tester
-- All path operations use path.join/resolve/sep
-- No platform-specific shell commands in scripts
-- Window chrome adapts to macOS vs Windows
-- exec() vs execFileSync usage is intentional (shell vs no-shell)
-- Test: folder picker, file import, git operations, npm install
+### 4. React State Manager
+Aktivira se: svaka nova stranica, novi useState, useEffect, async handler
+- `structuredClone()` za duboke state update-ove — nikad `{...spread}` za nested objekte
+- Reset svih state-ova na `project?.path` promenu — nema stale podataka iz prethodnog projekta
+- Boolean flag za svaku async operaciju — sprečava dupli klik (`running`, `cleaning`, itd.)
+- `useRef` za AudioContext i timer cleanup — nikad direktno u render funkciji
+- Stream handler: `prev => prev + line` (apend) — nikad `setLog(line)` (zamena)
+- `offScriptOutput` cleanup u `return` funkciji useEffect — sprečava memory leak i dupli listener
+- **SVAKI hook mora biti PRE early return** — proveriti svaki novi page: svi `useState/useEffect/useMemo/useCallback/useRef` moraju biti pre `if (!project) return`
+- Promenljive izvedene iz props-a (npr. `const commands = project?.foo || {}`) mogu ići pre early return sa `|| {}` fallback-om
+
+### 5. Cross-Platform Engineer
+Aktivira se: path operacije, spawn/exec, window chrome, file URL-ovi
+- `path.join/resolve/sep` svuda — nikad hardkodovani `/` ili `\`
+- `spawn` sa `shell: true` samo za `.cmd` fajlove na Windows-u
+- `titleBarStyle: hiddenInset` Mac, `titleBarOverlay` Windows
+- `pathToFileURL(filePath).toString()` za `file://` URL-ove (Windows kompatibilnost)
+- `/[/\\]/` regex za split putanja u UI display-u
+
+### 6. UX / Build Feedback Designer
+Aktivira se: novi UI element, novi log output, nova greška
+- Svaka async akcija: `disabled` dok traje, loading indikator vidljiv
+- Live build log: `script-output` IPC event + auto-scroll na dnu
+- Greška: uvek toast sa konkretnom porukom, nikad tih fail
+- git pull fail → upozorenje u logu + nastavak (ne blokira launch)
+- Over-limit → `⚠️ OVER LIMIT` u logu, build prolazi
+
+### 7. Apple-Style UI/UX Designer
+Aktivira se: svaki novi UI element, svaka nova stranica, svaka vizuelna promena
+Filozofija: manje je više. Svaki element mora da postoji sa razlogom. Ako nema razloga — ne postoji.
+
+**Vizuelni jezik:**
+- Tamna tema: `#08080d` pozadina, `#7c6aef` akcent (purple), subtilni border `/20` do `/40` opacity
+- Tipografija: sistem font stack, `text-sm` (14px) za body, `text-xs` (12px) za meta/badge, `font-mono` za kod i putanje
+- Razmak: `space-y-4` između sekcija, `gap-3` između inline elemenata, `p-5` za kartice
+- Boje informacija: cyan = aktivno/live, green = uspeh/no-vpn, orange = lokalno/upozorenje, danger = greška, purple = sekundarno
+- Opacity za disabled: `opacity-40` + `cursor-not-allowed` — nikad `display: none`
+
+**Komponente:**
+- `.card` — sve grupe sadržaja; `.card-glow` samo za primarni akcent element
+- `.badge` — mali labeli; uvek `text-xs`, nikad lowercase sa caps, uvek konkretna boja
+- `.btn-primary` — jedna primarna akcija po sekciji; `.btn-ghost` za sekundarne
+- `.section-label` — naslov grupe unutar kartice, uvek uppercase + tracked
+- `.anim-pulse-dot` — inline dot animacija za live stanja (build running, server loading)
+- `.anim-fade-up` — page transition na svakom mount-u
+
+**Interakcija:**
+- Hover state na svakom klikabilnom elementu (`hover:border-border-bright`, `hover:text-text-secondary`)
+- Focus visible za keyboard navigation
+- Cursor: `cursor-pointer` na buttons, `cursor-wait` na loading, `cursor-not-allowed` na disabled
+- Nikad skočni modali za potvrdu — inline warning text ili disabled state umesto toga
+- Greške se prikazuju inline (crveni tekst) ili toast — nikad alert()
+
+**Gustina informacija:**
+- Jedna sekcija = jedan zadatak; ne mešati build i deploy u istu karticu
+- Putanje: `font-mono text-xs text-text-dim truncate` — uvek skraćene sa CSS, ne JS-om
+- Dugmad: kratki labeli ("Run", "Deploy", "Launch") — ne "Click here to run script"
+- Status badge pored naslova sekcije — odmah vidljivo bez skrolovanja
+- Log output: `max-h-96 overflow-auto` — nikad full-screen log koji gura ostatak UI-a
+
+**Što NE raditi (Apple princip):**
+- Nikad dve primarne akcije iste težine u istom redu
+- Nikad ikonografija bez labela (Electron app, ne mobile)
+- Nikad border-radius > 12px za kartice (nije igračka, profesionalni alat)
+- Nikad animacija duža od 200ms za UI tranzicije
+- Nikad više od 3 boje u jednoj sekciji
+- Nikad placeholder tekst koji opisuje šta polje radi — koristiti label
 
 ### Edge Case Hunter
 - File deleted between readdir and stat (race condition) — handled via try-catch in reduce
@@ -245,3 +434,12 @@ When performing QA or analysis, apply these expert perspectives:
 - Empty commit message — validated before git commit
 - Concurrent button clicks — boolean flags prevent overlap
 - Settings overwrite — gameProjectPath preserved during template init
+- `loadProject()` initializes `gameRepoExists: false`, `gameNodeModulesExists: false` — never undefined
+- `clean-orphans`: guards `soundsJson.soundDefinitions` before assignment (null → `{}`)
+- `open-url`: try-catch around `shell.openExternal` — OS errors don't crash IPC
+- `wait-for-port`: checks `mainWindow.isDestroyed()` — stops polling if window closes
+- `git-pull-game`: tries `release` > `develop` > `master` branch — works for all IGT repos
+- `git-status`: git log wrapped in separate try-catch — works for empty repos
+- `get-game-scripts`: filters by VALUE (`/^playa\s/.test(v)`) not just key name — catches dev01/dev02/dev03
+- `configure-game`: rejects `gameRepoPath === projectPath` (self-reference guard)
+- `validateBuild.js`: tier matching uses `endsWith('_' + tierName)` not `includes()` — no false matches

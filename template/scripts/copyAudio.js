@@ -2,102 +2,153 @@
 
 const fs = require("fs");
 const path = require("path");
-const util = require("util");
-const exec = require("child_process").exec;
 
-const settings = JSON.parse(fs.readFileSync("settings.json"));
+let settings;
+try {
+    settings = JSON.parse(fs.readFileSync("settings.json", "utf8"));
+} catch (e) {
+    console.error("Failed to read settings.json:", e.message);
+    process.exit(1);
+}
 
-const audio = new Map(Object.entries(settings || {}));
+const gameProjectPath = settings.gameProjectPath;
 
-const gameProjectPath = audio.get('gameProjectPath');
+if (!gameProjectPath) {
+    console.error("gameProjectPath not set in settings.json");
+    process.exit(1);
+}
 
-const distSoundFolder = "./dist/soundFiles";
-const distFolder = "./dist";
+const distSoundFolder = path.join(".", "dist", "soundFiles");
+const distFolder = path.join(".", "dist");
+const soundsDest = path.join(gameProjectPath, "assets", "default", "default", "default", "sounds");
+const soundFilesDest = path.join(soundsDest, "soundFiles");
 
-
-function copyDirectory(path) {
-    fs.readdirSync(path).forEach(element => {
-        const filePath = path + "/" + element;
-        let destPath = null;
+function copyDirectory(srcPath) {
+    fs.readdirSync(srcPath).forEach(element => {
+        const filePath = path.join(srcPath, element);
         if (!element.startsWith(".") && fs.existsSync(filePath) && !fs.lstatSync(filePath).isDirectory()) {
-            //process and copy file
             console.log("process " + element);
-            destPath = gameProjectPath + "/assets/default/default/default/sounds/soundFiles/";
+            const destFile = path.join(soundFilesDest, element);
+            console.log("copy from " + filePath + " to " + destFile);
+            if (!fs.existsSync(soundFilesDest)) {
+                fs.mkdirSync(soundsDest, { recursive: true });
+                fs.mkdirSync(soundFilesDest, { recursive: true });
+            }
+            fs.copyFileSync(filePath, destFile);
+        }
+    });
+}
 
-            if (destPath) {
-                console.log("copy from " + filePath + " to " + destPath + element);
-                if (!fs.existsSync(destPath)) {
-                    fs.mkdirSync(gameProjectPath + "/assets/default/default/default/sounds/", { recursive: true });
-                    fs.mkdirSync(destPath, { recursive: true });
-                }
-                fs.copyFileSync(filePath, destPath + element);
+function copySoundConfigToGame(srcFolder) {
+    console.log("source sound json file path - " + srcFolder);
+
+    const jsonSrc = path.join(srcFolder, "sounds.json");
+    const json5Src = path.join(srcFolder, "sounds.json5");
+    const jsonDest = path.join(soundsDest, "sounds.json");
+    const json5Dest = path.join(soundsDest, "sounds.json5");
+
+    if (fs.existsSync(jsonSrc)) {
+        if (fs.existsSync(jsonDest)) fs.rmSync(jsonDest);
+        if (fs.existsSync(json5Dest)) fs.rmSync(json5Dest);
+        if (!fs.existsSync(soundsDest)) fs.mkdirSync(soundsDest, { recursive: true });
+        console.log("copy from " + jsonSrc + " to " + jsonDest);
+        fs.copyFileSync(jsonSrc, jsonDest);
+    } else {
+        console.log(jsonSrc + " is missing from dist folder, skipping");
+    }
+
+    if (fs.existsSync(json5Src)) {
+        if (fs.existsSync(jsonDest)) fs.rmSync(jsonDest);
+        if (fs.existsSync(json5Dest)) fs.rmSync(json5Dest);
+        if (!fs.existsSync(soundsDest)) fs.mkdirSync(soundsDest, { recursive: true });
+        console.log("copy from " + json5Src + " to " + json5Dest);
+        fs.copyFileSync(json5Src, json5Dest);
+    } else {
+        console.log(json5Src + " is missing from dist folder, skipping");
+    }
+}
+
+function copySoundsToGame(srcPath) {
+    if (!fs.existsSync(srcPath)) {
+        console.log("Sounds folder " + srcPath + " missing, skipping...");
+    } else {
+        copyDirectory(srcPath);
+    }
+}
+
+console.log("audio files:");
+console.log(gameProjectPath);
+
+if (!fs.existsSync(path.join(gameProjectPath, "assets"))) {
+    console.log("Game Path " + path.join(gameProjectPath, "assets") + " missing, skipping...");
+} else {
+    if (fs.existsSync(soundsDest)) {
+        fs.rmSync(soundsDest, { recursive: true, force: true });
+    }
+    copySoundConfigToGame(distFolder);
+    copySoundsToGame(distSoundFolder);
+}
+
+// Also copy to game's dist/ folder so local playa launch (no VPN) picks up our audio.
+// Webpack content-hashes the audio files in dist/; we copy with unhashed names to match
+// the paths that sounds.json references (e.g. soundFiles/gameName.m4a, not gameName.abc123.m4a).
+const distGameSoundsBase = path.join(gameProjectPath, "dist", "assets", "default", "default", "default", "sounds");
+const distGameSoundFiles = path.join(distGameSoundsBase, "soundFiles");
+
+if (fs.existsSync(distGameSoundsBase)) {
+    const jsonSrc = path.join(distFolder, "sounds.json");
+    if (fs.existsSync(jsonSrc)) {
+        const soundsData = JSON.parse(fs.readFileSync(jsonSrc, "utf8"));
+
+        // Overwrite webpack-hashed index json file(s).
+        // IndexLoader.load('sounds.json') fetches the hashed file and returns data["sounds.json"],
+        // so the file must be wrapped: { "sounds.json": <actual data> }
+        fs.readdirSync(distGameSoundsBase)
+            .filter(f => f !== "sounds.json" && (f.endsWith(".json") || f.endsWith(".json5")) && !fs.lstatSync(path.join(distGameSoundsBase, f)).isDirectory())
+            .forEach(f => {
+                const dest = path.join(distGameSoundsBase, f);
+                console.log("overwrite dist hashed sounds: " + dest);
+                fs.writeFileSync(dest, JSON.stringify({ "sounds.json": soundsData }));
+            });
+    }
+
+    // Copy audio sprite files — unhashed AND overwrite hashed versions
+    if (fs.existsSync(distSoundFolder)) {
+        if (!fs.existsSync(distGameSoundFiles)) {
+            fs.mkdirSync(distGameSoundFiles, { recursive: true });
+        }
+        // Build map of existing hashed files in game dist: baseName → [hashedFile1, ...]
+        const existingFiles = fs.existsSync(distGameSoundFiles) ? fs.readdirSync(distGameSoundFiles) : [];
+        const hashedMap = {};
+        for (const f of existingFiles) {
+            // Match pattern: name.HASH.ext (e.g. audioSprite1.ed229f.m4a)
+            const m = f.match(/^(.+)\.([a-f0-9]{6,})(\.[^.]+)$/);
+            if (m) {
+                const baseName = m[1] + m[3]; // e.g. audioSprite1.m4a
+                if (!hashedMap[baseName]) hashedMap[baseName] = [];
+                hashedMap[baseName].push(f);
             }
         }
-    })
-}
 
-function copySoundConfigToGame(path) {
-    console.log( " source sound json file path - " + path);
-    if (!fs.existsSync(path + "/sounds.json")) {
-        console.log(path + "/sounds.json is missing from dist folder, skipping");
+        fs.readdirSync(distSoundFolder).forEach(element => {
+            const filePath = path.join(distSoundFolder, element);
+            if (!element.startsWith(".") && fs.existsSync(filePath) && !fs.lstatSync(filePath).isDirectory()) {
+                // Copy with original unhashed name
+                const destFile = path.join(distGameSoundFiles, element);
+                console.log("copy to dist: " + element + " -> " + destFile);
+                fs.copyFileSync(filePath, destFile);
 
-    } else {
-        let filePath = path + "/sounds.json";
-        let destPath = gameProjectPath + "/assets/default/default/default/sounds/";
-        if (fs.existsSync(destPath + "/sounds.json")) {
-            fs.rmSync(destPath + "/sounds.json", { recursive: true });
-        }else if(fs.existsSync(destPath + "/sounds.json5")) {
-            fs.rmSync(destPath + "/sounds.json5", { recursive: true });
-        }
-        if (!fs.existsSync(destPath)) {
-            console.log( " make dest folder");
-            fs.mkdirSync(destPath, { recursive: true });
-        }
-        let destSoundJsonPath = destPath + "/sounds.json";
-        console.log(" File Path = " + filePath + " Destination path = > " + destPath + "/sounds.json") 
-        fs.copyFileSync(filePath, destSoundJsonPath);
+                // Also overwrite any hashed versions so webpack-loaded paths get our audio
+                if (hashedMap[element]) {
+                    for (const hashedName of hashedMap[element]) {
+                        const hashedDest = path.join(distGameSoundFiles, hashedName);
+                        console.log("overwrite hashed: " + element + " -> " + hashedName);
+                        fs.copyFileSync(filePath, hashedDest);
+                    }
+                }
+            }
+        });
     }
-    if (!fs.existsSync(path + "/sounds.json5")) {
-        console.log(path + "/sounds.json5 is missing from dist folder, skipping");
-
-    } else {
-        let filePath = path + "/sounds.json5";
-        let destPath = gameProjectPath + "/assets/default/default/default/sounds";
-        console.log("copy from " + filePath + " to " + destPath + "/sounds.json5");
-        
-        if (fs.existsSync(destPath + "/sounds.json")) {
-            fs.rmSync(destPath + "/sounds.json", { recursive: true });
-        }else if(fs.existsSync(destPath + "/sounds.json5")) {
-            fs.rmSync(destPath + "/sounds.json5", { recursive: true });
-        }
-
-        if (!fs.existsSync(destPath)) {
-            fs.mkdirSync(destPath, { recursive: true });
-        }
-        fs.copyFileSync(filePath, destPath + "/sounds.json5");
-    }
-
-}
-
-function copySoundsToGame(path) {
-    if (!fs.existsSync(path)) {
-        console.log("Sounds Folder" + " missing, skipping...");
-    } else {
-        copyDirectory(path);
-    }
-}
-
-if (audio !== "") {
-    console.log("audio files:");
-    console.log(gameProjectPath);
-
-    if (!fs.existsSync(gameProjectPath + "/assets")) {
-        console.log("Game Path " + gameProjectPath + "/assets" + " missing, skipping...");
-    } else {
-        if(fs.existsSync(gameProjectPath + "/assets/default/default/default/sounds/")) {
-            fs.rmSync(gameProjectPath + "/assets/default/default/default/sounds/", { recursive: true, force: true });
-        }
-        copySoundConfigToGame(distFolder);
-        copySoundsToGame(distSoundFolder);
-    }
+} else {
+    console.log("Game dist/ not found at " + distGameSoundsBase + ", skipping dist copy");
 }

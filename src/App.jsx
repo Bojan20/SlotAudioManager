@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, Component } from 'react';
 import ProjectPage from './pages/ProjectPage';
 import SoundsPage from './pages/SoundsPage';
 import SpriteConfigPage from './pages/SpriteConfigPage';
@@ -6,6 +6,25 @@ import CommandsPage from './pages/CommandsPage';
 import BuildPage from './pages/BuildPage';
 import GitPage from './pages/GitPage';
 import SetupPage from './pages/SetupPage';
+
+class ErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-6 space-y-3">
+          <p className="text-danger font-bold text-sm">Page crashed</p>
+          <pre className="text-xs text-text-dim bg-bg-secondary p-4 rounded-xl overflow-auto whitespace-pre-wrap">
+            {this.state.error?.message}{'\n'}{this.state.error?.stack}
+          </pre>
+          <button className="btn-primary text-xs" onClick={() => this.setState({ error: null })}>Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const NAV = [
   { id: 'project',  label: 'Project',       icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -57,40 +76,40 @@ export default function App() {
 
   const gameName = project?.path ? project.path.split(/[/\\]/).pop() : null;
 
-  const pageMap = {
-    project:  <ProjectPage project={project} onOpen={openProject} onReload={reloadProject} showToast={showToast} />,
-    setup:    <SetupPage project={project} setProject={setProject} showToast={showToast} />,
-    sounds:   <SoundsPage project={project} setProject={setProject} showToast={showToast} />,
-    sprites:  <SpriteConfigPage project={project} showToast={showToast} />,
-    commands: <CommandsPage project={project} showToast={showToast} />,
-    build:    <BuildPage project={project} showToast={showToast} />,
-    git:      <GitPage project={project} showToast={showToast} />,
-  };
+  const pages = [
+    { id: 'project',  el: <ProjectPage project={project} onOpen={openProject} onReload={reloadProject} showToast={showToast} /> },
+    { id: 'setup',    el: <SetupPage project={project} setProject={setProject} showToast={showToast} /> },
+    { id: 'sounds',   el: <SoundsPage project={project} setProject={setProject} showToast={showToast} /> },
+    { id: 'sprites',  el: <SpriteConfigPage project={project} showToast={showToast} /> },
+    { id: 'commands', el: <CommandsPage project={project} setProject={setProject} showToast={showToast} /> },
+    { id: 'build',    el: <BuildPage project={project} setProject={setProject} reloadProject={reloadProject} showToast={showToast} /> },
+    { id: 'git',      el: <GitPage project={project} showToast={showToast} /> },
+  ];
 
   return (
     <div className="flex h-full w-full">
       {/* Sidebar */}
-      <aside className="w-52 shrink-0 bg-bg-secondary flex flex-col border-r border-border select-none">
-        <div className="h-9 drag-region shrink-0" />
+      <aside className="w-56 shrink-0 bg-bg-secondary flex flex-col border-r border-border select-none">
+        <div className="h-8 drag-region shrink-0" />
 
-        <div className="px-4 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-accent/25 flex items-center justify-center shrink-0">
               <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
               </svg>
             </div>
             <div>
-              <p className="text-xs font-bold tracking-wide text-text-primary">Slot Audio</p>
-              <p className="text-[9px] text-text-dim font-medium tracking-widest uppercase">Manager</p>
+              <p className="text-sm font-bold text-text-primary leading-tight">Slot Audio</p>
+              <p className="text-[10px] text-text-dim font-semibold tracking-widest uppercase">Manager</p>
             </div>
           </div>
         </div>
 
         {gameName && (
-          <div className="mx-3 mb-2 px-3 py-2 rounded-lg bg-bg-card border border-border">
-            <p className="section-label mb-0.5">Project</p>
-            <p className="text-[11px] font-semibold text-cyan truncate">{gameName}</p>
+          <div className="mx-3 mb-2 px-3 py-2 rounded-xl bg-bg-active border border-border-bright">
+            <p className="section-label mb-1">Active Project</p>
+            <p className="text-xs font-bold text-cyan truncate">{gameName}</p>
           </div>
         )}
 
@@ -102,9 +121,11 @@ export default function App() {
               <button
                 key={item.id}
                 onClick={() => !disabled && setPage(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-[9px] rounded-lg text-[13px] transition-all duration-150
-                  ${active ? 'bg-accent/12 text-accent font-semibold' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary font-medium'}
-                  ${disabled ? 'opacity-25 pointer-events-none' : 'cursor-pointer'}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-all duration-150
+                  ${active
+                    ? 'bg-accent/15 text-accent font-semibold border border-accent/20'
+                    : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary font-medium border border-transparent'}
+                  ${disabled ? 'opacity-20 pointer-events-none' : 'cursor-pointer'}
                 `}
               >
                 <NavIcon d={item.icon} />
@@ -115,26 +136,32 @@ export default function App() {
         </nav>
 
         <div className="p-3 border-t border-border">
-          <button onClick={openProject} className="btn-primary w-full text-xs py-2.5">
+          <button onClick={openProject} className="btn-primary w-full text-xs">
             {project ? 'Switch Project' : 'Open Project'}
           </button>
         </div>
       </aside>
 
       {/* Main */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-9 drag-region shrink-0" />
-        <div className="flex-1 overflow-y-auto px-6 pb-8">
-          {project || page === 'project' ? pageMap[page] : null}
+      <main className="flex-1 flex flex-col overflow-hidden bg-bg-primary">
+        <div className="h-8 drag-region shrink-0" />
+        <div className="flex-1 min-h-0 overflow-hidden px-6 pt-2 pb-3">
+          {pages.map(({ id, el }) => (
+            <div key={id} className={`h-full overflow-y-auto ${page === id ? '' : 'hidden'}`}>
+              <ErrorBoundary>
+                {project || id === 'project' ? el : null}
+              </ErrorBoundary>
+            </div>
+          ))}
         </div>
       </main>
 
       {/* Toast */}
       {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl text-[13px] font-semibold anim-fade-up shadow-xl
-          ${toast.type === 'success' ? 'bg-success-dim text-success border border-success/20' :
-            toast.type === 'error' ? 'bg-danger-dim text-danger border border-danger/20' :
-            'bg-accent-glow text-accent border border-accent/20'}`}>
+        <div className={`fixed bottom-5 right-5 z-50 px-4 py-3 rounded-xl text-[13px] font-semibold anim-fade-up shadow-2xl backdrop-blur-sm
+          ${toast.type === 'success' ? 'bg-success-dim text-success border border-success/30' :
+            toast.type === 'error' ? 'bg-danger-dim text-danger border border-danger/30' :
+            'bg-accent-glow text-accent border border-accent/30'}`}>
           {toast.msg}
         </div>
       )}
