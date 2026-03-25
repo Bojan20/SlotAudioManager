@@ -63,11 +63,11 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
               <div className="flex gap-1">
                 <button type="button"
                   onClick={() => setState(m => ({ ...m, targetType: 'sprite', spriteListId: '' }))}
-                  className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${state.targetType !== 'list' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-text-dim hover:border-border-bright'}`}
+                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${state.targetType !== 'list' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-text-dim hover:border-border-bright'}`}
                 >Sprite</button>
                 <button type="button"
                   onClick={() => setState(m => ({ ...m, targetType: 'list', spriteId: '' }))}
-                  className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${state.targetType === 'list' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-text-dim hover:border-border-bright'}`}
+                  className={`text-xs px-2 py-0.5 rounded border transition-colors ${state.targetType === 'list' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-text-dim hover:border-border-bright'}`}
                 >List</button>
               </div>
             </div>
@@ -108,7 +108,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
 
       {/* Row 2: numeric fields */}
       {!isExecute && !isResetSpriteList && (
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {showVolume && (
             <div>
               <label className="section-label mb-1 block">Volume</label>
@@ -454,10 +454,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const handleDeleteStep = async (cmdName, stepIdx) => {
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[cmdName].splice(stepIdx, 1);
-    const isEmpty = j.soundDefinitions.commands[cmdName].length === 0;
-    if (isEmpty) delete j.soundDefinitions.commands[cmdName];
-    const ok = await saveJson(j, 'Step obrisan');
-    if (ok && isEmpty) setExpanded(null);
+    await saveJson(j, 'Step obrisan');
   };
 
   const handleDeleteCmd = async (cmdName) => {
@@ -513,7 +510,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
       {unmapped.length > 0 && (
         <div className="card p-3 border border-orange/30 flex items-center gap-3 shrink-0">
           <span className="badge bg-orange-dim text-orange text-xs shrink-0">Unmapped</span>
-          <p className="text-[11px] text-text-dim flex-1">
+          <p className="text-xs text-text-dim flex-1">
             {unmapped.length} sound{unmapped.length !== 1 ? 's' : ''} in soundSprites with no command referencing them
           </p>
         </div>
@@ -543,7 +540,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 </svg>
                 <span className="flex-1 text-[13px] font-mono truncate">{name}</span>
                 {issues.length > 0 && <span className="badge bg-danger-dim text-danger">{issues.length} err</span>}
-                <span className="text-[11px] text-text-dim">{actions.length} action{actions.length !== 1 ? 's' : ''}</span>
+                <span className="text-xs text-text-dim">{actions.length} action{actions.length !== 1 ? 's' : ''}</span>
               </button>
 
               {isOpen && (
@@ -551,16 +548,16 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   {/* Delete command confirm */}
                   {confirmDeleteCmd === name ? (
                     <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-danger-dim border border-danger/30">
-                      <span className="text-[11px] text-danger flex-1">Obrisati celu komandu?</span>
-                      <button onClick={() => handleDeleteCmd(name)} disabled={saving} className="text-[11px] text-danger font-semibold hover:text-red-400 transition-colors">Da, obriši</button>
-                      <button onClick={() => setConfirmDeleteCmd(null)} className="text-[11px] text-text-dim hover:text-text-primary transition-colors">Otkaži</button>
+                      <span className="text-xs text-danger flex-1">Obrisati celu komandu?</span>
+                      <button onClick={() => handleDeleteCmd(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Da, obriši</button>
+                      <button onClick={() => setConfirmDeleteCmd(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Otkaži</button>
                     </div>
                   ) : (
                     <div className="flex justify-end pb-0.5">
                       <button
                         onClick={() => setConfirmDeleteCmd(name)}
                         disabled={saving}
-                        className="text-[10px] text-text-dim hover:text-danger transition-colors disabled:opacity-40"
+                        className="text-xs text-text-dim hover:text-danger transition-colors disabled:opacity-40"
                       >
                         Obriši komandu
                       </button>
@@ -568,7 +565,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   )}
 
                   {issues.map((iss, i) => (
-                    <p key={i} className="text-[11px] text-danger flex items-center gap-1.5">
+                    <p key={i} className="text-xs text-danger flex items-center gap-1.5">
                       <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>
@@ -615,13 +612,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         {!action.spriteId && !action.spriteListId && !action.commandId && <span className="flex-1" />}
 
                         {/* Extra fields */}
-                        {action.volume !== undefined && action.volume !== 1 && <span className="text-text-dim text-[11px]">vol:{action.volume}</span>}
-                        {action.delay !== undefined && action.delay !== 0 && <span className="text-text-dim text-[11px]">+{action.delay}ms</span>}
-                        {action.duration !== undefined && action.duration !== 0 && <span className="text-text-dim text-[11px]">dur:{action.duration}ms</span>}
-                        {action.pan !== undefined && action.pan !== 0 && <span className="text-text-dim text-[11px]">pan:{action.pan}</span>}
-                        {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-[11px]">rate:{action.rate}</span>}
-                        {action.loop === -1 && <span className="text-cyan text-[11px]">loop</span>}
-                        {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-[11px]">cancelDelay</span>}
+                        {action.volume !== undefined && action.volume !== 1 && <span className="text-text-dim text-xs">vol:{action.volume}</span>}
+                        {action.delay !== undefined && action.delay !== 0 && <span className="text-text-dim text-xs">+{action.delay}ms</span>}
+                        {action.duration !== undefined && action.duration !== 0 && <span className="text-text-dim text-xs">dur:{action.duration}ms</span>}
+                        {action.pan !== undefined && action.pan !== 0 && <span className="text-text-dim text-xs">pan:{action.pan}</span>}
+                        {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
+                        {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
+                        {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
 
                         <div className="flex items-center gap-1 opacity-0 group-hover/step:opacity-100 transition-opacity shrink-0">
                           <button
@@ -652,7 +649,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   <button
                     onClick={() => setAddStep(emptyStep({ cmdName: name }))}
                     disabled={saving}
-                    className="text-[11px] text-text-dim hover:text-accent transition-colors pt-1 disabled:opacity-40"
+                    className="text-xs text-text-dim hover:text-accent transition-colors pt-1 disabled:opacity-40"
                   >
                     + Add Step
                   </button>
@@ -709,7 +706,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
           <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[520px] flex flex-col">
             <div className="p-5 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">Dodaj step</h3>
-              <p className="text-[11px] text-text-dim font-mono mt-0.5">{addStep.cmdName}</p>
+              <p className="text-xs text-text-dim font-mono mt-0.5">{addStep.cmdName}</p>
             </div>
             <div className="p-5">
               <StepForm state={addStep} setState={setAddStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
@@ -735,7 +732,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
             <div className="p-5 border-b border-border flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-text-primary">Game Hook Scanner</h3>
-                <p className="text-[11px] text-text-dim mt-0.5">
+                <p className="text-xs text-text-dim mt-0.5">
                   Skeniran {scanResult.totalFiles} .ts fajlova · {scanResult.hooks.length} hookova pronađeno
                   {scanResult.dynamicCalls.length > 0 && ` · ${scanResult.dynamicCalls.length} dinamičkih poziva (ne mogu se statički analizirati)`}
                 </p>
@@ -769,9 +766,9 @@ export default function CommandsPage({ project, setProject, showToast }) {
                               onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
                               className="font-mono text-[12px] text-text-primary hover:text-yellow-400 transition-colors text-left"
                             >{h.name}</button>
-                            <span className={`badge ${statusBg} ${statusColor} text-[10px] shrink-0`}>{statusLabel}</span>
-                            <span className="text-[10px] text-yellow-500/80 shrink-0">· {h.recent.relative}</span>
-                            <span className="text-[10px] text-text-dim truncate flex-1" title={h.recent.message}>{h.recent.message}</span>
+                            <span className={`badge ${statusBg} ${statusColor} text-xs shrink-0`}>{statusLabel}</span>
+                            <span className="text-xs text-yellow-500/80 shrink-0">· {h.recent.relative}</span>
+                            <span className="text-xs text-text-dim truncate flex-1" title={h.recent.message}>{h.recent.message}</span>
                           </div>
                         );
                       })}
@@ -790,12 +787,12 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     {scanResult.hooks.filter(h => h.inJson && h.isEmpty).map(h => (
                       <div key={h.name} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-orange-dim border border-orange/20 group">
                         <span className="font-mono text-[12px] text-orange flex-1">{h.name}</span>
-                        {h.recent && <span className="text-[10px] text-yellow-500/80 shrink-0">NEW · {h.recent.relative}</span>}
+                        {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW · {h.recent.relative}</span>}
                         <button
                           onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
-                          className="text-[10px] text-text-dim hover:text-orange transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                          className="text-xs text-text-dim hover:text-orange transition-colors opacity-0 group-hover:opacity-100 shrink-0"
                         >Otvori →</button>
-                        <div className="text-[10px] text-text-dim font-mono truncate max-w-[180px]" title={h.files.join('\n')}>
+                        <div className="text-xs text-text-dim font-mono truncate max-w-[180px]" title={h.files.join('\n')}>
                           {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
                         </div>
                       </div>
@@ -814,8 +811,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     {scanResult.hooks.filter(h => !h.inJson).map(h => (
                       <div key={h.name} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-danger-dim border border-danger/20">
                         <span className="font-mono text-[12px] text-danger flex-1">{h.name}</span>
-                        {h.recent && <span className="text-[10px] text-yellow-500/80 shrink-0">NEW · {h.recent.relative}</span>}
-                        <div className="text-[10px] text-text-dim font-mono truncate max-w-[180px]" title={h.files.join('\n')}>
+                        {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW · {h.recent.relative}</span>}
+                        <div className="text-xs text-text-dim font-mono truncate max-w-[180px]" title={h.files.join('\n')}>
                           {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
                         </div>
                       </div>
@@ -836,14 +833,14 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         key={h.name}
                         onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
                         title={h.recent ? `Dodat: ${h.recent.relative} — ${h.recent.message}` : ''}
-                        className={`badge font-mono text-[10px] hover:bg-green/20 transition-colors cursor-pointer ${h.recent ? 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400' : 'bg-green-dim text-green'}`}
+                        className={`badge font-mono text-xs hover:bg-green/20 transition-colors cursor-pointer ${h.recent ? 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400' : 'bg-green-dim text-green'}`}
                       >
                         {h.name}{h.recent ? ' ✦' : ''}
                       </button>
                     ))}
                   </div>
                   {scanResult.hooks.filter(h => h.inJson && !h.isEmpty && h.recent).length > 0 && (
-                    <p className="text-[10px] text-text-dim mt-1.5">✦ = novo u poslednjih 90 dana</p>
+                    <p className="text-xs text-text-dim mt-1.5">✦ = novo u poslednjih 90 dana</p>
                   )}
                 </div>
               )}
@@ -859,7 +856,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       <button
                         key={n}
                         onClick={() => { setScanResult(null); setFilter(n); setExpanded(n); }}
-                        className="badge bg-bg-hover text-text-dim font-mono text-[10px] hover:text-text-secondary transition-colors cursor-pointer"
+                        className="badge bg-bg-hover text-text-dim font-mono text-xs hover:text-text-secondary transition-colors cursor-pointer"
                       >
                         {n}
                       </button>
@@ -882,7 +879,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
           <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[560px] max-h-[80vh] flex flex-col">
             <div className="p-5 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">Generate Missing Commands</h3>
-              <p className="text-[11px] text-text-dim mt-0.5">
+              <p className="text-xs text-text-dim mt-0.5">
                 {genPreview.filter(p => p.include).length} of {genPreview.length} selected. Edit hook names as needed.
               </p>
             </div>
@@ -896,7 +893,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     onChange={e => setGenPreview(prev => prev.map((p, j) => j === i ? { ...p, include: e.target.checked } : p))}
                     className="w-3.5 h-3.5 accent-accent shrink-0"
                   />
-                  <span className="font-mono text-[11px] text-text-dim w-44 truncate shrink-0">{item.spriteId}</span>
+                  <span className="font-mono text-xs text-text-dim w-44 truncate shrink-0">{item.spriteId}</span>
                   <svg className="w-3 h-3 text-text-dim shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
@@ -907,7 +904,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     className="input-base text-xs py-1 px-2 flex-1 font-mono"
                     disabled={!item.include}
                   />
-                  <span className="text-[10px] text-text-dim shrink-0">
+                  <span className="text-xs text-text-dim shrink-0">
                     {item.actions[0]?.loop === -1 ? 'loop' : 'play'}
                   </span>
                 </div>
@@ -917,13 +914,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
             <div className="p-4 border-t border-border flex items-center gap-2">
               <button
                 onClick={() => setGenPreview(prev => prev.map(p => ({ ...p, include: true })))}
-                className="text-[11px] text-text-dim hover:text-text-primary transition-colors"
+                className="text-xs text-text-dim hover:text-text-primary transition-colors"
               >
                 Select all
               </button>
               <button
                 onClick={() => setGenPreview(prev => prev.map(p => ({ ...p, include: false })))}
-                className="text-[11px] text-text-dim hover:text-text-primary transition-colors ml-2"
+                className="text-xs text-text-dim hover:text-text-primary transition-colors ml-2"
               >
                 Deselect all
               </button>

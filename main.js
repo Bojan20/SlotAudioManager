@@ -1338,3 +1338,67 @@ ipcMain.handle('npm-install', async () => {
     child.on('error', (e) => resolve({ success: false, output: output || e.message, error: e.message }));
   });
 });
+
+// Measure pool: run audiosprite on a tier's sounds in temp dir to get actual M4A size
+ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc }) => {
+  if (!projectPath) return { error: 'No project open' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  const srcDir = path.resolve(projectPath, settings?.SourceSoundDirectory || './sourceSoundFiles');
+  if (!fs.existsSync(srcDir)) return { error: 'sourceSoundFiles not found' };
+
+  const files = [];
+  for (const s of sounds) {
+    const f = path.join(srcDir, s + '.wav');
+    if (fs.existsSync(f)) files.push(f);
+  }
+  if (files.length === 0) return { sizeKB: 0, sounds: 0 };
+
+  const customAS = path.join(projectPath, 'scripts', 'customAudioSprite.js');
+  if (!fs.existsSync(customAS)) return { error: 'Run Sync Template first' };
+  if (!fs.existsSync(path.join(projectPath, 'node_modules'))) return { error: 'Run npm install first' };
+
+  const os = require('os');
+  const tmpDir = path.join(os.tmpdir(), 'sam-measure-' + Date.now());
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const outBase = path.join(tmpDir, 'measure').replace(/\\/g, '/');
+
+  const e = enc || { bitrate: 64, channels: 1, samplerate: 44100 };
+  const sc = readJsonSafe(path.join(projectPath, 'sprite-config.json'));
+  const gap = sc?.spriteGap ?? 0.05;
+
+  const scriptPath = path.join(tmpDir, 'measure.js');
+  fs.writeFileSync(scriptPath, `
+const as = require(${JSON.stringify(customAS.replace(/\\/g, '/'))});
+const ff = require('ffmpeg-static');
+const fs = require('fs');
+const opts = { output: ${JSON.stringify(outBase)}, format: 'howler2', export: 'm4a',
+  bitrate: ${e.keepOriginal ? 320 : (e.bitrate || 64)}, gap: ${gap}, silence: 0,
+  logger: { debug:()=>{}, info:()=>{}, log:()=>{} } };
+${!e.keepOriginal ? `opts.channels=${e.channels||1};opts.samplerate=${e.samplerate||44100};` : ''}
+as(ff, ${JSON.stringify(files.map(f => f.replace(/\\/g, '/')))}, opts, 0, (err) => {
+  if(err){process.stderr.write(String(err.message||err));process.exit(1);}
+  try{process.stdout.write(String(Math.round(fs.statSync(${JSON.stringify(outBase)}+'.m4a').size/1024)));}
+  catch{process.stderr.write('M4A not created');process.exit(1);}
+});
+`);
+
+  return new Promise((resolve) => {
+    const child = exec(`node "${scriptPath}"`, {
+      cwd: projectPath, timeout: 120000, maxBuffer: 5 * 1024 * 1024,
+      env: { ...process.env, NODE_PATH: path.join(projectPath, 'node_modules') },
+    });
+    let stdout = '', stderr = '';
+    child.stdout?.on('data', d => { stdout += d; });
+    child.stderr?.on('data', d => { stderr += d; });
+    child.on('close', (code) => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      if (code !== 0) return resolve({ error: stderr.trim() || 'Measure failed' });
+      const kb = parseInt(stdout.trim(), 10);
+      resolve({ sizeKB: isNaN(kb) ? 0 : kb, sounds: files.length });
+    });
+    child.on('error', (e) => {
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      resolve({ error: e.message });
+    });
+  });
+});

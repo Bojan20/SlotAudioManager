@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('api', {
   listGlr: () => ipcRenderer.invoke('list-glr'),
   launchLocalGlr: (opts) => ipcRenderer.invoke('launch-local-glr', opts),
   gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
+  // Pool measurement
+  measurePool: (opts) => ipcRenderer.invoke('measure-pool', opts),
   // Orphan analysis
   analyzeOrphans: () => ipcRenderer.invoke('analyze-orphans'),
   cleanOrphans: () => ipcRenderer.invoke('clean-orphans'),

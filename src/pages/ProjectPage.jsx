@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function ProjectPage({ project, onOpen, onReload, showToast }) {
+export default function ProjectPage({ project, onOpen, onReload }) {
   if (!project) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center anim-fade-up">
@@ -18,95 +18,99 @@ export default function ProjectPage({ project, onOpen, onReload, showToast }) {
     );
   }
 
-  const stats = [
-    { label: 'WAV Files',    value: project.sounds?.length || 0,                                                                              color: 'text-cyan',   bg: 'bg-cyan-dim',   border: 'border-cyan/20' },
-    { label: 'Sprite Tiers', value: project.spriteConfig ? Object.keys(project.spriteConfig.sprites || {}).length : 0,                        color: 'text-purple', bg: 'bg-purple-dim', border: 'border-purple/20' },
-    { label: 'Standalone',   value: project.spriteConfig?.standalone?.sounds?.length || 0,                                                    color: 'text-green',  bg: 'bg-green-dim',  border: 'border-green/20' },
-    { label: 'Commands',     value: project.soundsJson ? Object.keys(project.soundsJson.soundDefinitions?.commands || {}).length : 0,          color: 'text-orange', bg: 'bg-orange-dim', border: 'border-orange/20' },
-  ];
+  const sounds = project.sounds || [];
+  const spriteConfig = project.spriteConfig;
+  const tiers = spriteConfig?.sprites || {};
+  const standalone = spriteConfig?.standalone?.sounds || [];
+  const commands = project.soundsJson?.soundDefinitions?.commands || {};
+  const soundSprites = project.soundsJson?.soundDefinitions?.soundSprites || {};
+  const distInfo = project.distInfo;
 
-  const settingsEntries = project.settings ? Object.entries(project.settings) : [];
+  // Unassigned count
+  const assigned = new Set();
+  for (const cfg of Object.values(tiers)) for (const s of (cfg.sounds || [])) assigned.add(s);
+  for (const s of standalone) assigned.add(s);
+  const unassigned = sounds.filter(s => !assigned.has(s.name.replace(/\.wav$/i, ''))).length;
+
+  // Game repo
+  const hasGame = !!project.settings?.gameProjectPath;
+  const gameOk = project.gameRepoExists;
+  const gameMods = project.gameNodeModulesExists;
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-2">
-
+    <div className="anim-fade-up h-full flex flex-col gap-3">
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-text-primary">Project Overview</h2>
-          <p className="text-[11px] text-text-dim font-mono mt-0.5">{project.path}</p>
+          <h2 className="text-xl font-bold text-text-primary">Dashboard</h2>
+          <p className="text-xs text-text-dim font-mono mt-1 truncate">{project.path}</p>
         </div>
         <button onClick={onReload} className="btn-ghost text-xs">Reload</button>
       </div>
 
-      {/* Stats row — 4 inline cards */}
-      <div className="grid grid-cols-4 gap-2 shrink-0">
-        {stats.map((s) => (
-          <div key={s.label} className={`card p-3 border ${s.border} flex items-center gap-3`}>
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
+        {[
+          { label: 'WAV Files',  value: sounds.length,                      color: 'text-cyan',   bg: 'border-cyan/20' },
+          { label: 'Commands',   value: Object.keys(commands).length,        color: 'text-orange', bg: 'border-orange/20' },
+          { label: 'Sprites',    value: Object.keys(soundSprites).length,    color: 'text-green',  bg: 'border-green/20' },
+          { label: 'Unassigned', value: unassigned, color: unassigned > 0 ? 'text-danger' : 'text-success', bg: unassigned > 0 ? 'border-danger/20' : 'border-success/20' },
+        ].map(s => (
+          <div key={s.label} className={`card p-4 border ${s.bg} flex items-center gap-3`}>
             <span className={`text-2xl font-bold leading-none tabular-nums ${s.color}`}>{s.value}</span>
-            <p className={`text-[11px] font-semibold leading-tight ${s.color} opacity-80`}>{s.label}</p>
+            <p className={`text-xs font-semibold leading-tight ${s.color} opacity-80`}>{s.label}</p>
           </div>
         ))}
       </div>
 
-      {/* 2-column body: Settings | Tiers + Standalone */}
-      <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
+      {/* Game Repo + Build Status */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
 
-        {/* Left — Settings */}
-        <div className="card p-3 flex flex-col min-h-0">
-          <p className="section-label mb-2 shrink-0">Settings</p>
-          {settingsEntries.length > 0 ? (
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              {settingsEntries.map(([key, val]) => (
-                <div key={key} className="flex items-start gap-2 py-1 border-b border-border/30 last:border-0">
-                  <span className="text-[11px] text-text-dim w-40 shrink-0 font-mono">{key}</span>
-                  <span className="text-[11px] text-text-primary font-mono break-all">{String(val)}</span>
+        <div className="flex flex-col gap-2 min-h-0 overflow-y-auto">
+          {/* Game Repo */}
+          <p className="section-label shrink-0">Game Repo</p>
+          <div className="card p-3 space-y-2">
+            {hasGame ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${gameOk ? 'bg-success' : 'bg-danger'}`} />
+                  <span className="text-xs text-text-secondary font-mono truncate">{project.settings.gameProjectPath}</span>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-text-dim italic">No settings.json found</p>
-          )}
-        </div>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${gameMods ? 'bg-success' : 'bg-orange'}`} />
+                  <span className="text-xs text-text-secondary">{gameMods ? 'node_modules OK' : 'node_modules missing'}</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-text-dim italic">Not linked — go to Setup</p>
+            )}
+          </div>
 
-        {/* Right — Sprite Tiers + Standalone */}
-        <div className="flex flex-col gap-2 min-h-0">
-          {project.spriteConfig?.sprites ? (
-            <div className="card p-3 flex-1 min-h-0 flex flex-col">
-              <p className="section-label mb-2 shrink-0">Sprite Tiers</p>
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
-                {Object.entries(project.spriteConfig.sprites).map(([tier, cfg]) => (
-                  <div key={tier} className="flex items-center gap-2.5">
-                    <span className="badge bg-purple-dim text-purple text-[10px] w-24 justify-center shrink-0">{tier}</span>
-                    <div className="flex-1 h-1 bg-bg-hover rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-purple rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min(100, ((cfg.sounds?.length || 0) / Math.max(1, project.sounds?.length || 1)) * 100)}%` }}
-                      />
-                    </div>
-                    <span className="text-[11px] text-text-dim font-mono tabular-nums shrink-0 w-28 text-right">
-                      {cfg.sounds?.length || 0} snd · {cfg.maxSizeKB}KB
-                    </span>
+          {/* Last Build */}
+          <p className="section-label shrink-0">Last Build</p>
+          <div className="card p-3 space-y-2">
+            {distInfo?.hasDist ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full shrink-0 bg-success" />
+                  <span className="text-xs text-text-secondary">{distInfo.spriteCount} sprites · {distInfo.totalSizeMB} MB</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${distInfo.hasSoundsJson ? 'bg-success' : 'bg-danger'}`} />
+                  <span className="text-xs text-text-secondary">{distInfo.hasSoundsJson ? 'sounds.json OK' : 'sounds.json missing'}</span>
+                </div>
+                {distInfo.sprites?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {distInfo.sprites.map(s => (
+                      <span key={s} className="text-xs font-mono text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">{s}</span>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="card p-3 flex-1 flex items-center justify-center">
-              <p className="text-xs text-text-dim italic">No sprite-config.json found</p>
-            </div>
-          )}
-
-          {project.spriteConfig?.standalone?.sounds?.length > 0 && (
-            <div className="card p-3 shrink-0">
-              <p className="section-label mb-1.5">Standalone Music</p>
-              <div className="flex flex-wrap gap-1.5">
-                {project.spriteConfig.standalone.sounds.map(s => (
-                  <span key={s} className="badge bg-green-dim text-green border border-green/20 text-[10px]">{s}</span>
-                ))}
-              </div>
-            </div>
-          )}
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-text-dim italic">Not built yet</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

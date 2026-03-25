@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, Component } from 'react';
+import React, { useState, useCallback, useRef, useMemo, Component } from 'react';
 import ProjectPage from './pages/ProjectPage';
 import SoundsPage from './pages/SoundsPage';
 import SpriteConfigPage from './pages/SpriteConfigPage';
@@ -76,8 +76,23 @@ export default function App() {
 
   const gameName = project?.path ? project.path.split(/[/\\]/).pop() : null;
 
+  // Compute badge counts for sidebar
+  const badges = useMemo(() => {
+    if (!project) return {};
+    const sc = project.spriteConfig;
+    const tiers = sc?.sprites || {};
+    const standalone = sc?.standalone?.sounds || [];
+    const allAssigned = new Set();
+    for (const cfg of Object.values(tiers)) for (const s of (cfg.sounds || [])) allAssigned.add(s);
+    for (const s of standalone) allAssigned.add(s);
+    const unassigned = (project.sounds || []).filter(s => !allAssigned.has(s.name.replace(/\.wav$/i, ''))).length;
+    return {
+      sprites: unassigned > 0 ? unassigned : null,
+    };
+  }, [project]);
+
   const pages = [
-    { id: 'project',  el: <ProjectPage project={project} onOpen={openProject} onReload={reloadProject} showToast={showToast} /> },
+    { id: 'project',  el: <ProjectPage project={project} onOpen={openProject} onReload={reloadProject} /> },
     { id: 'setup',    el: <SetupPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'sounds',   el: <SoundsPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'sprites',  el: <SpriteConfigPage project={project} showToast={showToast} /> },
@@ -101,7 +116,7 @@ export default function App() {
             </div>
             <div>
               <p className="text-sm font-bold text-text-primary leading-tight">Slot Audio</p>
-              <p className="text-[10px] text-text-dim font-semibold tracking-widest uppercase">Manager</p>
+              <p className="text-xs text-text-dim font-semibold tracking-widest uppercase">Manager</p>
             </div>
           </div>
         </div>
@@ -129,7 +144,12 @@ export default function App() {
                 `}
               >
                 <NavIcon d={item.icon} />
-                <span>{item.label}</span>
+                <span className="flex-1 text-left">{item.label}</span>
+                {badges[item.id] && (
+                  <span className="min-w-5 h-5 flex items-center justify-center rounded-full bg-danger/20 text-danger text-xs font-bold leading-none">
+                    {badges[item.id]}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -145,7 +165,7 @@ export default function App() {
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden bg-bg-primary">
         <div className="h-8 drag-region shrink-0" />
-        <div className="flex-1 min-h-0 overflow-hidden px-6 pt-2 pb-3">
+        <div className="flex-1 min-h-0 overflow-hidden px-6 pt-3 pb-4">
           {pages.map(({ id, el }) => (
             <div key={id} className={`h-full overflow-y-auto ${page === id ? '' : 'hidden'}`}>
               <ErrorBoundary>

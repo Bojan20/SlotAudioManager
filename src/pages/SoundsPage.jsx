@@ -82,6 +82,8 @@ export default function SoundsPage({ project, setProject, showToast }) {
   const [filter, setFilter] = useState('');
   const [deleting, setDeleting] = useState(null);
   const [playing, setPlaying] = useState(null);
+  const [paused, setPaused] = useState(false);
+  const [waveform, setWaveform] = useState(null); // { filename, peaks[], duration, buffer }
   const [showTrash, setShowTrash] = useState(false);
   const [deleted, setDeleted] = useState([]);
   const [restoring, setRestoring] = useState(null);
@@ -92,6 +94,10 @@ export default function SoundsPage({ project, setProject, showToast }) {
   const [bulkAdd, setBulkAdd] = useState(null); // null | { tags, overlap, saving }
   const ctxRef = useRef(null);
   const sourceRef = useRef(null);
+  const playStartRef = useRef(0);  // ctx.currentTime when playback started
+  const offsetRef = useRef(0);     // offset into buffer where playback started
+  const rafRef = useRef(null);     // requestAnimationFrame id
+  const [playProgress, setPlayProgress] = useState(0); // 0-1
 
   const inJsonSet = useMemo(() => {
     const set = new Set();
@@ -102,19 +108,102 @@ export default function SoundsPage({ project, setProject, showToast }) {
     return set;
   }, [project?.soundsJson]);
 
-  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); }, [project?.path]);
+  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); }, [project?.path]);
   useEffect(() => () => stopAudio(), []);
 
   const stopAudio = () => {
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
     try { sourceRef.current?.stop(); } catch {}
     sourceRef.current = null;
     try { ctxRef.current?.close().catch(() => {}); } catch {}
     ctxRef.current = null;
     setPlaying(null);
+    setPaused(false);
+    setPlayProgress(0);
+  };
+
+  const pauseAudio = () => {
+    if (ctxRef.current && ctxRef.current.state === 'running') {
+      // Capture exact progress before suspending
+      const ctx = ctxRef.current;
+      const buffer = waveform?.buffer;
+      if (buffer) {
+        const elapsed = ctx.currentTime - playStartRef.current + offsetRef.current;
+        setPlayProgress(Math.min(1, elapsed / buffer.duration));
+      }
+      ctxRef.current.suspend();
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      setPaused(true);
+    }
+  };
+
+  const resumeAudio = () => {
+    if (ctxRef.current && ctxRef.current.state === 'suspended') {
+      ctxRef.current.resume();
+      setPaused(false);
+      const ctx = ctxRef.current;
+      const buffer = waveform?.buffer;
+      if (ctx && buffer) {
+        const tick = () => {
+          if (!ctxRef.current || ctxRef.current !== ctx) return;
+          const elapsed = ctx.currentTime - playStartRef.current + offsetRef.current;
+          setPlayProgress(Math.min(1, elapsed / buffer.duration));
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    }
+  };
+
+  const startPlayback = (ctx, buffer, offset) => {
+    // Detach old source's onended before stopping — prevents it from closing everything
+    if (sourceRef.current) { sourceRef.current.onended = null; }
+    try { sourceRef.current?.stop(); } catch {}
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
+    sourceRef.current = source;
+    offsetRef.current = offset;
+    playStartRef.current = ctx.currentTime;
+    source.onended = () => {
+      // Only cleanup if THIS source is still the active one (not replaced by seek)
+      if (sourceRef.current !== source) return;
+      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      if (ctxRef.current === ctx) {
+        ctxRef.current = null; sourceRef.current = null;
+        setPlaying(null); setPlayProgress(0); setWaveform(null);
+      }
+    };
+    source.start(0, offset);
+    // Animate playhead
+    const tick = () => {
+      if (!ctxRef.current || ctxRef.current !== ctx) return;
+      const elapsed = ctx.currentTime - playStartRef.current + offset;
+      setPlayProgress(Math.min(1, elapsed / buffer.duration));
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  const seekTo = (fraction, isDrag = false) => {
+    if (!waveform?.buffer || !ctxRef.current) return;
+    if (isDrag) {
+      // During drag: only move trackhead visually, don't restart audio
+      setPlayProgress(fraction);
+      return;
+    }
+    // On release: restart audio from this position
+    if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
+    setPaused(false);
+    const offset = fraction * waveform.buffer.duration;
+    startPlayback(ctxRef.current, waveform.buffer, offset);
   };
 
   const handlePlay = async (filename) => {
-    if (playing === filename) { stopAudio(); return; }
+    if (playing === filename) {
+      if (paused) resumeAudio(); else pauseAudio();
+      return;
+    }
     stopAudio();
     try {
       const res = await fetch(`audio://local/${encodeURIComponent(filename)}`);
@@ -122,22 +211,23 @@ export default function SoundsPage({ project, setProject, showToast }) {
       const arrayBuffer = await res.arrayBuffer();
       const { audioBuffer, ctx } = decodeWav(arrayBuffer);
       ctxRef.current = ctx;
-      try {
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(ctx.destination);
-        sourceRef.current = source;
-        source.onended = () => {
-          ctx.close().catch(() => {});
-          if (ctxRef.current === ctx) { ctxRef.current = null; sourceRef.current = null; setPlaying(null); }
-        };
-        source.start(0);
-        setPlaying(filename);
-      } catch (srcErr) {
-        ctx.close().catch(() => {});
-        ctxRef.current = null;
-        throw srcErr;
+      // Extract waveform peaks
+      const ch = audioBuffer.getChannelData(0);
+      const buckets = 200;
+      const bSize = Math.floor(ch.length / buckets);
+      const peaks = [];
+      for (let i = 0; i < buckets; i++) {
+        let max = 0;
+        const end = Math.min((i + 1) * bSize, ch.length);
+        for (let j = i * bSize; j < end; j++) {
+          const abs = Math.abs(ch[j]);
+          if (abs > max) max = abs;
+        }
+        peaks.push(max);
       }
+      setWaveform({ filename, peaks, duration: audioBuffer.duration, buffer: audioBuffer });
+      startPlayback(ctx, audioBuffer, 0);
+      setPlaying(filename);
     } catch (e) {
       showToast('Could not play audio: ' + e.message, 'error');
     }
@@ -348,7 +438,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="badge bg-orange-dim text-orange text-xs">JSON Cleanup</span>
-            <span className="text-[11px] text-text-dim">Pronađi zvukove u JSON koji ne postoje u sourceSoundFiles</span>
+            <span className="text-xs text-text-dim">Pronađi zvukove u JSON koji ne postoje u sourceSoundFiles</span>
           </div>
           <div className="flex items-center gap-2">
             {orphanResult && orphanResult.orphanedSprites.length > 0 && (
@@ -383,12 +473,12 @@ export default function SoundsPage({ project, setProject, showToast }) {
 
               {/* Orphaned sprites */}
               <div>
-                <p className="text-[11px] text-danger font-semibold mb-1">
+                <p className="text-xs text-danger font-semibold mb-1">
                   {orphanResult.orphanedSprites.length} orphaned sprite(s) — biće obrisani iz soundSprites:
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {orphanResult.orphanedSprites.map(k => (
-                    <span key={k} className="badge bg-danger-dim text-danger font-mono text-[10px]">{k}</span>
+                    <span key={k} className="badge bg-danger-dim text-danger font-mono text-xs">{k}</span>
                   ))}
                 </div>
               </div>
@@ -396,11 +486,11 @@ export default function SoundsPage({ project, setProject, showToast }) {
               {/* Affected spriteLists */}
               {Object.keys(orphanResult.affectedSpriteLists).length > 0 && (
                 <div className="pt-1.5 border-t border-border/50">
-                  <p className="text-[11px] text-orange font-semibold mb-1">SpriteLists:</p>
+                  <p className="text-xs text-orange font-semibold mb-1">SpriteLists:</p>
                   <div className="space-y-0.5">
                     {Object.entries(orphanResult.affectedSpriteLists).map(([k, bad]) => (
                       <div key={k} className="flex items-center gap-2 flex-wrap">
-                        <span className={`badge font-mono text-[10px] ${orphanResult.removedSpriteLists.includes(k) ? 'bg-danger-dim text-danger' : 'bg-orange-dim text-orange'}`}>
+                        <span className={`badge font-mono text-xs ${orphanResult.removedSpriteLists.includes(k) ? 'bg-danger-dim text-danger' : 'bg-orange-dim text-orange'}`}>
                           {k} {orphanResult.removedSpriteLists.includes(k) ? '(cela lista briše se)' : `(${bad.length} ID-a briše se)`}
                         </span>
                       </div>
@@ -412,10 +502,10 @@ export default function SoundsPage({ project, setProject, showToast }) {
               {/* Affected commands */}
               {Object.keys(orphanResult.affectedCommands).length > 0 && (
                 <div className="pt-1.5 border-t border-border/50">
-                  <p className="text-[11px] text-orange font-semibold mb-1">Komande (samo step-ovi se brišu, komanda ostaje):</p>
+                  <p className="text-xs text-orange font-semibold mb-1">Komande (samo step-ovi se brišu, komanda ostaje):</p>
                   <div className="flex flex-wrap gap-1">
                     {Object.keys(orphanResult.affectedCommands).map(cmd => (
-                      <span key={cmd} className="badge bg-orange-dim text-orange font-mono text-[10px]">
+                      <span key={cmd} className="badge bg-orange-dim text-orange font-mono text-xs">
                         {cmd} (~{orphanResult.affectedCommands[cmd].length})
                       </span>
                     ))}
@@ -435,25 +525,41 @@ export default function SoundsPage({ project, setProject, showToast }) {
           return (
             <div
               key={s.filename}
-              className={`card flex items-center gap-3 px-3 py-2 group hover:border-border-bright transition-colors ${isPlaying ? 'border-accent/40 bg-accent/5' : ''}`}
+              className={`card flex flex-wrap items-center gap-3 px-3 py-2 group hover:border-border-bright transition-colors ${isPlaying ? 'border-accent/40 bg-accent/5' : ''}`}
               style={{ borderRadius: 10 }}
             >
-              <button
-                onClick={() => handlePlay(s.filename)}
-                className={`w-7 h-7 flex items-center justify-center rounded-lg shrink-0 transition-all
-                  ${isPlaying ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-accent hover:bg-accent/10'}`}
-                title={isPlaying ? 'Stop' : 'Play'}
-              >
-                {isPlaying ? (
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                    <rect x="6" y="6" width="12" height="12" rx="1" />
-                  </svg>
-                ) : (
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
+              <div className="flex items-center gap-0.5 shrink-0">
+                {/* Play / Pause */}
+                <button
+                  onClick={() => handlePlay(s.filename)}
+                  className={`w-7 h-7 flex items-center justify-center rounded-lg transition-all
+                    ${isPlaying ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-accent hover:bg-accent/10'}`}
+                  title={isPlaying ? (paused ? 'Resume' : 'Pause') : 'Play'}
+                >
+                  {isPlaying && !paused ? (
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="5" width="4" height="14" rx="1" />
+                      <rect x="14" y="5" width="4" height="14" rx="1" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  )}
+                </button>
+                {/* Stop */}
+                {isPlaying && (
+                  <button
+                    onClick={stopAudio}
+                    className="w-7 h-7 flex items-center justify-center rounded-lg text-text-dim hover:text-danger hover:bg-danger/10 transition-all"
+                    title="Stop"
+                  >
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                      <rect x="6" y="6" width="12" height="12" rx="1" />
+                    </svg>
+                  </button>
                 )}
-              </button>
+              </div>
 
               <span className="flex-1 text-xs font-mono text-text-primary truncate">{s.name}</span>
 
@@ -482,6 +588,70 @@ export default function SoundsPage({ project, setProject, showToast }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
+
+              {/* Waveform + Seek */}
+              {isPlaying && waveform?.filename === s.filename && waveform.peaks && (
+                <div className="w-full col-span-full flex items-center gap-2 pt-1.5 pb-0.5">
+                  <div
+                    className="flex-1 h-10 relative cursor-pointer select-none"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // Pause audio during drag
+                      const wasPlaying = ctxRef.current && ctxRef.current.state === 'running';
+                      if (wasPlaying) ctxRef.current.suspend();
+                      if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      let lastX = 0;
+                      const drag = (ev) => {
+                        ev.preventDefault();
+                        lastX = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+                        seekTo(lastX, true); // visual only
+                      };
+                      drag(e);
+                      const up = () => {
+                        window.removeEventListener('mousemove', drag);
+                        window.removeEventListener('mouseup', up);
+                        seekTo(lastX, false); // commit: restart audio from this position
+                      };
+                      window.addEventListener('mousemove', drag);
+                      window.addEventListener('mouseup', up);
+                    }}
+                  >
+                    {/* Waveform bars */}
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="flex items-center gap-px h-full w-full">
+                        {waveform.peaks.map((p, i) => {
+                          const barPct = i / waveform.peaks.length;
+                          const played = barPct < playProgress;
+                          return (
+                            <div key={i} className="flex-1 flex items-center h-full">
+                              <div
+                                className={`w-full rounded-sm transition-colors duration-75 ${played ? 'bg-accent' : 'bg-text-dim/25'}`}
+                                style={{ height: `${Math.max(6, p * 100)}%` }}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    {/* Playhead line */}
+                    <div
+                      className="absolute top-0 bottom-0 w-0.5 bg-accent shadow-sm shadow-accent/50 pointer-events-none"
+                      style={{ left: `${playProgress * 100}%` }}
+                    />
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="text-xs text-accent font-mono tabular-nums block">
+                      {(playProgress * (waveform.duration || 0)).toFixed(1)}s
+                    </span>
+                    <span className="text-xs text-text-dim font-mono tabular-nums block">
+                      {waveform.duration?.toFixed(1)}s
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -498,7 +668,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
           <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[400px] flex flex-col">
             <div className="p-5 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">Dodaj u sounds.json</h3>
-              <p className="text-[11px] text-text-dim mt-0.5 font-mono">s_{addModal.name}</p>
+              <p className="text-xs text-text-dim mt-0.5 font-mono">s_{addModal.name}</p>
             </div>
             <div className="p-5 space-y-4">
               <div>
@@ -552,7 +722,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
             <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[400px] flex flex-col">
               <div className="p-5 border-b border-border">
                 <h3 className="text-sm font-bold text-text-primary">Dodaj sve u sounds.json</h3>
-                <p className="text-[11px] text-text-dim mt-0.5">{missing.length} zvuk(a) koji još nisu u JSON-u</p>
+                <p className="text-xs text-text-dim mt-0.5">{missing.length} zvuk(a) koji još nisu u JSON-u</p>
               </div>
               <div className="p-5 space-y-4">
                 <div>
@@ -571,7 +741,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
                       </div>
                     )}
                   </div>
-                  <p className="text-[11px] text-text-dim mt-2">
+                  <p className="text-xs text-text-dim mt-2">
                     Tagovi se detektuju po imenu: <span className="font-mono text-text-secondary">Music/Loop/Ambient/BG</span> → Music, ostalo → SoundEffects
                   </p>
                 </div>
@@ -610,7 +780,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
             <div className="p-5 border-b border-border flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-text-primary">Trash</h3>
-                <p className="text-[11px] text-text-dim mt-0.5">Restore sounds back to sourceSoundFiles</p>
+                <p className="text-xs text-text-dim mt-0.5">Restore sounds back to sourceSoundFiles</p>
               </div>
               <button onClick={() => setShowTrash(false)} className="text-text-dim hover:text-text-primary transition-colors">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

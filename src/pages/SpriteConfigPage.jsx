@@ -11,86 +11,190 @@ const SUBLOADER_OPTIONS = [
   { value: 'Z', label: 'SubLoader Z  —  lazy' },
 ];
 
-function tierLoadBadge(tierCfg) {
-  const id = tierCfg?.subLoaderId;
-  if (!id) return null;
-  const isLazy = id === 'Z';
-  return (
-    <span className={`badge text-xs ${isLazy ? 'bg-orange-dim text-orange' : 'bg-cyan-dim text-cyan'}`}>
-      {isLazy ? `Lazy ${id}` : `Deferred ${id}`}
-    </span>
-  );
-}
-
 function buildSnippet(tierName, tierCfg) {
   const id = tierCfg.subLoaderId;
   const isLazy = id === 'Z';
   const lines = [
     `// ── ${tierName} pool — SubLoader "${id}" ──`,
-    isLazy
-      ? `// Lazy: call just before you need these sounds`
-      : `// Deferred: start background load at the right lifecycle event`,
+    isLazy ? `// Lazy: call just before you need these sounds` : `// Deferred: start background load at the right lifecycle event`,
     `slotProps.startSubLoader("${id}");`,
   ];
   if (tierCfg.unloadable) {
-    lines.push('');
-    lines.push(`// Unload ${tierName} from RAM when session ends:`);
-    lines.push(`loaderService.soundLoader.unloadSubLoader("${id}");`);
+    lines.push('', `// Unload ${tierName} from RAM when session ends:`, `loaderService.soundLoader.unloadSubLoader("${id}");`);
   }
   return lines.join('\n');
 }
 
 function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
   const tierKeys = Object.keys(config.sprites || {});
-
   const resolveTier = (name) => {
     if (!name) return null;
-    const exact = tierKeys.find(k => k === name);
-    if (exact) return exact;
-    const ci = tierKeys.find(k => k.toLowerCase() === name.toLowerCase());
-    if (ci) return ci;
-    const fuzzy = tierKeys.find(k =>
-      k.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(k.toLowerCase())
-    );
-    return fuzzy ?? null;
+    return tierKeys.find(k => k === name) ?? tierKeys.find(k => k.toLowerCase() === name.toLowerCase()) ?? tierKeys.find(k => k.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(k.toLowerCase())) ?? null;
   };
-
-  // Priority-ordered patterns — first match wins
   const PATTERNS = [
-    // Standalone: music loops — too large for sprites
     { tier: 'standalone', re: /^(Base|Bonus|Main|Bg|Background)MusicLoop$/i },
     { tier: 'standalone', re: /MusicLoop$/i },
-
-    // Loading: minimum for first spin — UI controls, reel land, payline, base rollup
     { tier: 'loading', re: /^(Ui[A-Z]|ReelLand|Payline|RollupLow|BaseGameStart)/i },
-
-    // Bonus: all bonus modes (free spins, hold & win, picker) + transitions
     { tier: 'bonus', re: /^(Bonus|Picker|BaseToBonusStart|BonusToBase|FreeS|HoldAnd)/i },
-
-    // Main: everything else — symbols, big win, anticipation, rollups, screen effects
     { tier: 'main', re: /Symbol[A-Za-z]\d+(Land|Anticipation)/i },
     { tier: 'main', re: /^(BigWin|Anticipation[A-Z]|PreBonus)/i },
     { tier: 'main', re: /^(Symbol|Rollup[1-9]|ScreenShake|IntroStart|SymbolPreshow)/i },
   ];
-
   const fallback = resolveTier('main') ?? tierKeys[tierKeys.length - 1] ?? null;
-
   return unassigned.map(s => {
-    // 1. Tags in soundsJson take priority (explicit Music tag → standalone)
     const tags = soundsJson?.soundDefinitions?.soundSprites?.[`s_${s.name}`]?.tags ?? [];
     if (musicTags?.some(mt => tags.includes(mt))) return { name: s.name, tier: 'standalone' };
-
-    // 2. Name-based pattern matching
     for (const { tier, re } of PATTERNS) {
       if (!re.test(s.name)) continue;
       if (tier === 'standalone') return { name: s.name, tier: 'standalone' };
       const resolved = resolveTier(tier);
       if (resolved) return { name: s.name, tier: resolved };
     }
-
-    // 3. Fallback
     return { name: s.name, tier: fallback };
   });
+}
+
+// Pool color schemes
+const POOL_THEME = {
+  immediate: { accent: 'text-emerald-400', accentBg: 'bg-emerald-400', border: 'border-emerald-500/30', headerBg: 'bg-emerald-500/8', badge: 'bg-emerald-500/15 text-emerald-400', glow: 'shadow-emerald-500/5', label: 'IMMEDIATE', dot: 'bg-emerald-400' },
+  deferred:  { accent: 'text-sky-400',     accentBg: 'bg-sky-400',     border: 'border-sky-500/30',     headerBg: 'bg-sky-500/8',     badge: 'bg-sky-500/15 text-sky-400',     glow: 'shadow-sky-500/5',     label: 'DEFERRED',  dot: 'bg-sky-400' },
+  lazy:      { accent: 'text-amber-400',   accentBg: 'bg-amber-400',   border: 'border-amber-500/30',   headerBg: 'bg-amber-500/8',   badge: 'bg-amber-500/15 text-amber-400', glow: 'shadow-amber-500/5',   label: 'LAZY',      dot: 'bg-amber-400' },
+  standalone:{ accent: 'text-violet-400',  accentBg: 'bg-violet-400',  border: 'border-violet-500/30',  headerBg: 'bg-violet-500/8',  badge: 'bg-violet-500/15 text-violet-400',glow: 'shadow-violet-500/5', label: 'MUSIC',     dot: 'bg-violet-400' },
+};
+
+function getTheme(tierCfg, tierName) {
+  if (tierName === 'standalone') return POOL_THEME.standalone;
+  if (tierCfg?.subLoaderId === 'Z') return POOL_THEME.lazy;
+  if (tierCfg?.subLoaderId) return POOL_THEME.deferred;
+  return POOL_THEME.immediate;
+}
+
+const fmtSize = (kb) => kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
+
+function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, tierOptions, onMove, onUpdate, onCopy, copied, config }) {
+  const [expanded, setExpanded] = useState(true);
+  const [measuring, setMeasuring] = useState(false);
+  const [measuredKB, setMeasuredKB] = useState(null);
+  const displayKB = measuredKB ?? (sizeInfo.isActual ? sizeInfo.kb : null);
+  const over = maxKB > 0 && displayKB && displayKB > maxKB;
+  const pct = maxKB > 0 && displayKB ? Math.min(100, (displayKB / maxKB) * 100) : 0;
+  const isStandalone = tierName === 'standalone';
+  const isDeferred = !!tierCfg?.subLoaderId;
+
+  const handleMeasure = async () => {
+    if (sounds.length === 0) return;
+    setMeasuring(true);
+    try {
+      // Determine encoding for this tier
+      const enc = isStandalone
+        ? config?.encoding?.music || { bitrate: 96, channels: 2, samplerate: 44100 }
+        : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
+      const r = await window.api.measurePool({ tierName, sounds, encoding: enc });
+      if (r?.sizeKB !== undefined) setMeasuredKB(r.sizeKB);
+    } catch {}
+    setMeasuring(false);
+  };
+
+  return (
+    <div className={`rounded-2xl border ${theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl`}>
+      {/* Header */}
+      <div className={`${theme.headerBg} px-5 py-3.5 flex items-center gap-3 flex-wrap`}>
+        <span className={`w-2.5 h-2.5 rounded-full ${theme.dot} shrink-0`} />
+        <h3 className={`text-sm font-bold ${theme.accent} uppercase tracking-wide`}>{tierName}</h3>
+        <span className={`${theme.badge} text-xs font-bold px-2 py-0.5 rounded-md uppercase tracking-wider`}>{theme.label}</span>
+        {isDeferred && tierCfg.subLoaderId && (
+          <span className={`${theme.badge} text-xs font-bold px-2 py-0.5 rounded-md`}>"{tierCfg.subLoaderId}"</span>
+        )}
+        {tierCfg?.unloadable && (
+          <span className="bg-amber-500/15 text-amber-400 text-xs font-bold px-2 py-0.5 rounded-md">UNLOADABLE</span>
+        )}
+        <div className="flex-1" />
+        <span className="text-xs text-text-dim font-mono tabular-nums">{sounds.length} sounds</span>
+        {displayKB ? (
+          <span className={`text-xs font-mono tabular-nums font-semibold ${over ? 'text-danger' : theme.accent}`}>
+            {fmtSize(displayKB)}
+          </span>
+        ) : null}
+        <button
+          onClick={handleMeasure}
+          disabled={measuring || sounds.length === 0}
+          className={`text-xs px-3 py-1 rounded-lg font-semibold transition-all ${measuring ? 'text-text-dim cursor-wait' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover/50 cursor-pointer'} disabled:opacity-30 disabled:cursor-not-allowed`}
+        >
+          {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure'}
+        </button>
+      </div>
+
+      {/* Size bar — only show when we have data */}
+      {maxKB > 0 && displayKB > 0 && (
+        <div className="px-5 pt-2 pb-1">
+          <div className="h-1.5 bg-bg-hover rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-danger' : theme.accentBg}`} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className={`text-xs font-mono ${over ? 'text-danger' : 'text-text-dim'}`}>{Math.round(pct)}%</span>
+            <span className="text-xs text-text-dim font-mono">limit: {fmtSize(maxKB)}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Sounds */}
+      <div className="px-5 py-3">
+        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 text-xs text-text-dim hover:text-text-secondary transition-colors mb-2 uppercase tracking-widest font-bold">
+          <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          Sounds
+        </button>
+        {expanded && (
+          <div className="flex flex-wrap gap-1.5">
+            {sounds.map(s => (
+              <span key={s} className={`inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg text-xs font-mono border transition-all ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/5 line-through' : 'text-text-secondary border-border/60 bg-bg-primary/50 hover:border-border-bright hover:bg-bg-hover/50'}`}>
+                {s}
+                <select value="" onChange={(e) => { if (e.target.value) onMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-5 text-center appearance-none opacity-30 hover:opacity-100 transition-opacity" title="Move to...">
+                  <option value="">→</option>
+                  {tierOptions.filter(t => t !== tierName).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </span>
+            ))}
+            {sounds.length === 0 && <span className="text-xs text-text-dim/50 italic py-2">No sounds assigned yet</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Settings footer — only for deferred/lazy tiers */}
+      {!isStandalone && (
+        <div className="px-5 py-3 border-t border-border/20 bg-bg-primary/30 flex items-center gap-3 flex-wrap">
+          {/* Max size */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-text-dim uppercase tracking-wider font-semibold">Limit</span>
+            <input type="number" value={maxKB || 0} onChange={(e) => onUpdate(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base !w-20 text-center text-xs !py-1 !px-2 !rounded-lg" />
+            <span className="text-xs text-text-dim">KB</span>
+          </div>
+
+          {/* SubLoader select */}
+          <select value={tierCfg.subLoaderId || ''} onChange={(e) => onUpdate(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base text-xs !py-1 !px-2 !w-44 !rounded-lg">
+            {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+
+          {/* Unloadable checkbox */}
+          {isDeferred && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={tierCfg.unloadable === true} onChange={(e) => onUpdate(() => { tierCfg.unloadable = e.target.checked; })} className="w-3.5 h-3.5 accent-amber-400 rounded cursor-pointer" />
+              <span className="text-xs text-text-dim">Unloadable</span>
+            </label>
+          )}
+
+          {/* Snippet */}
+          {isDeferred && (
+            <div className="flex items-center gap-2 ml-auto">
+              <code className={`text-xs font-mono ${theme.accent} truncate max-w-xs`}>
+                startSubLoader("{tierCfg.subLoaderId}")
+              </code>
+              <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost !text-xs !py-0.5 !px-2.5 !rounded-lg">{copied === tierName ? '✓' : 'Copy'}</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function SpriteConfigPage({ project, showToast }) {
@@ -99,19 +203,13 @@ export default function SpriteConfigPage({ project, showToast }) {
   const [saving, setSaving]           = useState(false);
   const [assignTarget, setAssignTarget] = useState({});
   const [preview, setPreview]         = useState(null);
-  const [copied, setCopied]           = useState(null); // tier name that was just copied
+  const [copied, setCopied]           = useState(null);
   const copyTimerRef = useRef(null);
 
   useEffect(() => {
-    if (project?.spriteConfig) {
-      setConfig(structuredClone(project.spriteConfig));
-    } else {
-      setConfig(null);
-    }
-    setDirty(false);
-    setSaving(false);
-    setPreview(null);
-    setAssignTarget({});
+    if (project?.spriteConfig) setConfig(structuredClone(project.spriteConfig));
+    else setConfig(null);
+    setDirty(false); setSaving(false); setPreview(null); setAssignTarget({});
   }, [project?.path]);
 
   const unassigned = useMemo(() => {
@@ -130,46 +228,30 @@ export default function SpriteConfigPage({ project, showToast }) {
 
   const wavSet = useMemo(() => new Set((project?.sounds || []).map(s => s.name)), [project?.sounds]);
 
-  // WAV size lookup: soundName → sizeKB
   const wavSizeMap = useMemo(() => {
     const m = {};
     for (const s of (project?.sounds || [])) m[s.name] = s.sizeKB || 0;
     return m;
   }, [project?.sounds]);
 
-  // dist M4A sizes: { "gameName_tierName.m4a": sizeKB }
   const distSizes = project?.distInfo?.spriteSizes || {};
-  // gameName prefix for matching dist files to tiers
-  const gameName = (project?.settings?.gameProjectPath || '').split(/[/\\]/).pop()?.replace(/-game$/, '') || '';
+  // gameName from audio repo folder (not game repo) — matches how buildTiered.js names output files
+  const gameName = project?.path?.split(/[/\\]/).pop()?.replace(/-audio$/, '') || '';
 
-  // Pool size: returns { estKB, actualKB, isActual }
-  // If dist has a matching M4A, show actual. Otherwise estimate from WAV sizes.
-  const poolSizeInfo = (tierName, sounds, ratio = 8) => {
-    // Try to find actual M4A in dist — format: gameName_tierName.m4a
-    const possibleNames = [
-      `${gameName}_${tierName}.m4a`,
-      `${tierName}.m4a`,
-    ];
-    for (const fname of possibleNames) {
+  const poolSizeInfo = (tierName, sounds) => {
+    // Only show real M4A sizes from dist/ — no estimation
+    for (const fname of [`${gameName}_${tierName}.m4a`, `${tierName}.m4a`]) {
       if (distSizes[fname]) return { kb: distSizes[fname], isActual: true };
     }
-    // Standalone: each sound is its own M4A
     if (tierName === 'standalone') {
-      let total = 0;
-      let foundAny = false;
+      let total = 0, foundAny = false;
       for (const s of sounds) {
-        const fname = `${gameName}_${s}.m4a`;
-        if (distSizes[fname]) { total += distSizes[fname]; foundAny = true; }
-        else { const f2 = `${s}.m4a`; if (distSizes[f2]) { total += distSizes[f2]; foundAny = true; } }
+        for (const f of [`${gameName}_${s}.m4a`, `${s}.m4a`]) { if (distSizes[f]) { total += distSizes[f]; foundAny = true; break; } }
       }
       if (foundAny) return { kb: total, isActual: true };
     }
-    // Fallback: estimate from WAV
-    const totalWavKB = sounds.reduce((sum, name) => sum + (wavSizeMap[name] || 0), 0);
-    return { kb: Math.round(totalWavKB / ratio), isActual: false };
+    return { kb: 0, isActual: false };
   };
-
-  const formatSize = (kb) => kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb + ' KB';
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
@@ -182,38 +264,18 @@ export default function SpriteConfigPage({ project, showToast }) {
   }
 
   const tierOptions = [...Object.keys(config.sprites || {}), 'standalone'];
-
   const update = (fn) => { fn(); setConfig(structuredClone(config)); setDirty(true); };
-
-  const removeSoundFrom = (soundName, fromTier) => {
-    if (fromTier === 'standalone') {
-      if (config.standalone) config.standalone.sounds = (config.standalone.sounds || []).filter(s => s !== soundName);
-    } else if (config.sprites[fromTier]) {
-      config.sprites[fromTier].sounds = (config.sprites[fromTier].sounds || []).filter(s => s !== soundName);
-    }
-  };
-
-  const handleAssign = (soundName, tierKey) => {
-    if (!tierKey) return;
-    if (tierKey === 'standalone') {
-      update(() => {
-        if (!config.standalone) config.standalone = { sounds: [] };
-        if (!config.standalone.sounds.includes(soundName)) config.standalone.sounds.push(soundName);
-      });
-    } else {
-      if (!config.sprites[tierKey]) return;
-      update(() => {
-        if (!config.sprites[tierKey].sounds) config.sprites[tierKey].sounds = [];
-        if (!config.sprites[tierKey].sounds.includes(soundName)) config.sprites[tierKey].sounds.push(soundName);
-      });
-    }
-    setAssignTarget(prev => ({ ...prev, [soundName]: '' }));
-  };
 
   const handleMove = (soundName, fromTier, toTier) => {
     if (!toTier || toTier === fromTier) return;
     update(() => {
-      removeSoundFrom(soundName, fromTier);
+      // Remove from source
+      if (fromTier === 'standalone') {
+        if (config.standalone) config.standalone.sounds = (config.standalone.sounds || []).filter(s => s !== soundName);
+      } else if (config.sprites[fromTier]) {
+        config.sprites[fromTier].sounds = (config.sprites[fromTier].sounds || []).filter(s => s !== soundName);
+      }
+      // Add to target
       if (toTier === 'standalone') {
         if (!config.standalone) config.standalone = { sounds: [] };
         if (!config.standalone.sounds.includes(soundName)) config.standalone.sounds.push(soundName);
@@ -224,15 +286,18 @@ export default function SpriteConfigPage({ project, showToast }) {
     });
   };
 
-  const handleOpenPreview = () => {
-    const proposals = computeAutoAssign(unassigned, config, project?.soundsJson, config.musicTags);
-    setPreview(proposals);
-  };
-
-  const handleApplyPreview = () => {
-    if (!preview) return;
-    preview.forEach(({ name, tier }) => handleAssign(name, tier));
-    setPreview(null);
+  const handleAssign = (soundName, tierKey) => {
+    if (!tierKey) return;
+    update(() => {
+      if (tierKey === 'standalone') {
+        if (!config.standalone) config.standalone = { sounds: [] };
+        if (!config.standalone.sounds.includes(soundName)) config.standalone.sounds.push(soundName);
+      } else if (config.sprites[tierKey]) {
+        if (!config.sprites[tierKey].sounds) config.sprites[tierKey].sounds = [];
+        if (!config.sprites[tierKey].sounds.includes(soundName)) config.sprites[tierKey].sounds.push(soundName);
+      }
+    });
+    setAssignTarget(prev => ({ ...prev, [soundName]: '' }));
   };
 
   const handleSave = async () => {
@@ -241,9 +306,7 @@ export default function SpriteConfigPage({ project, showToast }) {
       const result = await window.api.saveSpriteConfig(config);
       if (result?.success) { setDirty(false); showToast('Sprite config saved', 'success'); }
       else showToast(result?.error || 'Save failed', 'error');
-    } catch (e) {
-      showToast('Save failed: ' + e.message, 'error');
-    }
+    } catch (e) { showToast('Save failed: ' + e.message, 'error'); }
     setSaving(false);
   };
 
@@ -255,301 +318,121 @@ export default function SpriteConfigPage({ project, showToast }) {
     }).catch(() => showToast('Clipboard copy failed', 'error'));
   };
 
-  const handleCopyAll = () => {
-    const all = deferredTiers.map(([n, tc]) => buildSnippet(n, tc)).join('\n\n');
-    handleCopy('__all__', all);
-  };
+  const handleOpenPreview = () => setPreview(computeAutoAssign(unassigned, config, project?.soundsJson, config.musicTags));
+  const handleApplyPreview = () => { if (!preview) return; preview.forEach(({ name, tier }) => handleAssign(name, tier)); setPreview(null); };
+  const handleCopyAll = () => handleCopy('__all__', deferredTiers.map(([n, tc]) => buildSnippet(n, tc)).join('\n\n'));
+
+  // Group tiers by loading type for visual ordering
+  const immediateTiers = Object.entries(config.sprites || {}).filter(([, tc]) => !tc.subLoaderId);
+  const deferredOnly = Object.entries(config.sprites || {}).filter(([, tc]) => tc.subLoaderId && tc.subLoaderId !== 'Z');
+  const lazyTiers = Object.entries(config.sprites || {}).filter(([, tc]) => tc.subLoaderId === 'Z');
+  const standaloneSounds = config.standalone?.sounds || [];
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-2">
-      {/* Header + Gap + Unassigned in one compact row group */}
+    <div className="anim-fade-up h-full flex flex-col gap-3">
+      {/* Header */}
       <div className="shrink-0 flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-text-primary">Sprite Configuration</h2>
-          <p className="text-xs text-text-dim mt-0.5">Tier-based grouping, loading strategy, and encoding</p>
+          <h2 className="text-xl font-bold text-text-primary">Sprite Config</h2>
+          <p className="text-xs text-text-dim mt-0.5">Audio pools, loading strategy, encoding</p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 card px-3 py-1.5">
-            <p className="section-label">Gap</p>
-            <input
-              type="number"
-              step="0.01"
-              value={config.spriteGap ?? 0.05}
-              onChange={(e) => update(() => { config.spriteGap = parseFloat(e.target.value) || 0; })}
-              className="input-base w-16 text-center text-xs py-1 px-2"
-            />
-            <span className="text-[11px] text-text-dim">s</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-bg-card border border-border rounded-xl px-3 py-1.5">
+            <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Gap</span>
+            <input type="number" step="0.01" value={config.spriteGap ?? 0.05} onChange={(e) => update(() => { config.spriteGap = parseFloat(e.target.value) || 0; })} className="input-base !w-14 text-center text-xs !py-0.5 !px-1 !rounded-lg" />
+            <span className="text-xs text-text-dim">s</span>
           </div>
-          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary text-xs' : 'btn-ghost text-xs opacity-50 cursor-not-allowed'}>
-            {dirty ? 'Save' : 'Saved'}
+          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary text-xs' : 'btn-ghost text-xs opacity-40 cursor-not-allowed'}>
+            {saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}
           </button>
         </div>
       </div>
 
-      {/* Unassigned — compact banner */}
+      {/* Unassigned banner */}
       {unassigned.length > 0 && (
-        <div className="card p-3 border border-orange/30 shrink-0">
-          <div className="flex items-center gap-2 mb-2">
-            <span className="badge bg-orange-dim text-orange text-xs">Unassigned</span>
-            <span className="text-[11px] text-text-dim">{unassigned.length} sound{unassigned.length !== 1 ? 's' : ''} not in any tier</span>
-            <button onClick={handleOpenPreview} className="ml-auto btn-primary text-xs py-1 px-3">
-              Auto-Assign All
-            </button>
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 shrink-0">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0 anim-pulse-dot" />
+            <span className="text-xs font-bold text-amber-400 uppercase tracking-wide">{unassigned.length} Unassigned</span>
+            <div className="flex-1" />
+            <button onClick={handleOpenPreview} className="btn-primary text-xs py-1.5 px-4">Auto-Assign</button>
           </div>
-          <div className="space-y-1">
+          <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto">
             {unassigned.map(s => (
-              <div key={s.name} className="flex items-center gap-2">
-                <span className="font-mono text-[11px] text-text-primary flex-1 truncate">{s.name}</span>
-                <select
-                  value={assignTarget[s.name] || ''}
-                  onChange={e => setAssignTarget(prev => ({ ...prev, [s.name]: e.target.value }))}
-                  className="input-base text-xs py-1 px-2 w-36"
-                >
-                  <option value="">Pick tier...</option>
-                  {Object.keys(config.sprites || {}).map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
+              <div key={s.name} className="flex items-center gap-1.5 bg-bg-primary/40 rounded-lg px-2 py-1">
+                <span className="font-mono text-xs text-text-secondary flex-1 truncate">{s.name}</span>
+                <select value={assignTarget[s.name] || ''} onChange={e => setAssignTarget(prev => ({ ...prev, [s.name]: e.target.value }))} className="input-base text-xs !py-0.5 !px-1.5 !w-24 !rounded-lg">
+                  <option value="">Tier...</option>
+                  {Object.keys(config.sprites || {}).map(t => <option key={t}>{t}</option>)}
                   <option value="standalone">Standalone</option>
                 </select>
-                <button
-                  onClick={() => handleAssign(s.name, assignTarget[s.name])}
-                  disabled={!assignTarget[s.name]}
-                  className="btn-primary text-xs py-1 px-2.5 disabled:opacity-40 disabled:cursor-not-allowed"
-                >Add</button>
+                <button onClick={() => handleAssign(s.name, assignTarget[s.name])} disabled={!assignTarget[s.name]} className="text-xs font-bold text-accent disabled:text-text-dim/30 hover:text-accent-hover transition-colors">Add</button>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Pools */}
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-6 pr-1">
+      {/* Pool cards */}
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
 
-        {/* Each immediate pool as its own section */}
-        {Object.entries(config.sprites || {}).filter(([, tc]) => !tc.subLoaderId).map(([tierName, tierCfg]) => {
-          const size = poolSizeInfo(tierName, tierCfg.sounds || []);
-          const overLimit = tierCfg.maxSizeKB && size.kb > tierCfg.maxSizeKB;
-          return (
-          <div key={tierName} className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="h-px flex-1 bg-green/30" />
-              <span className="text-[10px] font-bold tracking-widest uppercase text-green">{tierName}</span>
-              <span className="text-[10px] text-green/60">IMMEDIATE</span>
-              <div className="h-px flex-1 bg-green/30" />
-            </div>
-            <div className="card p-4 space-y-3 border-l-2 border-l-green/50">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="badge bg-green-dim text-green text-xs">immediate</span>
-                <span className="text-[11px] text-text-dim">{(tierCfg.sounds || []).length} sounds</span>
-                <span className={`text-[11px] font-mono ${overLimit ? 'text-danger font-semibold' : 'text-text-dim'}`}>{size.isActual ? '' : '~'}{formatSize(size.kb)}</span>
-                {tierCfg.description && <span className="text-[11px] text-text-dim italic">— {tierCfg.description}</span>}
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <span className="text-[11px] text-text-dim">Max:</span>
-                  <input type="number" value={tierCfg.maxSizeKB || 700} onChange={(e) => update(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base w-18 text-center text-xs py-1 px-2" />
-                  <span className="text-[11px] text-text-dim">KB</span>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {(tierCfg.sounds || []).map(s => (
-                  <span key={s} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono border ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/10' : 'text-text-secondary border-border bg-bg-primary hover:border-border-bright'}`}>
-                    {s}
-                    <select value="" onChange={(e) => { if (e.target.value) handleMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-4 appearance-none opacity-40 hover:opacity-100" title="Move to...">
-                      <option value="">→</option>
-                      {tierOptions.filter(t => t !== tierName).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </span>
-                ))}
-                {(tierCfg.sounds || []).length === 0 && <span className="text-[11px] text-text-dim italic">No sounds assigned</span>}
-              </div>
-            </div>
-          </div>
-          );
-        })}
+        {/* Immediate pools */}
+        {immediateTiers.map(([name, cfg]) => (
+          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+        ))}
 
-        {/* ── STANDALONE ── */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="h-px flex-1 bg-green/30" />
-            <span className="text-[10px] font-bold tracking-widest uppercase text-green">Standalone Music</span>
-            <span className="text-[10px] text-green/60">IMMEDIATE</span>
-            <div className="h-px flex-1 bg-green/30" />
-          </div>
-          {(() => { const sz = poolSizeInfo('standalone', config.standalone?.sounds || [], 5); return (
-          <div className="card p-4 space-y-3 border-l-2 border-l-green/50">
-            <div className="flex items-center gap-2">
-              <span className="badge bg-green-dim text-green text-xs">immediate</span>
-              <span className="text-[11px] text-text-dim">{(config.standalone?.sounds || []).length} sounds</span>
-              <span className="text-[11px] font-mono text-text-dim">{sz.isActual ? '' : '~'}{formatSize(sz.kb)}</span>
-              <span className="text-[11px] text-text-dim italic">— individual M4A per sound (loopable music)</span>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {(config.standalone?.sounds || []).map(s => (
-                <span key={s} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono border ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/10' : 'text-text-secondary border-border bg-bg-primary hover:border-border-bright'}`}>
-                  {s}
-                  <select value="" onChange={(e) => { if (e.target.value) handleMove(s, 'standalone', e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-4 appearance-none opacity-40 hover:opacity-100" title="Move to...">
-                    <option value="">→</option>
-                    {tierOptions.filter(t => t !== 'standalone').map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </span>
-              ))}
-              {(config.standalone?.sounds || []).length === 0 && <span className="text-[11px] text-text-dim italic">No sounds assigned</span>}
-            </div>
-          </div>
-          ); })()}
-        </div>
+        {/* Standalone */}
+        {(standaloneSounds.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
+          <PoolCard tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds, 5)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+        )}
 
-        {/* Each deferred pool as its own section */}
-        {Object.entries(config.sprites || {}).filter(([, tc]) => tc.subLoaderId && tc.subLoaderId !== 'Z').map(([tierName, tierCfg]) => {
-          const size = poolSizeInfo(tierName, tierCfg.sounds || []);
-          const overLimit = tierCfg.maxSizeKB && size.kb > tierCfg.maxSizeKB;
-          return (
-          <div key={tierName} className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="h-px flex-1 bg-cyan/30" />
-              <span className="text-[10px] font-bold tracking-widest uppercase text-cyan">{tierName}</span>
-              <span className="text-[10px] text-cyan/60">DEFERRED "{tierCfg.subLoaderId}"</span>
-              <div className="h-px flex-1 bg-cyan/30" />
-            </div>
-            <div className="card p-4 space-y-3 border-l-2 border-l-cyan/50">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="badge bg-cyan-dim text-cyan text-xs">SubLoader "{tierCfg.subLoaderId}"</span>
-                {tierCfg.unloadable && <span className="badge bg-orange-dim text-orange text-xs">unloadable</span>}
-                <span className="text-[11px] text-text-dim">{(tierCfg.sounds || []).length} sounds</span>
-                <span className={`text-[11px] font-mono ${overLimit ? 'text-danger font-semibold' : 'text-text-dim'}`}>{size.isActual ? '' : '~'}{formatSize(size.kb)}</span>
-                {tierCfg.description && <span className="text-[11px] text-text-dim italic">— {tierCfg.description}</span>}
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <span className="text-[11px] text-text-dim">Max:</span>
-                  <input type="number" value={tierCfg.maxSizeKB || 3000} onChange={(e) => update(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base w-18 text-center text-xs py-1 px-2" />
-                  <span className="text-[11px] text-text-dim">KB</span>
-                </div>
-              </div>
+        {/* Deferred pools */}
+        {deferredOnly.map(([name, cfg]) => (
+          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+        ))}
 
-              {/* Sound chips */}
-              <div className="flex flex-wrap gap-1">
-                {(tierCfg.sounds || []).map(s => (
-                  <span key={s} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono border ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/10' : 'text-text-secondary border-border bg-bg-primary hover:border-border-bright'}`}>
-                    {s}
-                    <select value="" onChange={(e) => { if (e.target.value) handleMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-4 appearance-none opacity-40 hover:opacity-100" title="Move to...">
-                      <option value="">→</option>
-                      {tierOptions.filter(t => t !== tierName).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </span>
-                ))}
-                {(tierCfg.sounds || []).length === 0 && <span className="text-[11px] text-text-dim italic">No sounds assigned</span>}
-              </div>
-
-              {/* Settings + snippet footer */}
-              <div className="flex items-center gap-3 flex-wrap pt-2 border-t border-border/30">
-                <select value={tierCfg.subLoaderId || ''} onChange={(e) => update(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base text-xs py-1 px-2 w-44">
-                  {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={tierCfg.unloadable === true} onChange={(e) => update(() => { tierCfg.unloadable = e.target.checked; })} className="w-3.5 h-3.5 accent-orange rounded cursor-pointer" />
-                  <span className="text-[11px] text-text-dim">Unloadable after use</span>
-                </label>
-                <div className="flex items-center gap-2 ml-auto bg-bg-primary rounded-lg px-3 py-1.5">
-                  <code className="text-[11px] font-mono text-cyan truncate">
-                    startSubLoader("{tierCfg.subLoaderId}");{tierCfg.unloadable ? `  →  unloadSubLoader("${tierCfg.subLoaderId}");` : ''}
-                  </code>
-                  <button onClick={() => handleCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost text-[10px] py-0.5 px-2 shrink-0">{copied === tierName ? '✓' : 'Copy'}</button>
-                </div>
-              </div>
-            </div>
-          </div>
-          );
-        })}
-
-        {/* Each lazy pool as its own section */}
-        {Object.entries(config.sprites || {}).filter(([, tc]) => tc.subLoaderId === 'Z').map(([tierName, tierCfg]) => {
-          const size = poolSizeInfo(tierName, tierCfg.sounds || []);
-          const overLimit = tierCfg.maxSizeKB && size.kb > tierCfg.maxSizeKB;
-          return (
-          <div key={tierName} className="space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="h-px flex-1 bg-orange/30" />
-              <span className="text-[10px] font-bold tracking-widest uppercase text-orange">{tierName}</span>
-              <span className="text-[10px] text-orange/60">LAZY</span>
-              <div className="h-px flex-1 bg-orange/30" />
-            </div>
-            <div className="card p-4 space-y-3 border-l-2 border-l-orange/50">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="badge bg-orange-dim text-orange text-xs">Lazy "Z"</span>
-                <span className="text-[11px] text-text-dim">{(tierCfg.sounds || []).length} sounds</span>
-                <span className={`text-[11px] font-mono ${overLimit ? 'text-danger font-semibold' : 'text-text-dim'}`}>{size.isActual ? '' : '~'}{formatSize(size.kb)}</span>
-                {tierCfg.description && <span className="text-[11px] text-text-dim italic">— {tierCfg.description}</span>}
-                <div className="flex items-center gap-1.5 ml-auto">
-                  <span className="text-[11px] text-text-dim">Max:</span>
-                  <input type="number" value={tierCfg.maxSizeKB || 1500} onChange={(e) => update(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base w-18 text-center text-xs py-1 px-2" />
-                  <span className="text-[11px] text-text-dim">KB</span>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {(tierCfg.sounds || []).map(s => (
-                  <span key={s} className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono border ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/10' : 'text-text-secondary border-border bg-bg-primary hover:border-border-bright'}`}>
-                    {s}
-                    <select value="" onChange={(e) => { if (e.target.value) handleMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-4 appearance-none opacity-40 hover:opacity-100" title="Move to...">
-                      <option value="">→</option>
-                      {tierOptions.filter(t => t !== tierName).map(t => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </span>
-                ))}
-                {(tierCfg.sounds || []).length === 0 && <span className="text-[11px] text-text-dim italic">No sounds assigned</span>}
-              </div>
-            </div>
-          </div>
-          );
-        })}
+        {/* Lazy pools */}
+        {lazyTiers.map(([name, cfg]) => (
+          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} />
+        ))}
 
         {/* Encoding */}
-        <div className="card p-3 space-y-2">
-          <p className="section-label">Encoding</p>
-          {Object.entries(config.encoding || {}).map(([key, enc]) => (
-            <div key={key} className="flex items-center gap-3 flex-wrap">
-              <span className="badge bg-cyan-dim text-cyan w-16 justify-center shrink-0">{key}</span>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={enc.keepOriginal === true}
-                  onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })}
-                  className="w-3.5 h-3.5 accent-accent rounded cursor-pointer"
-                />
-                <span className="text-[11px] text-text-dim">Keep Original</span>
-              </label>
-              {enc.keepOriginal ? (
-                <span className="text-[11px] text-text-dim italic">320kbps, source channels & rate</span>
-              ) : (
-                <>
-                  <span className="text-[11px] text-text-dim">Bitrate:</span>
-                  <input
-                    type="number"
-                    value={enc.bitrate || 64}
-                    onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value) || 64; })}
-                    className="input-base w-16 text-center text-xs py-1 px-2"
-                  />
-                  <span className="text-[11px] text-text-dim">kbps</span>
-                  <span className="text-[11px] text-text-dim ml-3">Channels:</span>
-                  <select
-                    value={enc.channels || 2}
-                    onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })}
-                    className="input-base w-24 text-xs py-1 px-2"
-                  >
-                    <option value={1}>Mono</option>
-                    <option value={2}>Stereo</option>
-                  </select>
-                </>
-              )}
-            </div>
-          ))}
+        <div className="rounded-2xl border border-border/50 overflow-hidden">
+          <div className="bg-bg-hover/30 px-5 py-3 flex items-center gap-2">
+            <span className="text-xs font-bold tracking-widest uppercase text-text-dim">Encoding</span>
+          </div>
+          <div className="px-5 py-3 space-y-2">
+            {Object.entries(config.encoding || {}).map(([key, enc]) => (
+              <div key={key} className="flex items-center gap-3 flex-wrap">
+                <span className={`text-xs font-bold uppercase tracking-wider w-12 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-3.5 h-3.5 accent-accent rounded cursor-pointer" />
+                  <span className="text-xs text-text-dim">Keep Original</span>
+                </label>
+                {enc.keepOriginal ? (
+                  <span className="text-xs text-text-dim italic">320kbps, source channels & rate</span>
+                ) : (
+                  <>
+                    <span className="text-xs text-text-dim">Bitrate:</span>
+                    <input type="number" value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value) || 64; })} className="input-base !w-16 text-center text-xs !py-0.5 !px-1 !rounded-lg" />
+                    <span className="text-xs text-text-dim">kbps</span>
+                    <span className="text-xs text-text-dim ml-2">Ch:</span>
+                    <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-20 text-xs !py-0.5 !px-1 !rounded-lg">
+                      <option value={1}>Mono</option>
+                      <option value={2}>Stereo</option>
+                    </select>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Copy All Deferred Snippets */}
+        {/* Copy all snippets */}
         {deferredTiers.length > 0 && (
-          <div className="flex justify-end">
-            <button
-              onClick={handleCopyAll}
-              className="btn-ghost text-[11px] py-1.5 px-3"
-            >
-              {copied === '__all__' ? '✓ All snippets copied' : 'Copy all SubLoader snippets'}
+          <div className="flex justify-end pb-2">
+            <button onClick={handleCopyAll} className="btn-ghost text-xs py-1.5 px-4">
+              {copied === '__all__' ? '✓ Copied' : 'Copy All SubLoader Snippets'}
             </button>
           </div>
         )}
@@ -558,23 +441,17 @@ export default function SpriteConfigPage({ project, showToast }) {
       {/* Auto-Assign Preview Modal */}
       {preview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[480px] max-h-[80vh] flex flex-col">
+          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] mx-4 flex flex-col">
             <div className="p-5 border-b border-border">
               <h3 className="text-sm font-bold text-text-primary">Auto-Assign Preview</h3>
-              <p className="text-[11px] text-text-dim mt-0.5">Review assignments before applying. You can change any tier.</p>
+              <p className="text-xs text-text-dim mt-0.5">Review before applying. Change any tier below.</p>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
               {preview.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-2">
+                <div key={item.name} className="flex items-center gap-2 bg-bg-primary/30 rounded-lg px-3 py-1.5">
                   <span className="font-mono text-xs text-text-primary flex-1 truncate">{item.name}</span>
-                  <select
-                    value={item.tier || ''}
-                    onChange={e => setPreview(prev => prev.map((p, j) => j === i ? { ...p, tier: e.target.value } : p))}
-                    className="input-base text-xs py-1 px-2 w-36"
-                  >
-                    {tierOptions.map(t => (
-                      <option key={t} value={t}>{t === 'standalone' ? 'Standalone Music' : t}</option>
-                    ))}
+                  <select value={item.tier || ''} onChange={e => setPreview(prev => prev.map((p, j) => j === i ? { ...p, tier: e.target.value } : p))} className="input-base text-xs !py-1 !px-2 !w-32 !rounded-lg">
+                    {tierOptions.map(t => <option key={t} value={t}>{t === 'standalone' ? 'Standalone' : t}</option>)}
                   </select>
                 </div>
               ))}

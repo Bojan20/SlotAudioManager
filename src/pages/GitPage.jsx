@@ -95,7 +95,7 @@ export default function GitPage({ project, showToast }) {
                   else if (code.includes('R')) { label = 'REN'; }
                   return (
                     <div key={i} className="flex items-center gap-2 py-1 border-b border-border/30 last:border-0">
-                      <span className={`badge text-[10px] w-9 justify-center ${
+                      <span className={`badge text-xs w-9 justify-center ${
                         label === 'NEW' ? 'bg-cyan-dim text-cyan' :
                         label === 'ADD' ? 'bg-green-dim text-green' :
                         label === 'DEL' ? 'bg-danger-dim text-danger' :

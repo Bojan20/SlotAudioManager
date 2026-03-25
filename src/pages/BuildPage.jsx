@@ -134,55 +134,60 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     );
   }
 
-  const pullAndBuild = async () => {
-    setRunning('pull-build'); setLog(''); setResult(null);
+  const fullPipeline = async () => {
+    setRunning('pipeline'); setLog(''); setResult(null);
+    const step = (label) => setLog(prev => prev + `\n━━ ${label} ━━\n`);
     try {
-      // Step 1: Pull sounds.json from game repo
-      setLog('── Pull sounds.json from game repo ──\n');
+      // Step 1: Pull
+      step('Step 1/4 — Pull sounds.json');
       const pull = await window.api.pullGameJson();
       if (!pull?.success) {
-        setLog(prev => prev + `✖ ${pull?.error || 'Failed to pull JSON'}`);
-        setResult({ script: 'pull-build', ok: false });
-        showToast(pull?.error || 'Pull failed', 'error');
-        setRunning(null);
-        return;
+        setLog(prev => prev + `✖ ${pull?.error || 'Failed'}`);
+        setResult({ script: 'pipeline', ok: false }); showToast('Pipeline failed at Pull', 'error'); setRunning(null); return;
       }
       if (pull.project) setProject(pull.project);
-      setLog(prev => prev + `✔ Copied from:\n  ${pull.source}\n\n`);
+      setLog(prev => prev + `✔ Copied from: ${pull.source}\n`);
 
-      // Step 2: Build audio (npm run build)
-      setLog(prev => prev + '── npm run build ──\n');
+      // Step 2: Build
+      step('Step 2/4 — Build');
       const build = await window.api.runScript('build');
       if (!build?.success) {
         setLog(prev => prev + '\n✖ Build failed');
-        setResult({ script: 'pull-build', ok: false });
-        showToast('Build failed after pull', 'error');
-        setRunning(null);
-        return;
+        setResult({ script: 'pipeline', ok: false }); showToast('Pipeline failed at Build', 'error'); setRunning(null); return;
       }
-      setLog(prev => prev + '\n✔ Build complete\n\n');
+      setLog(prev => prev + '\n✔ Build complete\n');
 
-      // Step 3: Reload project + auto-deploy
+      // Step 3: Validate
+      step('Step 3/4 — Validate');
+      const validate = await window.api.runScript('build-validate');
+      if (!validate?.success) {
+        setLog(prev => prev + '\n⚠ Validation has errors — check log above');
+      } else {
+        setLog(prev => prev + '\n✔ Validation passed\n');
+      }
+
+      // Step 4: Deploy
       const refreshed = await window.api.reloadProject();
       if (refreshed && setProject) setProject(refreshed);
-      const refreshedDistOk = refreshed?.distInfo?.hasDist && refreshed?.distInfo?.hasSoundsJson;
-      const canDeploy = deployScripts.includes('deploy') && !!(refreshed?.gameRepoAbsPath) && (refreshed?.gameRepoExists ?? false) && refreshedDistOk;
+      const canDeploy = deployScripts.includes('deploy') && refreshed?.gameRepoExists && refreshed?.distInfo?.hasDist;
       if (canDeploy) {
-        setLog(prev => prev + '── Auto-deploying ──\n');
+        step('Step 4/4 — Deploy');
         const dr = await window.api.runDeploy('deploy');
-        setResult({ script: 'pull-build', ok: dr?.success ?? false });
-        showToast(dr?.success ? 'Pull → Build → Deploy završen' : 'Deploy failed', dr?.success ? 'success' : 'error');
+        setLog(prev => prev + (dr?.success ? '\n✔ Deployed\n' : '\n✖ Deploy failed\n'));
+        setResult({ script: 'pipeline', ok: dr?.success ?? false });
+        showToast(dr?.success ? 'Full Pipeline complete' : 'Pipeline: deploy failed', dr?.success ? 'success' : 'error');
       } else {
-        setResult({ script: 'pull-build', ok: true });
-        showToast('Pull → Build završen', 'success');
+        setResult({ script: 'pipeline', ok: !validate?.success ? false : true });
+        showToast(canDeploy === false && !deployScripts.includes('deploy') ? 'Pipeline done (no deploy script)' : 'Pipeline done', validate?.success ? 'success' : 'error');
       }
     } catch (e) {
       setLog(prev => prev + '\nError: ' + e.message);
-      setResult({ script: 'pull-build', ok: false });
-      showToast('Error', 'error');
+      setResult({ script: 'pipeline', ok: false }); showToast('Pipeline error', 'error');
     }
     setRunning(null);
   };
+
+  const pullAndBuild = fullPipeline;
 
   const runScript = async (scriptName) => {
     setRunning(scriptName); setLog(''); setResult(null);
@@ -318,12 +323,12 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   return (
     <div className="anim-fade-up h-full flex flex-col gap-2">
       {/* Header */}
-      <div className="shrink-0 py-0.5">
+      <div className="shrink-0 py-1">
         <h2 className="text-xl font-bold text-text-primary">Build & Deploy</h2>
       </div>
 
       {/* 2-column grid - takes all remaining space */}
-      <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
 
         {/* LEFT column */}
         <div className="flex flex-col gap-2 min-h-0 overflow-y-auto pr-1">
@@ -332,7 +337,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
           <div className="card p-3 space-y-2">
             <div className="flex items-center gap-2 mb-1">
               <span className="badge bg-cyan-dim text-cyan text-xs">Build Scripts</span>
-              {result && (result.script === 'pull-build' || buildScripts.includes(result.script)) && (
+              {result && (result.script === 'pipeline' || buildScripts.includes(result.script)) && (
                 <span className={`badge ${result.ok ? 'bg-green-dim text-green' : 'bg-danger-dim text-danger'}`}>
                   {result.ok ? 'PASSED' : 'FAILED'}
                 </span>
@@ -340,18 +345,18 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               <div className="ml-auto flex items-center gap-1.5">
                 {deployTarget && (
                   <button
-                    onClick={pullAndBuild}
+                    onClick={fullPipeline}
                     disabled={running !== null}
-                    className={running === 'pull-build' ? 'btn-ghost text-green border-green/30 cursor-wait text-[11px] py-1 px-3' : 'btn-primary text-[11px] py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed'}
+                    className={running === 'pipeline' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-3' : 'btn-primary text-xs py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed'}
                   >
-                    {running === 'pull-build' && <span className="inline-block w-2 h-2 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
-                    {running === 'pull-build' ? 'Running...' : 'Pull & Build'}
+                    {running === 'pipeline' && <span className="inline-block w-2 h-2 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
+                    {running === 'pipeline' ? 'Running...' : 'Full Pipeline'}
                   </button>
                 )}
                 <button
                   onClick={handleCleanDist}
                   disabled={cleaning || running !== null}
-                  className="btn-ghost text-[11px] py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="btn-ghost text-xs py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {cleaning ? 'Cleaning...' : 'Clean dist/'}
                 </button>
@@ -396,7 +401,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               {distInfo.sprites.length > 0 && (
                 <div className="flex flex-wrap gap-1 pt-0.5">
                   {distInfo.sprites.map(s => (
-                    <span key={s} className="text-[10px] font-mono text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">{s}</span>
+                    <span key={s} className="text-xs font-mono text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">{s}</span>
                   ))}
                 </div>
               )}
@@ -418,17 +423,17 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               <div className="space-y-1">
                 <div className="flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full shrink-0 ${deployTargetExists ? 'bg-green' : 'bg-orange'}`} />
-                  <p className="text-[11px] text-text-secondary font-mono truncate">{deployTarget}</p>
+                  <p className="text-xs text-text-secondary font-mono truncate">{deployTarget}</p>
                 </div>
-                <p className="text-[10px] text-text-dim pl-3.5">→ assets/default/default/default/sounds/</p>
+                <p className="text-xs text-text-dim pl-3.5">→ assets/default/default/default/sounds/</p>
                 {!deployTargetExists && (
-                  <p className="text-[10px] text-orange pl-3.5">Game repo folder not found — provjeri putanju u Setup-u</p>
+                  <p className="text-xs text-orange pl-3.5">Game repo folder not found — provjeri putanju u Setup-u</p>
                 )}
                 {!distInfo?.hasDist && (
-                  <p className="text-[10px] text-orange pl-3.5">Pokreni build prvo prije deploy-a</p>
+                  <p className="text-xs text-orange pl-3.5">Pokreni build prvo prije deploy-a</p>
                 )}
                 {distInfo?.hasDist && !distInfo?.hasSoundsJson && (
-                  <p className="text-[10px] text-orange pl-3.5">dist/sounds.json nedostaje — ponovi build</p>
+                  <p className="text-xs text-orange pl-3.5">dist/sounds.json nedostaje — ponovi build</p>
                 )}
               </div>
             ) : (
@@ -493,7 +498,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 {(running?.startsWith('game:') || gameStarted) && (
                   <button
                     onClick={() => { window.api.killGame(); setRunning(null); setGameStarted(false); showToast('Game process killed', 'success'); }}
-                    className="btn-ghost text-danger border-danger/30 text-[10px] py-1 px-2"
+                    className="btn-ghost text-danger border-danger/30 text-xs py-1 px-2"
                   >
                     Kill
                   </button>
@@ -501,7 +506,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 <button
                   onClick={loadGameScripts}
                   disabled={loadingGameScripts || running !== null}
-                  className="text-[10px] text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40"
+                  className="text-xs text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40"
                 >
                   {loadingGameScripts ? 'Loading...' : 'Refresh'}
                 </button>
@@ -555,12 +560,12 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="badge bg-orange-dim text-orange text-xs">Local Audio Test</span>
-                <span className="badge bg-green-dim text-green text-[10px]">No VPN</span>
+                <span className="badge bg-green-dim text-green text-xs">No VPN</span>
               </div>
               <button
                 onClick={loadGlrList}
                 disabled={glrLoading || running !== null}
-                className="text-[10px] text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40"
+                className="text-xs text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40"
               >
                 {glrLoading ? 'Loading...' : 'Refresh'}
               </button>
@@ -607,7 +612,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
           <div className="flex items-center gap-2">
             <span className="section-label">Output</span>
             {running && (
-              <span className="flex items-center gap-1.5 text-[11px] text-cyan">
+              <span className="flex items-center gap-1.5 text-xs text-cyan">
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan anim-pulse-dot" />
                 live
               </span>

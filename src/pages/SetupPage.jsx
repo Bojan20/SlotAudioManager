@@ -157,7 +157,7 @@ export default function SetupPage({ project, setProject, showToast }) {
       </div>
 
       {/* 2-column body */}
-      <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
 
         {/* LEFT — Game Repo + NPM + Logs */}
         <div className="flex flex-col gap-2 min-h-0">
@@ -199,8 +199,8 @@ export default function SetupPage({ project, setProject, showToast }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                 </svg>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-mono text-text-primary truncate">{gameRepoPath}</p>
-                  <p className="text-[10px] text-text-dim">→ assets/default/default/default/sounds/</p>
+                  <p className="text-xs font-mono text-text-primary truncate">{gameRepoPath}</p>
+                  <p className="text-xs text-text-dim">→ assets/default/default/default/sounds/</p>
                 </div>
               </div>
             ) : (
@@ -208,7 +208,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                 <svg className="w-3.5 h-3.5 text-text-dim shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                 </svg>
-                <p className="text-[11px] text-text-dim">No repo linked — deploy won't work</p>
+                <p className="text-xs text-text-dim">No repo linked — deploy won't work</p>
               </div>
             )}
 
@@ -219,7 +219,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                     <svg className={`w-3 h-3 shrink-0 ${line.startsWith('Warning') ? 'text-orange' : 'text-green'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d={line.startsWith('Warning') ? 'M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' : 'M5 13l4 4L19 7'} />
                     </svg>
-                    <span className={`text-[11px] font-mono ${line.startsWith('Warning') ? 'text-orange' : 'text-text-secondary'}`}>{line}</span>
+                    <span className={`text-xs font-mono ${line.startsWith('Warning') ? 'text-orange' : 'text-text-secondary'}`}>{line}</span>
                   </div>
                 ))}
               </div>
@@ -229,7 +229,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               <div className="mt-2 pt-2 border-t border-border space-y-2">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[11px] text-text-secondary">
+                    <p className="text-xs text-text-secondary">
                       Game <span className="font-mono text-accent">yarn install</span>
                       {project?.gameNodeModulesExists === false && (
                         <span className="ml-2 text-orange font-semibold">· node_modules missing!</span>
@@ -246,7 +246,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                   </button>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] text-text-secondary">
+                  <p className="text-xs text-text-secondary">
                     Pull <span className="font-mono text-accent">sounds.json</span> from game repo
                   </p>
                   <button
@@ -259,7 +259,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                   </button>
                 </div>
                 {gameInstallLog && (
-                  <pre className="mt-2 p-2 rounded-lg bg-bg-input border border-border text-[11px] font-mono text-text-secondary overflow-auto max-h-24 whitespace-pre-wrap leading-relaxed">
+                  <pre className="mt-2 p-2 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-secondary overflow-auto max-h-24 whitespace-pre-wrap leading-relaxed">
                     {gameInstallLog}
                   </pre>
                 )}
@@ -272,7 +272,7 @@ export default function SetupPage({ project, setProject, showToast }) {
             <div className="flex items-center justify-between mb-1">
               <div>
                 <p className="section-label">Dependencies</p>
-                <p className="text-[11px] text-text-secondary mt-0.5">Run <span className="font-mono text-accent">npm install</span> in project</p>
+                <p className="text-xs text-text-secondary mt-0.5">Run <span className="font-mono text-accent">npm install</span> in project</p>
               </div>
               <button
                 onClick={npmInstall}
@@ -284,7 +284,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               </button>
             </div>
             {installLog && (
-              <pre className="mt-2 p-3 rounded-lg bg-bg-input border border-border text-[11px] font-mono text-text-secondary overflow-auto max-h-32 whitespace-pre-wrap leading-relaxed">
+              <pre className="mt-2 p-3 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-secondary overflow-auto max-h-32 whitespace-pre-wrap leading-relaxed">
                 {installLog}
               </pre>
             )}
@@ -302,7 +302,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                       <svg className={`w-3 h-3 shrink-0 ${isOverwrite ? 'text-cyan' : 'text-green'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
-                      <span className={`text-[11px] font-mono ${isOverwrite ? 'text-cyan' : 'text-text-secondary'}`}>{line}</span>
+                      <span className={`text-xs font-mono ${isOverwrite ? 'text-cyan' : 'text-text-secondary'}`}>{line}</span>
                     </div>
                   );
                 })}
@@ -336,7 +336,7 @@ export default function SetupPage({ project, setProject, showToast }) {
           {confirmSync && (
             <div className="mb-2 p-3 rounded-lg border border-orange/40 bg-orange-dim shrink-0">
               <p className="text-xs text-orange font-semibold mb-1">Sync Template</p>
-              <p className="text-[11px] text-text-secondary mb-2">Da li da prepišem i <span className="text-text font-semibold">sprite-config.json</span> i <span className="text-text font-semibold">sounds.json</span>? Ako si već podesio zvukove i komande — izaberi "Preskoči config".</p>
+              <p className="text-xs text-text-secondary mb-2">Da li da prepišem i <span className="text-text font-semibold">sprite-config.json</span> i <span className="text-text font-semibold">sounds.json</span>? Ako si već podesio zvukove i komande — izaberi "Preskoči config".</p>
               <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => { setConfirmSync(false); initFromTemplate(); }}
@@ -384,8 +384,8 @@ export default function SetupPage({ project, setProject, showToast }) {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       )}
-                      <span className={`text-[11px] font-mono flex-1 truncate ${c.exists ? 'text-text-primary' : 'text-danger'}`}>{c.name}</span>
-                      <span className="text-[10px] text-text-dim bg-bg-hover px-1.5 py-0.5 rounded font-mono shrink-0">{c.type}</span>
+                      <span className={`text-xs font-mono flex-1 truncate ${c.exists ? 'text-text-primary' : 'text-danger'}`}>{c.name}</span>
+                      <span className="text-xs text-text-dim bg-bg-hover px-1.5 py-0.5 rounded font-mono shrink-0">{c.type}</span>
                     </div>
                   ))}
                 </div>
