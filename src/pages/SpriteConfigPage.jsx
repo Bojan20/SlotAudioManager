@@ -87,12 +87,9 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
     { tier: 'bonus', re: /^BaseToFreeSpins/i },
     { tier: 'bonus', re: /^TrnBaseToBonus/i },
     { tier: 'bonus', re: /^TrnPalmtree/i },
-    // Scatter/trigger
-    { tier: 'bonus', re: /^SymScatter/i },
-    { tier: 'bonus', re: /^SymbolFreeSpins/i },
-    { tier: 'bonus', re: /^ScatterSymbol/i },
-    { tier: 'bonus', re: /^Trigger/i },
-    { tier: 'bonus', re: /^TriggerBell/i },
+    // Scatter/trigger — these LAND during base game reels, before bonus is confirmed
+    // They go in MAIN, not bonus. Bonus starts AFTER scatter evaluation.
+    // (moved to main section below)
     // Wheel bonus
     { tier: 'bonus', re: /^Wheel/i },
     { tier: 'bonus', re: /^StartWheel/i },
@@ -156,13 +153,22 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
     { tier: 'bonus', re: /^MpFire|^MpParticles/i },
 
     // ── MAIN: base game — symbols, big win, anticipation, effects ──
+    // Scatter symbols LAND on reels during base game — before bonus is confirmed
+    { tier: 'main', re: /^SymScatter/i },
+    { tier: 'main', re: /^SymbolFreeSpins/i },
+    { tier: 'main', re: /^ScatterSymbol/i },
+    { tier: 'main', re: /^Trigger$/i },
+    { tier: 'main', re: /^TriggerBell$/i },
+    // Big win
     { tier: 'main', re: /^BigWin/i },
     { tier: 'main', re: /^CoinShower/i },
+    // Anticipation
     { tier: 'main', re: /^Anticipation/i },
     { tier: 'main', re: /^PreCog/i },
     { tier: 'main', re: /^PreBonus/i },
     { tier: 'main', re: /^TensionSpin/i },
     { tier: 'main', re: /^ScreenShake/i },
+    // Symbols (all symbol land/win sounds happen in base game)
     { tier: 'main', re: /^Sym/i },
     { tier: 'main', re: /^Wild/i },
     { tier: 'main', re: /^Win\d/i },
