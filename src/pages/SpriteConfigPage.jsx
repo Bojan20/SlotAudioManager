@@ -247,97 +247,93 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   return (
     <div className={`rounded-2xl border ${theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl`}>
       {/* Header */}
-      <div className={`${theme.headerBg} px-5 py-3.5 flex items-center gap-3 flex-wrap`}>
-        <span className={`w-2.5 h-2.5 rounded-full ${theme.dot} shrink-0`} />
-        <h3 className={`text-sm font-bold ${theme.accent} uppercase tracking-wide`}>{tierName}</h3>
-        <span className={`${theme.badge} text-xs font-bold px-2 py-0.5 rounded-md uppercase tracking-wider`}>{theme.label}</span>
+      <div className={`${theme.headerBg} px-6 py-4 flex items-center gap-3 flex-wrap`}>
+        <span className={`w-3 h-3 rounded-full ${theme.dot} shrink-0`} />
+        <h3 className={`text-base font-bold ${theme.accent} uppercase tracking-wide`}>{tierName}</h3>
+        <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider`}>{theme.label}</span>
         {isDeferred && tierCfg.subLoaderId && (
-          <span className={`${theme.badge} text-xs font-bold px-2 py-0.5 rounded-md`}>"{tierCfg.subLoaderId}"</span>
+          <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg`}>"{tierCfg.subLoaderId}"</span>
         )}
         {tierCfg?.unloadable && (
-          <span className="bg-amber-500/15 text-amber-400 text-xs font-bold px-2 py-0.5 rounded-md">UNLOADABLE</span>
+          <span className="bg-amber-500/15 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-lg">UNLOADABLE</span>
         )}
         <div className="flex-1" />
-        <span className="text-xs text-text-dim font-mono tabular-nums">{sounds.length} sounds</span>
+        <span className="text-sm text-text-dim font-mono tabular-nums">{sounds.length} sounds</span>
         {displayKB ? (
-          <span className={`text-xs font-mono tabular-nums font-semibold ${over ? 'text-danger' : theme.accent}`}>
+          <span className={`text-sm font-mono tabular-nums font-semibold ${over ? 'text-danger' : theme.accent}`}>
             {fmtSize(displayKB)}
           </span>
         ) : null}
         <button
           onClick={handleMeasure}
           disabled={measuring || sounds.length === 0}
-          className={`text-xs px-3 py-1 rounded-lg font-semibold transition-all ${measuring ? 'text-text-dim cursor-wait' : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover/50 cursor-pointer'} disabled:opacity-30 disabled:cursor-not-allowed`}
+          className={`btn-ghost !text-xs !py-2 !px-4 ${measuring ? '!text-text-dim !cursor-wait' : ''} disabled:!opacity-20`}
         >
-          {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure'}
+          {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
         </button>
       </div>
 
       {/* Size bar — only show when we have data */}
       {maxKB > 0 && displayKB > 0 && (
-        <div className="px-5 pt-2 pb-1">
-          <div className="h-1.5 bg-bg-hover rounded-full overflow-hidden">
+        <div className="px-6 pt-3 pb-2">
+          <div className="h-2 bg-bg-hover rounded-full overflow-hidden">
             <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-danger' : theme.accentBg}`} style={{ width: `${pct}%` }} />
           </div>
-          <div className="flex justify-between mt-1">
-            <span className={`text-xs font-mono ${over ? 'text-danger' : 'text-text-dim'}`}>{Math.round(pct)}%</span>
+          <div className="flex justify-between mt-1.5">
+            <span className={`text-xs font-mono ${over ? 'text-danger font-semibold' : 'text-text-dim'}`}>{Math.round(pct)}% used</span>
             <span className="text-xs text-text-dim font-mono">limit: {fmtSize(maxKB)}</span>
           </div>
         </div>
       )}
 
       {/* Sounds */}
-      <div className="px-5 py-3">
-        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 text-xs text-text-dim hover:text-text-secondary transition-colors mb-2 uppercase tracking-widest font-bold">
-          <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-          Sounds
+      <div className="px-6 py-4">
+        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-xs text-text-dim hover:text-text-secondary transition-colors mb-3 uppercase tracking-widest font-bold">
+          <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          Sounds ({sounds.length})
         </button>
         {expanded && (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {sounds.map(s => (
-              <span key={s} className={`inline-flex items-center gap-1 pl-2.5 pr-1 py-1 rounded-lg text-xs font-mono border transition-all ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/5 line-through' : 'text-text-secondary border-border/60 bg-bg-primary/50 hover:border-border-bright hover:bg-bg-hover/50'}`}>
+              <span key={s} className={`inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-mono border transition-all ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/5 line-through' : 'text-text-secondary border-border/60 bg-bg-primary/50 hover:border-border-bright hover:bg-bg-hover/50'}`}>
                 {s}
-                <select value="" onChange={(e) => { if (e.target.value) onMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-5 text-center appearance-none opacity-30 hover:opacity-100 transition-opacity" title="Move to...">
+                <select value="" onChange={(e) => { if (e.target.value) onMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-6 text-center appearance-none opacity-30 hover:opacity-100 transition-opacity" title="Move to...">
                   <option value="">→</option>
                   {tierOptions.filter(t => t !== tierName).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </span>
             ))}
-            {sounds.length === 0 && <span className="text-xs text-text-dim/50 italic py-2">No sounds assigned yet</span>}
+            {sounds.length === 0 && <span className="text-sm text-text-dim/50 italic py-3">No sounds assigned yet</span>}
           </div>
         )}
       </div>
 
-      {/* Settings footer — only for deferred/lazy tiers */}
+      {/* Settings footer */}
       {!isStandalone && (
-        <div className="px-5 py-3 border-t border-border/20 bg-bg-primary/30 flex items-center gap-3 flex-wrap">
-          {/* Max size */}
-          <div className="flex items-center gap-1.5">
+        <div className="px-6 py-4 border-t border-border/20 bg-bg-primary/30 flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-text-dim uppercase tracking-wider font-semibold">Limit</span>
-            <input type="number" value={maxKB || 0} onChange={(e) => onUpdate(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base !w-20 text-center text-xs !py-1 !px-2 !rounded-lg" />
+            <input type="number" value={maxKB || 0} onChange={(e) => onUpdate(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base !w-24 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
             <span className="text-xs text-text-dim">KB</span>
           </div>
 
-          {/* SubLoader select */}
-          <select value={tierCfg.subLoaderId || ''} onChange={(e) => onUpdate(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base text-xs !py-1 !px-2 !w-44 !rounded-lg">
+          <select value={tierCfg.subLoaderId || ''} onChange={(e) => onUpdate(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base text-sm !py-1.5 !px-3 !w-52 !rounded-lg">
             {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
 
-          {/* Unloadable checkbox */}
           {isDeferred && (
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input type="checkbox" checked={tierCfg.unloadable === true} onChange={(e) => onUpdate(() => { tierCfg.unloadable = e.target.checked; })} className="w-3.5 h-3.5 accent-amber-400 rounded cursor-pointer" />
-              <span className="text-xs text-text-dim">Unloadable</span>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={tierCfg.unloadable === true} onChange={(e) => onUpdate(() => { tierCfg.unloadable = e.target.checked; })} className="w-4 h-4 accent-amber-400 rounded cursor-pointer" />
+              <span className="text-sm text-text-dim">Unloadable after use</span>
             </label>
           )}
 
-          {/* Snippet */}
           {isDeferred && (
-            <div className="flex items-center gap-2 ml-auto">
-              <code className={`text-xs font-mono ${theme.accent} truncate max-w-xs`}>
+            <div className="flex items-center gap-3 ml-auto">
+              <code className={`text-xs font-mono ${theme.accent}`}>
                 startSubLoader("{tierCfg.subLoaderId}")
               </code>
-              <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost !text-xs !py-0.5 !px-2.5 !rounded-lg">{copied === tierName ? '✓' : 'Copy'}</button>
+              <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost !text-xs !py-1.5 !px-4">{copied === tierName ? '✓ Copied' : 'Copy Snippet'}</button>
             </div>
           )}
         </div>
@@ -481,52 +477,52 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const standaloneSounds = config.standalone?.sounds || [];
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-3">
+    <div className="anim-fade-up h-full flex flex-col">
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between">
+      <div className="shrink-0 flex items-center justify-between pb-4">
         <div>
           <h2 className="text-xl font-bold text-text-primary">Sprite Config</h2>
-          <p className="text-xs text-text-dim mt-0.5">Audio pools, loading strategy, encoding</p>
+          <p className="text-sm text-text-dim mt-1">Audio pools, loading strategy, encoding</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-bg-card border border-border rounded-xl px-3 py-1.5">
-            <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Gap</span>
-            <input type="number" step="0.01" value={config.spriteGap ?? 0.05} onChange={(e) => update(() => { config.spriteGap = parseFloat(e.target.value) || 0; })} className="input-base !w-14 text-center text-xs !py-0.5 !px-1 !rounded-lg" />
-            <span className="text-xs text-text-dim">s</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 bg-bg-card border border-border rounded-xl px-4 py-2.5">
+            <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Sprite Gap</span>
+            <input type="number" step="0.01" value={config.spriteGap ?? 0.05} onChange={(e) => update(() => { config.spriteGap = parseFloat(e.target.value) || 0; })} className="input-base !w-16 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
+            <span className="text-xs text-text-dim">sec</span>
           </div>
-          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary text-xs' : 'btn-ghost text-xs opacity-40 cursor-not-allowed'}>
-            {saving ? 'Saving...' : dirty ? 'Save' : 'Saved'}
+          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary' : 'btn-ghost opacity-40 cursor-not-allowed'}>
+            {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
           </button>
         </div>
       </div>
 
       {/* Unassigned banner */}
       {unassigned.length > 0 && (
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 shrink-0">
-          <div className="flex items-center gap-2 mb-3">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0 anim-pulse-dot" />
-            <span className="text-xs font-bold text-amber-400 uppercase tracking-wide">{unassigned.length} Unassigned</span>
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 shrink-0 mb-4">
+          <div className="flex items-center gap-3 mb-4">
+            <span className="w-3 h-3 rounded-full bg-amber-400 shrink-0 anim-pulse-dot" />
+            <span className="text-sm font-bold text-amber-400 uppercase tracking-wide">{unassigned.length} Unassigned Sound{unassigned.length !== 1 ? 's' : ''}</span>
             <div className="flex-1" />
-            <button onClick={handleOpenPreview} className="btn-primary text-xs py-1.5 px-4">Auto-Assign</button>
+            <button onClick={handleOpenPreview} className="btn-primary py-2.5 px-5">Auto-Assign All</button>
           </div>
-          <div className="grid grid-cols-2 gap-1.5 max-h-40 overflow-y-auto">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
             {unassigned.map(s => (
-              <div key={s.name} className="flex items-center gap-1.5 bg-bg-primary/40 rounded-lg px-2 py-1">
+              <div key={s.name} className="flex items-center gap-2 bg-bg-primary/40 rounded-xl px-3 py-2">
                 <span className="font-mono text-xs text-text-secondary flex-1 truncate">{s.name}</span>
-                <select value={assignTarget[s.name] || ''} onChange={e => setAssignTarget(prev => ({ ...prev, [s.name]: e.target.value }))} className="input-base text-xs !py-0.5 !px-1.5 !w-24 !rounded-lg">
-                  <option value="">Tier...</option>
+                <select value={assignTarget[s.name] || ''} onChange={e => setAssignTarget(prev => ({ ...prev, [s.name]: e.target.value }))} className="input-base text-xs !py-1.5 !px-2 !w-28 !rounded-lg">
+                  <option value="">Pool...</option>
                   {Object.keys(config.sprites || {}).map(t => <option key={t}>{t}</option>)}
                   <option value="standalone">Standalone</option>
                 </select>
-                <button onClick={() => handleAssign(s.name, assignTarget[s.name])} disabled={!assignTarget[s.name]} className="text-xs font-bold text-accent disabled:text-text-dim/30 hover:text-accent-hover transition-colors">Add</button>
+                <button onClick={() => handleAssign(s.name, assignTarget[s.name])} disabled={!assignTarget[s.name]} className="btn-ghost !text-xs !py-1.5 !px-3 disabled:opacity-20">Add</button>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Pool cards */}
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+      {/* Pool cards — fill remaining height */}
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
 
         {/* Immediate pools */}
         {immediateTiers.map(([name, cfg]) => (
@@ -550,27 +546,27 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
 
         {/* Encoding */}
         <div className="rounded-2xl border border-border/50 overflow-hidden">
-          <div className="bg-bg-hover/30 px-5 py-3 flex items-center gap-2">
-            <span className="text-xs font-bold tracking-widest uppercase text-text-dim">Encoding</span>
+          <div className="bg-bg-hover/30 px-6 py-4">
+            <span className="text-sm font-bold tracking-widest uppercase text-text-dim">Encoding Settings</span>
           </div>
-          <div className="px-5 py-3 space-y-2">
+          <div className="px-6 py-5 space-y-4">
             {Object.entries(config.encoding || {}).map(([key, enc]) => (
-              <div key={key} className="flex items-center gap-3 flex-wrap">
-                <span className={`text-xs font-bold uppercase tracking-wider w-12 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
-                  <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-3.5 h-3.5 accent-accent rounded cursor-pointer" />
-                  <span className="text-xs text-text-dim">Keep Original</span>
+              <div key={key} className="flex items-center gap-4 flex-wrap">
+                <span className={`text-sm font-bold uppercase tracking-wider w-14 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-4 h-4 accent-accent rounded cursor-pointer" />
+                  <span className="text-sm text-text-dim">Keep Original</span>
                 </label>
                 {enc.keepOriginal ? (
-                  <span className="text-xs text-text-dim italic">320kbps, source channels & rate</span>
+                  <span className="text-sm text-text-dim italic">320 kbps, source channels & sample rate</span>
                 ) : (
                   <>
-                    <span className="text-xs text-text-dim">Bitrate:</span>
-                    <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-24 text-xs !py-0.5 !px-1 !rounded-lg">
+                    <span className="text-sm text-text-dim">Bitrate:</span>
+                    <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
                       {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
                     </select>
-                    <span className="text-xs text-text-dim ml-2">Ch:</span>
-                    <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-20 text-xs !py-0.5 !px-1 !rounded-lg">
+                    <span className="text-sm text-text-dim ml-2">Channels:</span>
+                    <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
                       <option value={1}>Mono</option>
                       <option value={2}>Stereo</option>
                     </select>
@@ -583,9 +579,9 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
 
         {/* Copy all snippets */}
         {deferredTiers.length > 0 && (
-          <div className="flex justify-end pb-2">
-            <button onClick={handleCopyAll} className="btn-ghost text-xs py-1.5 px-4">
-              {copied === '__all__' ? '✓ Copied' : 'Copy All SubLoader Snippets'}
+          <div className="flex justify-end py-3">
+            <button onClick={handleCopyAll} className="btn-ghost">
+              {copied === '__all__' ? '✓ All Snippets Copied' : 'Copy All SubLoader Snippets'}
             </button>
           </div>
         )}
