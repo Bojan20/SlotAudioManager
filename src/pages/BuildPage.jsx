@@ -204,14 +204,14 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         const shouldAutoDeploy = !scriptName.includes('validate') && deployScripts.includes('deploy')
           && !!(refreshed?.gameRepoAbsPath) && (refreshed?.gameRepoExists ?? false) && refreshedDistOk;
         if (shouldAutoDeploy) {
-          showToast(`${scriptName} prošao — deploying...`, 'success');
+          showToast(`${scriptName} passed — deploying...`, 'success');
           setLog(prev => prev + '\n\n── Auto-deploying ──\n');
           setRunning('deploy');
           try {
             const dr = await window.api.runDeploy('deploy');
             if (dr?.error) setLog(prev => prev + dr.error);
             setResult({ script: 'deploy', ok: dr?.success ?? false });
-            showToast(dr?.success ? 'Build + Deploy završen' : 'Deploy failed', dr?.success ? 'success' : 'error');
+            showToast(dr?.success ? 'Build + Deploy complete' : 'Deploy failed', dr?.success ? 'success' : 'error');
           } catch (de) {
             setLog(prev => prev + '\nDeploy error: ' + de.message);
             setResult({ script: 'deploy', ok: false });
@@ -219,7 +219,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
           }
         } else {
           setResult({ script: scriptName, ok: true });
-          showToast(`${scriptName} prošao`, 'success');
+          showToast(`${scriptName} passed`, 'success');
         }
       } else {
         setResult({ script: scriptName, ok: false });
@@ -239,7 +239,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       const r = await window.api.runDeploy(scriptName);
       if (r?.error) setLog(r.error);
       setResult({ script: scriptName, ok: r?.success ?? false });
-      showToast(r?.success ? 'Deploy završen' : 'Deploy failed', r?.success ? 'success' : 'error');
+      showToast(r?.success ? 'Deploy complete' : 'Deploy failed', r?.success ? 'success' : 'error');
     } catch (e) {
       setLog(prev => prev + '\nError: ' + e.message);
       setResult({ script: scriptName, ok: false });
@@ -427,17 +427,17 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 </div>
                 <p className="text-xs text-text-dim pl-3.5">→ assets/default/default/default/sounds/</p>
                 {!deployTargetExists && (
-                  <p className="text-xs text-orange pl-3.5">Game repo folder not found — provjeri putanju u Setup-u</p>
+                  <p className="text-xs text-orange pl-3.5">Game repo folder not found — check the path in Setup</p>
                 )}
                 {!distInfo?.hasDist && (
-                  <p className="text-xs text-orange pl-3.5">Pokreni build prvo prije deploy-a</p>
+                  <p className="text-xs text-orange pl-3.5">Run build first before deploying</p>
                 )}
                 {distInfo?.hasDist && !distInfo?.hasSoundsJson && (
-                  <p className="text-xs text-orange pl-3.5">dist/sounds.json nedostaje — ponovi build</p>
+                  <p className="text-xs text-orange pl-3.5">dist/sounds.json missing — re-run build</p>
                 )}
               </div>
             ) : (
-              <p className="text-xs text-danger">Game repo nije podešen — idi na Setup → Game Repository</p>
+              <p className="text-xs text-danger">Game repo not configured — go to Setup → Game Repository</p>
             )}
 
             {deployScripts.length > 0 ? (
@@ -523,7 +523,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
 
             {gameNodeModulesMissing && (
               <p className="text-xs text-orange">
-                ⚠ Game repo nema node_modules — pokreni <span className="font-mono">yarn install</span> u Setup → Game Repository pre launch-a
+                Game repo missing node_modules — run <span className="font-mono">yarn install</span> in Setup → Game Repository before launching
               </p>
             )}
 
@@ -578,7 +578,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
             {!deployTarget ? (
               <p className="text-xs text-text-dim">Link a game repo in Setup first</p>
             ) : gameNodeModulesMissing ? (
-              <p className="text-xs text-orange">⚠ Game repo nema node_modules — pokreni yarn install u Setup → Game Repository</p>
+              <p className="text-xs text-orange">Game repo missing node_modules — run yarn install in Setup → Game Repository</p>
             ) : glrError ? (
               <p className="text-xs text-danger font-mono">{glrError}</p>
             ) : glrList.length === 0 ? (

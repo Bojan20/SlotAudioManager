@@ -77,7 +77,28 @@ button, input, select, textarea, a, label { -webkit-app-region: no-drag; }
 .anim-fade-in { animation: fade-in 0.2s ease forwards; }
 .anim-pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
 
-/* ── Liquid Glass Cards ── */
+/* ── Liquid Glass ── */
+.glass {
+  background: rgba(255, 255, 255, 0.025);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 4px 24px rgba(0, 0, 0, 0.12);
+  transition: border-color 0.2s ease, box-shadow 0.25s ease;
+}
+.glass:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 8px 32px rgba(0, 0, 0, 0.18);
+}
+.glass-panel {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+}
+
 .card {
   background: var(--color-bg-card);
   backdrop-filter: blur(16px) saturate(1.4);

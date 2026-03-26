@@ -1,45 +1,65 @@
 import React, { useState, useEffect } from 'react';
 
+const Check = ({ ok }) => ok ? (
+  <svg className="w-3.5 h-3.5 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+) : (
+  <svg className="w-3.5 h-3.5 text-danger shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+);
+
+const Dot = ({ color = 'bg-accent' }) => <span className={`inline-block w-1.5 h-1.5 rounded-full ${color} anim-pulse-dot`} />;
+
+const ActionBtn = ({ onClick, disabled, loading, loadingText, idleText, variant = 'ghost', color, className = '' }) => {
+  const base = variant === 'primary'
+    ? 'btn-primary text-xs !py-2.5 !px-5 !rounded-xl'
+    : 'btn-ghost text-xs !py-2.5 !px-5 !rounded-xl';
+  const colorClass = loading && color ? `!border-${color}/30 !text-${color}` : '';
+  return (
+    <button onClick={onClick} disabled={disabled} className={`${base} ${colorClass} ${loading ? '!cursor-wait' : ''} ${className}`}>
+      {loading && <Dot color={`bg-${color || 'accent'}`} />}
+      <span className={loading ? 'ml-1.5' : ''}>{loading ? loadingText : idleText}</span>
+    </button>
+  );
+};
+
+const Divider = ({ label, color = 'border' }) => (
+  <div className="flex items-center gap-3 py-1">
+    <div className={`h-px flex-1 bg-gradient-to-r from-${color}/40 to-transparent`} />
+    <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-text-dim/50">{label}</span>
+    <div className={`h-px flex-1 bg-gradient-to-l from-${color}/40 to-transparent`} />
+  </div>
+);
+
+const LogBlock = ({ text, maxH = 'max-h-28' }) => text ? (
+  <pre className={`p-2.5 rounded-xl bg-bg-primary/60 border border-border/30 text-[11px] font-mono text-text-secondary overflow-auto ${maxH} whitespace-pre-wrap leading-relaxed`}>{text}</pre>
+) : null;
+
+const LogLines = ({ lines, maxH = 'max-h-36' }) => lines.length > 0 ? (
+  <div className={`overflow-y-auto ${maxH} space-y-0.5 p-2 rounded-xl bg-bg-primary/60 border border-border/30`}>
+    {lines.map((line, i) => {
+      const warn = line.startsWith('Warning');
+      const overwrite = line.startsWith('Overwritten');
+      return (
+        <div key={i} className="flex items-start gap-2 py-0.5">
+          <Check ok={!warn} />
+          <span className={`text-[11px] font-mono leading-snug ${warn ? 'text-orange' : overwrite ? 'text-cyan' : 'text-text-secondary'}`}>{line}</span>
+        </div>
+      );
+    })}
+  </div>
+) : null;
+
 export default function SetupPage({ project, setProject, showToast }) {
-  const [health, setHealth] = useState(null);
-  const [checking, setChecking] = useState(false);
   const [initLog, setInitLog] = useState([]);
   const [initializing, setInitializing] = useState(false);
   const [confirmSync, setConfirmSync] = useState(false);
-  const [installing, setInstalling] = useState(false);
-  const [installLog, setInstallLog] = useState('');
-  const [gameRepoPath, setGameRepoPath] = useState('');
-  const [configuring, setConfiguring] = useState(false);
-  const [configLog, setConfigLog] = useState([]);
   const [gameInstalling, setGameInstalling] = useState(false);
   const [gameInstallLog, setGameInstallLog] = useState('');
   const [pulling, setPulling] = useState(false);
 
-  const runHealthCheck = async () => {
-    setChecking(true);
-    try {
-      const r = await window.api.healthCheck();
-      if (r && !r.error) setHealth(r);
-      else if (r?.error) showToast(r.error, 'error');
-    } catch (e) {
-      showToast('Health check failed', 'error');
-    }
-    setChecking(false);
-  };
-
   useEffect(() => {
-    setHealth(null);
     setInitLog([]);
-    setInstallLog('');
-    setConfigLog([]);
     setGameInstallLog('');
     setConfirmSync(false);
-    if (project) {
-      runHealthCheck();
-      setGameRepoPath(project.gameRepoAbsPath || project.settings?.gameProjectPath || '');
-    } else {
-      setGameRepoPath('');
-    }
   }, [project?.path]);
 
   if (!project) {
@@ -58,11 +78,8 @@ export default function SetupPage({ project, setProject, showToast }) {
       if (r.success) {
         if (r.project) setProject(r.project);
         showToast('Template synced — installing dependencies...', 'success');
-        // Auto-chain npm install so the project is immediately usable after sync
-        setInstalling(true); setInstallLog('Installing dependencies...\n');
         try {
           const nr = await window.api.npmInstall();
-          setInstallLog(nr.output || nr.error || '');
           if (nr.success) {
             if (nr.project) setProject(nr.project);
             showToast('Sync complete — ready to build!', 'success');
@@ -70,11 +87,8 @@ export default function SetupPage({ project, setProject, showToast }) {
             showToast('npm install failed after sync', 'error');
           }
         } catch (e2) {
-          setInstallLog('Error: ' + e2.message);
           showToast('npm install failed', 'error');
         }
-        setInstalling(false);
-        runHealthCheck();
       } else {
         showToast(r.error || 'Init failed', 'error');
       }
@@ -82,25 +96,6 @@ export default function SetupPage({ project, setProject, showToast }) {
       showToast('Init failed: ' + e.message, 'error');
     }
     setInitializing(false);
-  };
-
-  const npmInstall = async () => {
-    setInstalling(true); setInstallLog('Installing dependencies...\n');
-    try {
-      const r = await window.api.npmInstall();
-      setInstallLog(r.output || r.error || '');
-      if (r.success) {
-        if (r.project) setProject(r.project);
-        showToast('Dependencies installed', 'success');
-        runHealthCheck();
-      } else {
-        showToast('npm install failed', 'error');
-      }
-    } catch (e) {
-      setInstallLog('Error: ' + e.message);
-      showToast('npm install failed', 'error');
-    }
-    setInstalling(false);
   };
 
   const pullGameJson = async () => {
@@ -137,285 +132,172 @@ export default function SetupPage({ project, setProject, showToast }) {
     setGameInstalling(false);
   };
 
-  const passed = health?.passed || 0;
-  const total  = health?.total  || 0;
-  const failed = health?.failed || 0;
-  const pct    = total > 0 ? Math.round((passed / total) * 100) : 0;
+  const hasGame = project?.settings?.gameProjectPath && project?.gameRepoExists;
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-2">
+    <div className="anim-fade-up h-full flex flex-col">
 
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between">
+      <div className="shrink-0 flex items-center justify-between pb-5">
         <div>
           <h2 className="text-xl font-bold text-text-primary">Project Setup</h2>
-          <p className="text-xs text-text-dim mt-0.5">Scripts, configs, and dependencies</p>
+          <p className="text-xs text-text-dim mt-1">Link, sync, install — then build</p>
         </div>
-        <button onClick={runHealthCheck} disabled={checking} className="btn-ghost text-xs">
-          {checking ? 'Checking...' : 'Re-check'}
-        </button>
       </div>
 
-      {/* 2-column body */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {/* Body — responsive 2-col grid */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
 
-        {/* LEFT — Game Repo + NPM + Logs */}
-        <div className="flex flex-col gap-2 min-h-0">
+        {/* ═══ LEFT — Audio Project ═══ */}
+        <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-0.5">
 
-          {/* Game Repo */}
-          <div className="card p-3 shrink-0">
-            <div className="flex items-center justify-between mb-2">
-              <p className="section-label">Game Repository</p>
-              <button
-                onClick={async () => {
-                  const p = await window.api.pickGameRepo();
-                  if (!p) return;
-                  setGameRepoPath(p);
-                  setConfiguring(true); setConfigLog([]);
-                  try {
-                    const r = await window.api.configureGame({ gameRepoPath: p });
-                    if (r.log) setConfigLog(r.log);
-                    if (r.success) {
-                      if (r.project) setProject(r.project);
-                      showToast('Game repo linked!', 'success');
-                    } else {
-                      showToast(r.error || 'Config failed', 'error');
-                    }
-                  } catch (e) {
-                    showToast('Config failed: ' + e.message, 'error');
-                  }
-                  setConfiguring(false);
-                }}
-                disabled={configuring}
-                className={configuring ? 'btn-ghost text-accent border-accent/30 cursor-wait text-xs' : 'btn-primary text-xs'}
-              >
-                {configuring ? 'Linking...' : gameRepoPath ? 'Change' : 'Link Repo'}
-              </button>
+          {/* ── 1. Sync Template ── */}
+          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-1 min-h-0 flex flex-col">
+            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20 shrink-0 flex-wrap">
+              <svg className="w-4 h-4 shrink-0 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Sync Template</span>
+              <div className="flex-1" />
+              {!confirmSync && (
+                <ActionBtn
+                  onClick={() => setConfirmSync(true)}
+                  disabled={initializing}
+                  loading={initializing}
+                  loadingText="Syncing..."
+                  idleText="Sync Template"
+                  color="accent"
+                />
+              )}
             </div>
 
-            {gameRepoPath ? (
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-bg-input border border-green/20">
-                <svg className="w-3.5 h-3.5 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-mono text-text-primary truncate">{gameRepoPath}</p>
-                  <p className="text-xs text-text-dim">→ assets/default/default/default/sounds/</p>
+            {/* Sync confirmation inline */}
+            {confirmSync && (
+              <div className="px-5 py-4 border-b border-orange/20 bg-orange/5 shrink-0">
+                <p className="text-xs text-orange font-semibold mb-2">Sync Template</p>
+                <p className="text-[11px] text-text-secondary mb-3 leading-relaxed">
+                  Overwrite <span className="text-text-primary font-semibold">sprite-config.json</span> and <span className="text-text-primary font-semibold">sounds.json</span> from template? If you've already configured sounds — choose "Skip Configs".
+                </p>
+                <div className="flex gap-2.5">
+                  <button onClick={() => { setConfirmSync(false); initFromTemplate(); }} disabled={initializing} className="btn-primary text-xs !py-2.5 !px-5 !rounded-xl flex-1">Sync All</button>
+                  <button onClick={() => { setConfirmSync(false); initFromTemplate({ skipConfigs: true }); }} disabled={initializing} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl !border-cyan/30 !text-cyan flex-1">Skip Configs</button>
+                  <button onClick={() => setConfirmSync(false)} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl">Cancel</button>
                 </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-bg-input border border-border">
-                <svg className="w-3.5 h-3.5 text-text-dim shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                <p className="text-xs text-text-dim">No repo linked — deploy won't work</p>
               </div>
             )}
 
-            {configLog.length > 0 && (
-              <div className="mt-2 space-y-1 pt-2 border-t border-border">
-                {configLog.map((line, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <svg className={`w-3 h-3 shrink-0 ${line.startsWith('Warning') ? 'text-orange' : 'text-green'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d={line.startsWith('Warning') ? 'M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' : 'M5 13l4 4L19 7'} />
-                    </svg>
-                    <span className={`text-xs font-mono ${line.startsWith('Warning') ? 'text-orange' : 'text-text-secondary'}`}>{line}</span>
-                  </div>
-                ))}
+            {/* Sync description */}
+            {!confirmSync && initLog.length === 0 && (
+              <div className="px-5 py-4 flex-1 flex items-start">
+                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-bg-primary/30 border border-border/20">
+                  <svg className="w-3.5 h-3.5 text-text-dim/50 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-[11px] text-text-dim leading-relaxed">Overwrites scripts, configs, and dependencies from the bundled template. Runs <span className="font-mono text-text-secondary">npm install</span> automatically after sync.</p>
+                </div>
               </div>
             )}
 
-            {gameRepoPath && project?.gameRepoExists && (
-              <div className="mt-2 pt-2 border-t border-border space-y-2">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs text-text-secondary">
-                      Game <span className="font-mono text-accent">yarn install</span>
-                      {project?.gameNodeModulesExists === false && (
-                        <span className="ml-2 text-orange font-semibold">· node_modules missing!</span>
-                      )}
-                    </p>
-                  </div>
-                  <button
-                    onClick={yarnInstallGame}
-                    disabled={gameInstalling || pulling}
-                    className={gameInstalling ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs' : project?.gameNodeModulesExists === false ? 'btn-primary text-xs' : 'btn-ghost text-xs'}
-                  >
-                    {gameInstalling && <span className="inline-block w-2 h-2 rounded-full bg-cyan mr-1.5 anim-pulse-dot" />}
-                    {gameInstalling ? 'Installing...' : 'yarn install'}
-                  </button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-text-secondary">
-                    Pull <span className="font-mono text-accent">sounds.json</span> from game repo
-                  </p>
-                  <button
-                    onClick={pullGameJson}
-                    disabled={pulling || gameInstalling}
-                    className={pulling ? 'btn-ghost text-green border-green/30 cursor-wait text-xs' : 'btn-ghost text-xs'}
-                  >
-                    {pulling && <span className="inline-block w-2 h-2 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
-                    {pulling ? 'Pulling...' : 'Pull JSON'}
-                  </button>
-                </div>
-                {gameInstallLog && (
-                  <pre className="mt-2 p-2 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-secondary overflow-auto max-h-24 whitespace-pre-wrap leading-relaxed">
-                    {gameInstallLog}
-                  </pre>
-                )}
+            {/* Sync log inline */}
+            {initLog.length > 0 && (
+              <div className="px-5 py-4 shrink-0">
+                <LogLines lines={initLog} maxH="max-h-32" />
               </div>
             )}
           </div>
 
-          {/* NPM Install */}
-          <div className="card p-3 shrink-0">
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <p className="section-label">Dependencies</p>
-                <p className="text-xs text-text-secondary mt-0.5">Run <span className="font-mono text-accent">npm install</span> in project</p>
-              </div>
-              <button
-                onClick={npmInstall}
-                disabled={installing}
-                className={installing ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs' : 'btn-ghost text-xs'}
-              >
-                {installing && <span className="inline-block w-2 h-2 rounded-full bg-cyan mr-1.5 anim-pulse-dot" />}
-                {installing ? 'Installing...' : 'npm install'}
-              </button>
-            </div>
-            {installLog && (
-              <pre className="mt-2 p-3 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-secondary overflow-auto max-h-32 whitespace-pre-wrap leading-relaxed">
-                {installLog}
-              </pre>
-            )}
-          </div>
-
-          {/* Init Log */}
-          {initLog.length > 0 && (
-            <div className="card p-3 flex-1 min-h-0 flex flex-col">
-              <p className="section-label mb-2 shrink-0">Initialization Log</p>
-              <div className="flex-1 min-h-0 overflow-y-auto space-y-1">
-                {initLog.map((line, i) => {
-                  const isOverwrite = line.startsWith('Overwritten');
-                  return (
-                    <div key={i} className="flex items-center gap-2">
-                      <svg className={`w-3 h-3 shrink-0 ${isOverwrite ? 'text-cyan' : 'text-green'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                      <span className={`text-xs font-mono ${isOverwrite ? 'text-cyan' : 'text-text-secondary'}`}>{line}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* RIGHT — Health Check */}
-        <div className="card p-3 flex flex-col min-h-0">
-          <div className="flex items-center justify-between mb-2 shrink-0">
-            <div className="flex items-center gap-2">
-              <p className="section-label">Health Check</p>
-              {health && !health.error && (
-                <span className={`badge ${failed === 0 ? 'bg-green-dim text-green' : 'bg-orange-dim text-orange'}`}>
-                  {passed}/{total} — {pct}%
-                </span>
+        {/* ═══ RIGHT — Game Repo Actions ═══ */}
+        <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pl-0.5">
+
+          {/* ── 1. Pull sounds.json ── */}
+          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
+            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
+              <svg className="w-4 h-4 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+              </svg>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Pull sounds.json</span>
+              <div className="flex-1" />
+              {hasGame ? (
+                <ActionBtn
+                  onClick={pullGameJson}
+                  disabled={pulling || !hasGame}
+                  loading={pulling}
+                  loadingText="Pulling..."
+                  idleText="Pull from Game"
+                  color="green"
+                />
+              ) : (
+                <span className="text-[10px] text-text-dim/40 italic">Link repo first</span>
               )}
             </div>
-            {health && !health.error && !confirmSync && (
-              <button
-                onClick={() => setConfirmSync(true)}
-                disabled={initializing}
-                className={initializing ? 'btn-ghost text-accent border-accent/30 cursor-wait text-xs' : 'btn-primary text-xs'}
-              >
-                {initializing ? 'Initializing...' : failed > 0 ? `Fix ${failed} + Sync` : 'Sync Template'}
-              </button>
-            )}
+
+            <div className="px-5 py-4">
+              <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${hasGame ? 'bg-bg-primary/30 border-border/20' : 'bg-bg-primary/40 border-border/30'}`}>
+                <svg className="w-3.5 h-3.5 text-text-dim/50 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <div className="space-y-1">
+                  <p className="text-[11px] text-text-dim leading-relaxed">Copies <span className="font-mono text-text-secondary">sounds.json</span> from game repo deploy folder to audio repo root.</p>
+                  <p className="text-[11px] text-text-dim leading-relaxed">Useful after first init to pull existing commands and sprite definitions.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {confirmSync && (
-            <div className="mb-2 p-3 rounded-lg border border-orange/40 bg-orange-dim shrink-0">
-              <p className="text-xs text-orange font-semibold mb-1">Sync Template</p>
-              <p className="text-xs text-text-secondary mb-2">Da li da prepišem i <span className="text-text font-semibold">sprite-config.json</span> i <span className="text-text font-semibold">sounds.json</span>? Ako si već podesio zvukove i komande — izaberi "Preskoči config".</p>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => { setConfirmSync(false); initFromTemplate(); }}
-                  disabled={initializing}
-                  className="btn-primary text-xs py-1.5 px-3"
-                >
-                  Sync sve
-                </button>
-                <button
-                  onClick={() => { setConfirmSync(false); initFromTemplate({ skipConfigs: true }); }}
-                  disabled={initializing}
-                  className="btn-ghost text-xs py-1.5 px-3 border-cyan/40 text-cyan"
-                >
-                  Preskoči config/sounds
-                </button>
-                <button
-                  onClick={() => setConfirmSync(false)}
-                  className="btn-ghost text-xs py-1.5 px-3"
-                >
-                  Otkaži
-                </button>
-              </div>
-            </div>
-          )}
-
-          {health && !health.error && (
-            <>
-              <div className="h-1.5 bg-bg-hover rounded-full overflow-hidden mb-3 shrink-0">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${failed === 0 ? 'bg-green' : pct > 60 ? 'bg-orange' : 'bg-danger'}`}
-                  style={{ width: `${pct}%` }}
+          {/* ── 2. Yarn Install (Game) ── */}
+          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
+            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
+              <svg className="w-4 h-4 text-sky-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Game Dependencies</span>
+              <span className="text-[10px] font-mono text-text-dim/50">yarn install</span>
+              <div className="flex-1" />
+              {hasGame ? (
+                <ActionBtn
+                  onClick={yarnInstallGame}
+                  disabled={gameInstalling || !hasGame}
+                  loading={gameInstalling}
+                  loadingText="Installing..."
+                  idleText="Install"
+                  variant={project?.gameNodeModulesExists === false ? 'primary' : 'ghost'}
+                  color="cyan"
                 />
-              </div>
+              ) : (
+                <span className="text-[10px] text-text-dim/40 italic">Link repo first</span>
+              )}
+            </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto">
-                <div className="grid grid-cols-2 gap-x-3">
-                  {(health.checks || []).map((c, i) => (
-                    <div key={i} className="flex items-center gap-2 py-1.5 border-b border-border/40 last:border-0">
-                      {c.exists ? (
-                        <svg className="w-3.5 h-3.5 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
-                      ) : (
-                        <svg className="w-3.5 h-3.5 text-danger shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      )}
-                      <span className={`text-xs font-mono flex-1 truncate ${c.exists ? 'text-text-primary' : 'text-danger'}`}>{c.name}</span>
-                      <span className="text-xs text-text-dim bg-bg-hover px-1.5 py-0.5 rounded font-mono shrink-0">{c.type}</span>
-                    </div>
-                  ))}
+            <div className="px-5 py-4">
+              {!hasGame ? (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-bg-primary/40 border border-border/30">
+                  <svg className="w-3.5 h-3.5 text-text-dim/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-xs text-text-dim/60">Link a game repository in Project tab to enable game actions</p>
                 </div>
-              </div>
-
-              {failed === 0 && (
-                <div className="mt-2 p-2.5 rounded-lg border border-green/25 bg-green-dim shrink-0">
-                  <div className="flex items-center gap-2">
-                    <svg className="w-3.5 h-3.5 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p className="text-xs text-green font-semibold">All checks passed — project ready.</p>
-                  </div>
+              ) : project?.gameNodeModulesExists === false ? (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-orange/5 border border-orange/15">
+                  <svg className="w-3.5 h-3.5 text-orange shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-xs text-orange font-medium">node_modules missing — install required before build/launch</p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green/5 border border-green/15">
+                  <Check ok />
+                  <p className="text-xs text-green font-medium">Game dependencies installed</p>
                 </div>
               )}
-            </>
-          )}
-
-          {!health && !checking && (
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-xs text-text-dim">Click Re-check to run health check</p>
+              <LogBlock text={gameInstallLog} maxH="max-h-32" />
             </div>
-          )}
+          </div>
 
-          {checking && (
-            <div className="flex-1 flex items-center justify-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-accent anim-pulse-dot" />
-              <p className="text-xs text-text-dim">Running health check...</p>
+          {/* ── Flow hint ── */}
+          <div className="flex-1 flex items-end justify-center pb-4">
+            <div className="text-center space-y-2 opacity-30">
+              <div className="flex items-center justify-center gap-3">
+                <div className="w-8 h-px bg-border" />
+                <span className="text-[10px] font-bold tracking-[0.25em] uppercase text-text-dim">Setup Flow</span>
+                <div className="w-8 h-px bg-border" />
+              </div>
+              <p className="text-[10px] text-text-dim font-mono">Link → Sync → Install → Build</p>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

@@ -620,18 +620,7 @@ ipcMain.handle('init-from-template', async (event, { skipConfigs = false } = {})
     const srcDir = path.join(projectPath, 'sourceSoundFiles');
     if (!fs.existsSync(srcDir)) { fs.mkdirSync(srcDir, { recursive: true }); log.push('Created sourceSoundFiles/'); }
 
-    // 6. Pull sounds.json from game repo (if configured) — replaces template sounds.json with game's version
-    if (savedGamePath) {
-      const gameRepoAbs = path.resolve(projectPath, savedGamePath);
-      const gameSoundsJson = path.join(gameRepoAbs, 'assets', 'default', 'default', 'default', 'sounds', 'sounds.json');
-      if (fs.existsSync(gameSoundsJson)) {
-        const destJson = path.join(projectPath, 'sounds.json');
-        fs.copyFileSync(gameSoundsJson, destJson);
-        log.push('Pulled sounds.json from game repo (commands updated)');
-      } else {
-        log.push('Warning: sounds.json not found in game repo deploy path — using template');
-      }
-    }
+    // 6. Auto-pull removed — user can manually pull sounds.json via "Pull from Game" button
 
     return { success: true, log, project: loadProject(projectPath) };
   } catch (e) {
@@ -1340,7 +1329,8 @@ ipcMain.handle('npm-install', async () => {
 });
 
 // Measure pool: run audiosprite on a tier's sounds in temp dir to get actual M4A size
-ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc }) => {
+// Standalone mode: builds each sound as a separate M4A (matching buildTiered.js) and sums sizes
+ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc, isStandalone }) => {
   if (!projectPath) return { error: 'No project open' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   const srcDir = path.resolve(projectPath, settings?.SourceSoundDirectory || './sourceSoundFiles');
@@ -1360,29 +1350,63 @@ ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc }
   if (!fs.existsSync(path.join(projectPath, 'node_modules'))) return { error: 'Run npm install first' };
 
   const os = require('os');
-  const tmpDir = path.join(os.tmpdir(), 'sam-measure-' + Date.now());
+  const crypto = require('crypto');
+  const tmpDir = path.join(os.tmpdir(), 'sam-measure-' + Date.now() + '-' + crypto.randomBytes(4).toString('hex'));
   fs.mkdirSync(tmpDir, { recursive: true });
-  const outBase = path.join(tmpDir, 'measure').replace(/\\/g, '/');
 
   const e = enc || { bitrate: 64, channels: 1, samplerate: 44100 };
   const sc = readJsonSafe(path.join(projectPath, 'sprite-config.json'));
-  const gap = sc?.spriteGap ?? 0.05;
+  // Standalone uses gap=0 (each sound = separate file), sprite tiers use spriteGap
+  const gap = isStandalone ? 0 : (sc?.spriteGap ?? 0.05);
+
+  const bitrateVal = e.keepOriginal ? 320 : (e.bitrate || 64);
+  const channelsLine = !e.keepOriginal ? `opts.channels=${e.channels||1};opts.samplerate=${e.samplerate||44100};` : '';
 
   const scriptPath = path.join(tmpDir, 'measure.js');
-  fs.writeFileSync(scriptPath, `
+
+  if (isStandalone) {
+    // Build each sound as a separate M4A (matches buildTiered.js standalone behavior)
+    const builds = files.map((f, i) => ({ file: f.replace(/\\/g, '/'), outBase: path.join(tmpDir, 'm_' + i).replace(/\\/g, '/') }));
+    fs.writeFileSync(scriptPath, `
+const as = require(${JSON.stringify(customAS.replace(/\\/g, '/'))});
+const ff = require('ffmpeg-static');
+const fs = require('fs');
+const builds = ${JSON.stringify(builds)};
+function buildOne(b) {
+  return new Promise((res, rej) => {
+    const opts = { output: b.outBase, format: 'howler2', export: 'm4a',
+      bitrate: ${bitrateVal}, gap: 0, silence: 0,
+      logger: { debug:()=>{}, info:()=>{}, log:()=>{} } };
+    ${channelsLine}
+    as(ff, [b.file], opts, 0, (err) => { if(err) rej(err); else res(); });
+  });
+}
+Promise.all(builds.map(buildOne)).then(() => {
+  let total = 0;
+  for (const b of builds) {
+    try { total += fs.statSync(b.outBase + '.m4a').size; } catch {}
+  }
+  process.stdout.write(String(Math.round(total / 1024)));
+}).catch(err => { process.stderr.write(String(err.message||err)); process.exit(1); });
+`);
+  } else {
+    // Sprite tier: one audiosprite from all sounds
+    const outBase = path.join(tmpDir, 'measure').replace(/\\/g, '/');
+    fs.writeFileSync(scriptPath, `
 const as = require(${JSON.stringify(customAS.replace(/\\/g, '/'))});
 const ff = require('ffmpeg-static');
 const fs = require('fs');
 const opts = { output: ${JSON.stringify(outBase)}, format: 'howler2', export: 'm4a',
-  bitrate: ${e.keepOriginal ? 320 : (e.bitrate || 64)}, gap: ${gap}, silence: 0,
+  bitrate: ${bitrateVal}, gap: ${gap}, silence: 0,
   logger: { debug:()=>{}, info:()=>{}, log:()=>{} } };
-${!e.keepOriginal ? `opts.channels=${e.channels||1};opts.samplerate=${e.samplerate||44100};` : ''}
+${channelsLine}
 as(ff, ${JSON.stringify(files.map(f => f.replace(/\\/g, '/')))}, opts, 0, (err) => {
   if(err){process.stderr.write(String(err.message||err));process.exit(1);}
   try{process.stdout.write(String(Math.round(fs.statSync(${JSON.stringify(outBase)}+'.m4a').size/1024)));}
   catch{process.stderr.write('M4A not created');process.exit(1);}
 });
 `);
+  }
 
   return new Promise((resolve) => {
     const child = exec(`node "${scriptPath}"`, {

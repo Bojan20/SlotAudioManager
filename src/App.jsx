@@ -68,7 +68,11 @@ export default function App() {
   const reloadProject = async () => {
     try {
       const data = await window.api.reloadProject();
-      if (data) { setProject(data); showToast('Reloaded', 'success'); }
+      if (data) {
+        // null→data cycle forces useEffect([project?.path]) to re-fire on all pages
+        setProject(null);
+        requestAnimationFrame(() => { setProject(data); showToast('Reloaded', 'success'); });
+      }
     } catch (e) {
       showToast('Reload failed: ' + e.message, 'error');
     }
@@ -92,7 +96,7 @@ export default function App() {
   }, [project]);
 
   const pages = [
-    { id: 'project',  el: <ProjectPage project={project} onOpen={openProject} onReload={reloadProject} /> },
+    { id: 'project',  el: <ProjectPage project={project} setProject={setProject} onOpen={openProject} onReload={reloadProject} showToast={showToast} /> },
     { id: 'setup',    el: <SetupPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'sounds',   el: <SoundsPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'sprites',  el: <SpriteConfigPage project={project} setProject={setProject} showToast={showToast} /> },
@@ -104,59 +108,71 @@ export default function App() {
   return (
     <div className="flex h-full w-full">
       {/* Sidebar */}
-      <aside className="w-56 shrink-0 bg-bg-secondary flex flex-col border-r border-border select-none">
+      <aside className="w-[250px] shrink-0 flex flex-col select-none border-r border-white/[0.04]" style={{ background: 'rgba(13,13,22,0.85)', backdropFilter: 'blur(20px) saturate(1.5)', WebkitBackdropFilter: 'blur(20px) saturate(1.5)' }}>
         <div className="h-8 drag-region shrink-0" />
 
-        <div className="px-3 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-accent/25 flex items-center justify-center shrink-0">
-              <svg className="w-4 h-4 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
-              </svg>
+        {/* ── Branding ── */}
+        <div style={{ padding: '8px 20px 28px 20px' }}>
+          <div className="flex items-center" style={{ gap: '14px' }}>
+            <div className="relative shrink-0">
+              <div className="absolute rounded-[20px]" style={{ inset: '-10px', background: 'rgba(139,124,248,0.06)', filter: 'blur(16px)' }} />
+              <div className="relative flex items-center justify-center" style={{ width: '42px', height: '42px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(139,124,248,0.15) 0%, rgba(139,124,248,0.04) 100%)', border: '1px solid rgba(139,124,248,0.1)', boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 32px rgba(139,124,248,0.06)' }}>
+                <svg className="text-accent" style={{ width: '22px', height: '22px' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+                </svg>
+              </div>
             </div>
             <div>
-              <p className="text-sm font-bold text-text-primary leading-tight">Slot Audio</p>
-              <p className="text-xs text-text-dim font-semibold tracking-widest uppercase">Manager</p>
+              <div className="flex items-center" style={{ gap: '8px', marginBottom: '5px' }}>
+                <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.4em', color: 'rgba(139,124,248,0.45)', textTransform: 'uppercase' }}>IGT</span>
+                <div style={{ width: '20px', height: '1px', background: 'rgba(139,124,248,0.1)' }} />
+              </div>
+              <p className="text-text-primary" style={{ fontSize: '15px', fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2 }}>Slot Audio</p>
+              <p style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.2em', color: 'rgba(255,255,255,0.25)', textTransform: 'uppercase', lineHeight: 1.4, marginTop: '2px' }}>Manager</p>
             </div>
           </div>
         </div>
 
+        {/* ── Active project ── */}
         {gameName && (
-          <div className="mx-3 mb-2 px-3 py-2 rounded-xl bg-bg-active border border-border-bright">
-            <p className="section-label mb-1">Active Project</p>
-            <p className="text-xs font-bold text-cyan truncate">{gameName}</p>
+          <div className="glass" style={{ margin: '0 16px 20px 16px', padding: '14px 16px' }}>
+            <p style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: '8px' }}>Active Project</p>
+            <p className="text-cyan truncate" style={{ fontSize: '13px', fontWeight: 700 }}>{gameName}</p>
           </div>
         )}
 
-        <nav className="flex-1 px-2 py-1 space-y-0.5 overflow-y-auto">
-          {NAV.map((item) => {
-            const disabled = !project && item.id !== 'project';
-            const active = page === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => !disabled && setPage(item.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-all duration-150
-                  ${active
-                    ? 'bg-accent/15 text-accent font-semibold border border-accent/20'
-                    : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary font-medium border border-transparent'}
-                  ${disabled ? 'opacity-20 pointer-events-none' : 'cursor-pointer'}
-                `}
-              >
-                <NavIcon d={item.icon} />
-                <span className="flex-1 text-left">{item.label}</span>
-                {badges[item.id] && (
-                  <span className="min-w-5 h-5 flex items-center justify-center rounded-full bg-danger/20 text-danger text-xs font-bold leading-none">
-                    {badges[item.id]}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+        {/* ── Navigation ── */}
+        <nav className="flex-1 overflow-y-auto" style={{ padding: '4px 14px 16px 14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {NAV.map((item) => {
+              const disabled = !project && item.id !== 'project';
+              const active = page === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => !disabled && setPage(item.id)}
+                  style={{ padding: '11px 14px', gap: '12px', fontSize: '13px', borderRadius: '14px', transition: 'all 0.15s', border: active ? '1px solid rgba(139,124,248,0.12)' : '1px solid transparent', background: active ? 'rgba(139,124,248,0.08)' : 'transparent', boxShadow: active ? 'inset 0 1px 0 rgba(255,255,255,0.03)' : 'none' }}
+                  className={`w-full flex items-center text-left cursor-pointer
+                    ${active ? 'text-accent font-semibold' : 'text-text-secondary hover:text-text-primary font-medium'}
+                    ${disabled ? 'opacity-20 pointer-events-none' : ''}
+                  `}
+                >
+                  <NavIcon d={item.icon} />
+                  <span className="flex-1">{item.label}</span>
+                  {badges[item.id] && (
+                    <span style={{ minWidth: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '999px', background: 'rgba(248,113,113,0.12)', color: '#f87171', fontSize: '11px', fontWeight: 700 }}>
+                      {badges[item.id]}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </nav>
 
-        <div className="p-3 border-t border-border">
-          <button onClick={openProject} className="btn-primary w-full text-xs">
+        {/* ── Bottom action ── */}
+        <div style={{ padding: '16px 16px 20px 16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+          <button onClick={openProject} className="btn-primary w-full" style={{ borderRadius: '12px', fontSize: '13px', padding: '12px 0' }}>
             {project ? 'Switch Project' : 'Open Project'}
           </button>
         </div>
@@ -165,9 +181,9 @@ export default function App() {
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden bg-bg-primary">
         <div className="h-8 drag-region shrink-0" />
-        <div className="flex-1 min-h-0 overflow-hidden px-6 pt-3 pb-4">
+        <div className="flex-1 min-h-0 overflow-hidden" style={{ padding: '24px 32px 32px' }}>
           {pages.map(({ id, el }) => (
-            <div key={id} className={`h-full overflow-y-auto ${page === id ? '' : 'hidden'}`}>
+            <div key={id} className={`h-full overflow-y-auto overflow-x-hidden ${page === id ? '' : 'hidden'}`}>
               <ErrorBoundary>
                 {project || id === 'project' ? el : null}
               </ErrorBoundary>

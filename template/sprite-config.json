@@ -30,7 +30,7 @@
   "encoding": {
     "sfx": {
       "bitrate": 64,
-      "channels": 1,
+      "channels": 2,
       "samplerate": 44100
     },
     "music": {

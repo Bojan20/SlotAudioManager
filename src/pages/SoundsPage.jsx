@@ -310,7 +310,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
         const updated = structuredClone(project);
         updated.soundsJson = newSoundsJson;
         setProject(updated);
-        showToast(`Dodato u sounds.json: ${spriteKey}`, 'success');
+        showToast(`Added to sounds.json: ${spriteKey}`, 'success');
         setAddModal(null);
       } else {
         showToast(r?.error || 'Save failed', 'error');
@@ -341,7 +341,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
         const updated = structuredClone(project);
         updated.soundsJson = newSoundsJson;
         setProject(updated);
-        showToast(`Dodato ${missing.length} zvuk(a) u sounds.json`, 'success');
+        showToast(`Added ${missing.length} sound(s) to sounds.json`, 'success');
         setBulkAdd(null);
       } else {
         showToast(r?.error || 'Save failed', 'error');
@@ -373,8 +373,8 @@ export default function SoundsPage({ project, setProject, showToast }) {
         const parts = [];
         if (r.removedSprites) parts.push(`${r.removedSprites} sprite(s)`);
         if (r.removedSpriteLists) parts.push(`${r.removedSpriteLists} spriteList(s)`);
-        if (r.removedSteps) parts.push(`${r.removedSteps} step(s) iz komandi`);
-        showToast(`Očišćeno: ${parts.join(', ')}`, 'success');
+        if (r.removedSteps) parts.push(`${r.removedSteps} step(s) from commands`);
+        showToast(`Cleaned: ${parts.join(', ')}`, 'success');
         setOrphanResult(null);
       }
     } catch (e) { showToast(e.message, 'error'); }
@@ -443,7 +443,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="badge bg-orange-dim text-orange text-xs">JSON Cleanup</span>
-            <span className="text-xs text-text-dim">Pronađi zvukove u JSON koji ne postoje u sourceSoundFiles</span>
+            <span className="text-xs text-text-dim">Find sounds in JSON that don't exist in sourceSoundFiles</span>
           </div>
           <div className="flex items-center gap-2">
             {orphanResult && orphanResult.orphanedSprites.length > 0 && (
@@ -452,7 +452,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
                 disabled={cleaning}
                 className="btn-primary text-xs py-1 px-3 bg-danger/80 hover:bg-danger border-danger/50"
               >
-                {cleaning ? 'Čistim...' : `Obriši ${orphanResult.orphanedSprites.length} orphan-a`}
+                {cleaning ? 'Cleaning...' : `Delete ${orphanResult.orphanedSprites.length} orphan(s)`}
               </button>
             )}
             <button
@@ -460,7 +460,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               disabled={analyzing}
               className="btn-ghost text-xs py-1 px-3"
             >
-              {analyzing ? 'Analiziram...' : 'Analiziraj'}
+              {analyzing ? 'Analyzing...' : 'Analyze'}
             </button>
           </div>
         </div>
@@ -471,7 +471,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
-              sounds.json je čist — svi spriteId-evi imaju WAV u sourceSoundFiles
+              sounds.json is clean — all spriteIds have a WAV in sourceSoundFiles
             </div>
           ) : (
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -479,7 +479,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               {/* Orphaned sprites */}
               <div>
                 <p className="text-xs text-danger font-semibold mb-1">
-                  {orphanResult.orphanedSprites.length} orphaned sprite(s) — biće obrisani iz soundSprites:
+                  {orphanResult.orphanedSprites.length} orphaned sprite(s) — will be removed from soundSprites:
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {orphanResult.orphanedSprites.map(k => (
@@ -496,7 +496,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
                     {Object.entries(orphanResult.affectedSpriteLists).map(([k, bad]) => (
                       <div key={k} className="flex items-center gap-2 flex-wrap">
                         <span className={`badge font-mono text-xs ${orphanResult.removedSpriteLists.includes(k) ? 'bg-danger-dim text-danger' : 'bg-orange-dim text-orange'}`}>
-                          {k} {orphanResult.removedSpriteLists.includes(k) ? '(cela lista briše se)' : `(${bad.length} ID-a briše se)`}
+                          {k} {orphanResult.removedSpriteLists.includes(k) ? '(entire list removed)' : `(${bad.length} ID(s) removed)`}
                         </span>
                       </div>
                     ))}
@@ -507,7 +507,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               {/* Affected commands */}
               {Object.keys(orphanResult.affectedCommands).length > 0 && (
                 <div className="pt-1.5 border-t border-border/50">
-                  <p className="text-xs text-orange font-semibold mb-1">Komande (samo step-ovi se brišu, komanda ostaje):</p>
+                  <p className="text-xs text-orange font-semibold mb-1">Commands (only steps removed, command stays):</p>
                   <div className="flex flex-wrap gap-1">
                     {Object.keys(orphanResult.affectedCommands).map(cmd => (
                       <span key={cmd} className="badge bg-orange-dim text-orange font-mono text-xs">
@@ -574,7 +574,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
                   <button
                     onClick={() => setAddModal({ name: s.name, tags: autoTag(s.name), overlap: false, saving: false })}
                     className="badge bg-orange-dim text-orange shrink-0 cursor-pointer hover:bg-orange/20 transition-colors"
-                    title="Dodaj u sounds.json"
+                    title="Add to sounds.json"
                   >
                     + Add to JSON
                   </button>
@@ -673,7 +673,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[400px] flex flex-col">
             <div className="p-5 border-b border-border">
-              <h3 className="text-sm font-bold text-text-primary">Dodaj u sounds.json</h3>
+              <h3 className="text-sm font-bold text-text-primary">Add to sounds.json</h3>
               <p className="text-xs text-text-dim mt-0.5 font-mono">s_{addModal.name}</p>
             </div>
             <div className="p-5 space-y-4">
@@ -700,18 +700,18 @@ export default function SoundsPage({ project, setProject, showToast }) {
                   className="w-4 h-4 accent-accent"
                 />
                 <label htmlFor="overlap-check" className="text-xs text-text-secondary cursor-pointer">
-                  overlap <span className="text-text-dim">(zvuk se preklapa sa samim sobom)</span>
+                  overlap <span className="text-text-dim">(sound overlaps with itself)</span>
                 </label>
               </div>
             </div>
             <div className="p-4 border-t border-border flex gap-2 justify-end">
-              <button onClick={() => setAddModal(null)} className="btn-ghost text-xs px-4 py-2">Otkaži</button>
+              <button onClick={() => setAddModal(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
               <button
                 onClick={handleAddToJson}
                 disabled={addModal.saving}
                 className="btn-primary text-xs px-4 py-2 disabled:opacity-40"
               >
-                {addModal.saving ? 'Snimam...' : 'Dodaj'}
+                {addModal.saving ? 'Saving...' : 'Add'}
               </button>
             </div>
           </div>
@@ -727,8 +727,8 @@ export default function SoundsPage({ project, setProject, showToast }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
             <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[400px] flex flex-col">
               <div className="p-5 border-b border-border">
-                <h3 className="text-sm font-bold text-text-primary">Dodaj sve u sounds.json</h3>
-                <p className="text-xs text-text-dim mt-0.5">{missing.length} zvuk(a) koji još nisu u JSON-u</p>
+                <h3 className="text-sm font-bold text-text-primary">Add all to sounds.json</h3>
+                <p className="text-xs text-text-dim mt-0.5">{missing.length} sound(s) not yet in JSON</p>
               </div>
               <div className="p-5 space-y-4">
                 <div>
@@ -760,18 +760,18 @@ export default function SoundsPage({ project, setProject, showToast }) {
                     className="w-4 h-4 accent-accent"
                   />
                   <label htmlFor="bulk-overlap-check" className="text-xs text-text-secondary cursor-pointer">
-                    overlap <span className="text-text-dim">(zvuk se preklapa sa samim sobom)</span>
+                    overlap <span className="text-text-dim">(sound overlaps with itself)</span>
                   </label>
                 </div>
               </div>
               <div className="p-4 border-t border-border flex gap-2 justify-end">
-                <button onClick={() => setBulkAdd(null)} className="btn-ghost text-xs px-4 py-2">Otkaži</button>
+                <button onClick={() => setBulkAdd(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
                 <button
                   onClick={handleAddAllToJson}
                   disabled={bulkAdd.saving}
                   className="btn-primary text-xs px-4 py-2 disabled:opacity-40"
                 >
-                  {bulkAdd.saving ? 'Snimam...' : `Dodaj ${missing.length} zvuk(a)`}
+                  {bulkAdd.saving ? 'Saving...' : `Add ${missing.length} sound(s)`}
                 </button>
               </div>
             </div>

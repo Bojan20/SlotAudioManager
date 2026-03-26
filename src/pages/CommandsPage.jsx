@@ -40,7 +40,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
               onChange={e => setState(m => ({ ...m, commandId: e.target.value }))}
               className="input-base text-xs w-full font-mono"
             >
-              <option value="">— izaberi —</option>
+              <option value="">— select —</option>
               {commandIds.map(id => <option key={id}>{id}</option>)}
             </select>
           </div>
@@ -52,7 +52,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
               onChange={e => setState(m => ({ ...m, spriteListId: e.target.value }))}
               className="input-base text-xs w-full font-mono"
             >
-              <option value="">— izaberi —</option>
+              <option value="">— select —</option>
               {spriteListIds.map(id => <option key={id}>{id}</option>)}
             </select>
           </div>
@@ -77,7 +77,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
                 onChange={e => setState(m => ({ ...m, spriteListId: e.target.value }))}
                 className="input-base text-xs w-full font-mono"
               >
-                <option value="">— izaberi —</option>
+                <option value="">— select —</option>
                 {spriteListIds.map(id => <option key={id}>{id}</option>)}
               </select>
             ) : (
@@ -86,7 +86,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
                 onChange={e => setState(m => ({ ...m, spriteId: e.target.value }))}
                 className="input-base text-xs w-full font-mono"
               >
-                <option value="">— izaberi —</option>
+                <option value="">— select —</option>
                 {spriteIds.map(id => <option key={id}>{id}</option>)}
               </select>
             )}
@@ -99,7 +99,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
               onChange={e => setState(m => ({ ...m, spriteId: e.target.value }))}
               className="input-base text-xs w-full font-mono"
             >
-              <option value="">— izaberi —</option>
+              <option value="">— select —</option>
               {spriteIds.map(id => <option key={id}>{id}</option>)}
             </select>
           </div>
@@ -424,11 +424,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const handleSaveNewCmd = async () => {
     const hookName = newCmd.hookName.trim();
     if (!hookName) return;
-    if (commands[hookName]) { showToast(`Komanda "${hookName}" već postoji`, 'error'); return; }
+    if (commands[hookName]) { showToast(`Command "${hookName}" already exists`, 'error'); return; }
     if (!validateStep(newCmd)) return;
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[hookName] = [buildStep(newCmd)];
-    const ok = await saveJson(j, `Komanda "${hookName}" dodana`);
+    const ok = await saveJson(j, `Command "${hookName}" added`);
     if (ok) { setNewCmd(null); setExpanded(hookName); }
   };
 
@@ -447,7 +447,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (!validateStep(editStep)) return;
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[editStep.cmdName][editStep.stepIdx] = buildStep(editStep);
-    const ok = await saveJson(j, 'Step sačuvan');
+    const ok = await saveJson(j, 'Step saved');
     if (ok) setEditStep(null);
   };
 
@@ -461,7 +461,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const j = structuredClone(project.soundsJson);
     delete j.soundDefinitions.commands[cmdName];
     setConfirmDeleteCmd(null);
-    const ok = await saveJson(j, `Komanda "${cmdName}" obrisana`);
+    const ok = await saveJson(j, `Command "${cmdName}" deleted`);
     if (ok) setExpanded(null);
   };
 
@@ -478,7 +478,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
             onClick={handleScan}
             disabled={scanning || !project?.settings?.gameProjectPath}
             className="btn-ghost text-xs py-2 flex items-center gap-1.5 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={!project?.settings?.gameProjectPath ? 'Game repo nije konfigurisan' : ''}
+            title={!project?.settings?.gameProjectPath ? 'Game repo not configured' : ''}
           >
             {scanning ? (
               <span className="anim-pulse-dot w-2 h-2 rounded-full bg-cyan shrink-0" />
@@ -549,8 +549,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   {confirmDeleteCmd === name ? (
                     <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-danger-dim border border-danger/30">
                       <span className="text-xs text-danger flex-1">Obrisati celu komandu?</span>
-                      <button onClick={() => handleDeleteCmd(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Da, obriši</button>
-                      <button onClick={() => setConfirmDeleteCmd(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Otkaži</button>
+                      <button onClick={() => handleDeleteCmd(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes, delete</button>
+                      <button onClick={() => setConfirmDeleteCmd(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
                     </div>
                   ) : (
                     <div className="flex justify-end pb-0.5">
@@ -559,7 +559,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         disabled={saving}
                         className="text-xs text-text-dim hover:text-danger transition-colors disabled:opacity-40"
                       >
-                        Obriši komandu
+                        Delete command
                       </button>
                     </div>
                   )}
@@ -580,9 +580,9 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         <div key={idx} className="rounded-lg border border-accent/30 bg-accent/5 p-3 space-y-2">
                           <StepForm state={editStep} setState={setEditStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
                           <div className="flex gap-2 justify-end">
-                            <button onClick={() => setEditStep(null)} className="btn-ghost text-xs py-1 px-3">Otkaži</button>
+                            <button onClick={() => setEditStep(null)} className="btn-ghost text-xs py-1 px-3">Cancel</button>
                             <button onClick={handleSaveEditStep} disabled={saving} className="btn-primary text-xs py-1 px-3 disabled:opacity-40">
-                              {saving ? '...' : 'Sačuvaj'}
+                              {saving ? '...' : 'Save'}
                             </button>
                           </div>
                         </div>
@@ -635,7 +635,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                             onClick={() => handleDeleteStep(name, idx)}
                             disabled={saving}
                             className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors"
-                            title="Obriši step"
+                            title="Delete step"
                           >
                             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -687,13 +687,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
               <StepForm state={newCmd} setState={setNewCmd} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
             </div>
             <div className="p-4 border-t border-border flex gap-2 justify-end">
-              <button onClick={() => setNewCmd(null)} className="btn-ghost text-xs px-4 py-2">Otkaži</button>
+              <button onClick={() => setNewCmd(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
               <button
                 onClick={handleSaveNewCmd}
                 disabled={saving || !newCmd.hookName.trim()}
                 className="btn-primary text-xs px-4 py-2 disabled:opacity-40"
               >
-                {saving ? 'Snimam...' : 'Dodaj komandu'}
+                {saving ? 'Saving...' : 'Add Command'}
               </button>
             </div>
           </div>
@@ -705,20 +705,20 @@ export default function CommandsPage({ project, setProject, showToast }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[520px] flex flex-col">
             <div className="p-5 border-b border-border">
-              <h3 className="text-sm font-bold text-text-primary">Dodaj step</h3>
+              <h3 className="text-sm font-bold text-text-primary">Add Step</h3>
               <p className="text-xs text-text-dim font-mono mt-0.5">{addStep.cmdName}</p>
             </div>
             <div className="p-5">
               <StepForm state={addStep} setState={setAddStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
             </div>
             <div className="p-4 border-t border-border flex gap-2 justify-end">
-              <button onClick={() => setAddStep(null)} className="btn-ghost text-xs px-4 py-2">Otkaži</button>
+              <button onClick={() => setAddStep(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
               <button
                 onClick={handleSaveAddStep}
                 disabled={saving}
                 className="btn-primary text-xs px-4 py-2 disabled:opacity-40"
               >
-                {saving ? 'Snimam...' : 'Dodaj step'}
+                {saving ? 'Saving...' : 'Add Step'}
               </button>
             </div>
           </div>
@@ -733,8 +733,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
               <div>
                 <h3 className="text-sm font-bold text-text-primary">Game Hook Scanner</h3>
                 <p className="text-xs text-text-dim mt-0.5">
-                  Skeniran {scanResult.totalFiles} .ts fajlova · {scanResult.hooks.length} hookova pronađeno
-                  {scanResult.dynamicCalls.length > 0 && ` · ${scanResult.dynamicCalls.length} dinamičkih poziva (ne mogu se statički analizirati)`}
+                  Scanned {scanResult.totalFiles} .ts files · {scanResult.hooks.length} hooks found
+                  {scanResult.dynamicCalls.length > 0 && ` · ${scanResult.dynamicCalls.length} dynamic calls (cannot be statically analyzed)`}
                 </p>
               </div>
               <button onClick={() => setScanResult(null)} className="text-text-dim hover:text-text-primary transition-colors p-1">
@@ -753,12 +753,12 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 return (
                   <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-2">
                     <p className="section-label text-yellow-400">
-                      Najnoviji hookovi — dodati u poslednjih 90 dana ({newHooks.length})
+                      Recent hooks — added in the last 90 days ({newHooks.length})
                     </p>
                     <div className="space-y-1">
                       {newHooks.map(h => {
                         const statusColor = !h.inJson ? 'text-danger' : h.isEmpty ? 'text-orange' : 'text-green';
-                        const statusLabel = !h.inJson ? 'NEDOSTAJE' : h.isEmpty ? 'PRAZAN' : 'OK';
+                        const statusLabel = !h.inJson ? 'MISSING' : h.isEmpty ? 'EMPTY' : 'OK';
                         const statusBg = !h.inJson ? 'bg-danger-dim border-danger/20' : h.isEmpty ? 'bg-orange-dim border-orange/20' : 'bg-green-dim border-green/20';
                         return (
                           <div key={h.name} className="flex items-center gap-2 group">
@@ -781,7 +781,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
               {scanResult.hooks.filter(h => h.inJson && h.isEmpty).length > 0 && (
                 <div>
                   <p className="section-label mb-2 text-orange">
-                    Prazni hookovi — u JSON ali bez akcija ({scanResult.hooks.filter(h => h.inJson && h.isEmpty).length})
+                    Empty hooks — in JSON but no actions ({scanResult.hooks.filter(h => h.inJson && h.isEmpty).length})
                   </p>
                   <div className="space-y-1">
                     {scanResult.hooks.filter(h => h.inJson && h.isEmpty).map(h => (
@@ -805,7 +805,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
               {scanResult.hooks.filter(h => !h.inJson).length > 0 && (
                 <div>
                   <p className="section-label mb-2 text-danger">
-                    Nedostaju u sounds.json — igra ih poziva ali nisu definisani ({scanResult.hooks.filter(h => !h.inJson).length})
+                    Missing in sounds.json — game calls them but not defined ({scanResult.hooks.filter(h => !h.inJson).length})
                   </p>
                   <div className="space-y-1">
                     {scanResult.hooks.filter(h => !h.inJson).map(h => (
@@ -840,7 +840,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     ))}
                   </div>
                   {scanResult.hooks.filter(h => h.inJson && !h.isEmpty && h.recent).length > 0 && (
-                    <p className="text-xs text-text-dim mt-1.5">✦ = novo u poslednjih 90 dana</p>
+                    <p className="text-xs text-text-dim mt-1.5">✦ = new in the last 90 days</p>
                   )}
                 </div>
               )}
@@ -849,7 +849,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
               {scanResult.deadCommands.length > 0 && (
                 <div>
                   <p className="section-label mb-2 text-text-dim">
-                    Mrtve komande — u sounds.json ali igra ih nikad ne poziva ({scanResult.deadCommands.length})
+                    Dead commands — in sounds.json but never called by the game ({scanResult.deadCommands.length})
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {scanResult.deadCommands.map(n => (
@@ -867,7 +867,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
             </div>
 
             <div className="p-4 border-t border-border flex justify-end">
-              <button onClick={() => setScanResult(null)} className="btn-ghost text-xs px-4 py-2">Zatvori</button>
+              <button onClick={() => setScanResult(null)} className="btn-ghost text-xs px-4 py-2">Close</button>
             </div>
           </div>
         </div>

@@ -239,6 +239,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   const [expanded, setExpanded] = useState(true);
   const [measuring, setMeasuring] = useState(false);
   const [measuredKB, setMeasuredKB] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
 
   // Reset measurement when sounds change (join detects swaps of same count)
   const soundsKey = sounds.join(',');
@@ -257,7 +258,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
       const enc = isStandalone
         ? config?.encoding?.music || { bitrate: 128, channels: 2, samplerate: 44100 }
         : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
-      const r = await window.api.measurePool({ tierName, sounds, encoding: enc });
+      const r = await window.api.measurePool({ tierName, sounds, encoding: enc, isStandalone });
       if (r?.error) { showToast?.('Measure failed: ' + r.error, 'error'); }
       else if (r?.sizeKB !== undefined) setMeasuredKB(r.sizeKB);
     } catch (e) { showToast?.('Measure failed: ' + (e.message || 'unknown'), 'error'); }
@@ -265,7 +266,12 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   };
 
   return (
-    <div className={`rounded-2xl border ${theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl h-full flex flex-col`}>
+    <div
+      className={`rounded-2xl border ${dragOver ? 'border-accent !bg-accent/5' : theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl h-full flex flex-col`}
+      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => { e.preventDefault(); setDragOver(false); const d = e.dataTransfer.getData('text/plain'); if (d) { try { const { sound, from } = JSON.parse(d); if (from !== tierName) onMove(sound, from, tierName); } catch {} } }}
+    >
       {/* Header */}
       <div className={`${theme.headerBg} px-6 py-4 flex items-center gap-3 flex-wrap`}>
         <span className={`w-3 h-3 rounded-full ${theme.dot} shrink-0`} />
@@ -315,15 +321,16 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
         {expanded && (
           <div className="flex flex-wrap gap-2">
             {sounds.map(s => (
-              <span key={s} className={`inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-lg text-xs font-mono border transition-all ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/5 line-through' : 'text-text-secondary border-border/60 bg-bg-primary/50 hover:border-border-bright hover:bg-bg-hover/50'}`}>
+              <span
+                key={s}
+                draggable
+                onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ sound: s, from: tierName })); e.dataTransfer.effectAllowed = 'move'; }}
+                className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-mono border cursor-grab active:cursor-grabbing transition-all ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/5 line-through' : 'text-text-secondary border-border/60 bg-bg-primary/50 hover:border-border-bright hover:bg-bg-hover/50'}`}
+              >
                 {s}
-                <select value="" onChange={(e) => { if (e.target.value) onMove(s, tierName, e.target.value); }} className="bg-transparent text-text-dim cursor-pointer w-6 text-center appearance-none opacity-30 hover:opacity-100 transition-opacity" title="Move to...">
-                  <option value="">→</option>
-                  {tierOptions.filter(t => t !== tierName).map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
               </span>
             ))}
-            {sounds.length === 0 && <span className="text-sm text-text-dim/50 italic py-3">No sounds assigned yet</span>}
+            {sounds.length === 0 && <span className="text-sm text-text-dim/50 italic py-3">Drop sounds here</span>}
           </div>
         )}
       </div>
@@ -370,12 +377,14 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const [preview, setPreview]         = useState(null);
   const [previewIsReassign, setPreviewIsReassign] = useState(false);
   const [copied, setCopied]           = useState(null);
+  const [configKey, setConfigKey]     = useState(0);
   const copyTimerRef = useRef(null);
 
   useEffect(() => {
     if (project?.spriteConfig) setConfig(structuredClone(project.spriteConfig));
     else setConfig(null);
     setDirty(false); setSaving(false); setPreview(null); setAssignTarget({});
+    setConfigKey(k => k + 1);
   }, [project?.path]);
 
   const unassigned = useMemo(() => {
@@ -394,27 +403,22 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
 
   const wavSet = useMemo(() => new Set((project?.sounds || []).map(s => s.name)), [project?.sounds]);
 
-  const wavSizeMap = useMemo(() => {
-    const m = {};
-    for (const s of (project?.sounds || [])) m[s.name] = s.sizeKB || 0;
-    return m;
-  }, [project?.sounds]);
-
   const distSizes = project?.distInfo?.spriteSizes || {};
-  // gameName from audio repo folder (not game repo) — matches how buildTiered.js names output files
-  const gameName = project?.path?.split(/[/\\]/).pop()?.replace(/-audio$/, '') || '';
+  // gameName from gameProjectPath (matches buildTiered.js), fallback to audio repo folder name
+  const gameName = project?.settings?.gameProjectPath?.split(/[/\\]/).pop()
+    || project?.path?.split(/[/\\]/).pop()?.replace(/-audio$/, '') || '';
 
   const poolSizeInfo = (tierName, sounds) => {
     // Only show real M4A sizes from dist/ — no estimation
     for (const fname of [`${gameName}_${tierName}.m4a`, `${tierName}.m4a`]) {
       if (distSizes[fname]) return { kb: distSizes[fname], isActual: true };
     }
-    if (tierName === 'standalone') {
-      let total = 0, foundAny = false;
+    if (tierName === 'standalone' && sounds.length > 0) {
+      let total = 0, foundCount = 0;
       for (const s of sounds) {
-        for (const f of [`${gameName}_${s}.m4a`, `${s}.m4a`]) { if (distSizes[f]) { total += distSizes[f]; foundAny = true; break; } }
+        for (const f of [`${gameName}_${s}.m4a`, `${s}.m4a`]) { if (distSizes[f]) { total += distSizes[f]; foundCount++; break; } }
       }
-      if (foundAny) return { kb: total, isActual: true };
+      if (foundCount > 0) return { kb: total, isActual: foundCount === sounds.length };
     }
     return { kb: 0, isActual: false };
   };
@@ -435,8 +439,9 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const handleMove = (soundName, fromTier, toTier) => {
     if (!toTier || toTier === fromTier) return;
     update(() => {
-      // Remove from source
-      if (fromTier === 'standalone') {
+      // Remove from source (skip if dragged from unassigned)
+      if (fromTier === '__unassigned__') { /* nothing to remove */ }
+      else if (fromTier === 'standalone') {
         if (config.standalone) config.standalone.sounds = (config.standalone.sounds || []).filter(s => s !== soundName);
       } else if (config.sprites[fromTier]) {
         config.sprites[fromTier].sounds = (config.sprites[fromTier].sounds || []).filter(s => s !== soundName);
@@ -529,11 +534,11 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           <button onClick={() => handleOpenPreview(true)} className="btn-ghost text-xs">
             Re-assign All
           </button>
-          <div className="flex items-center gap-2 bg-bg-card border border-border rounded-xl px-4 py-2.5">
-            <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Gap</span>
-            <input type="number" step="0.01" value={config.spriteGap ?? 0.05} onChange={(e) => update(() => { config.spriteGap = parseFloat(e.target.value) || 0; })} className="input-base !w-16 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
-            <span className="text-xs text-text-dim">s</span>
-          </div>
+          <label className="flex items-center gap-2 text-xs text-text-dim font-semibold uppercase tracking-wider">
+            Gap
+            <input type="number" step="1" min="0" value={Math.round((config.spriteGap ?? 0.05) * 1000)} onChange={(e) => update(() => { config.spriteGap = (parseInt(e.target.value) || 0) / 1000; })} className="input-base !w-16 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
+            ms
+          </label>
           <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary' : 'btn-ghost opacity-40 cursor-not-allowed'}>
             {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
           </button>
@@ -549,17 +554,16 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
             <div className="flex-1" />
             <button onClick={handleOpenPreview} className="btn-primary py-2.5 px-5">Auto-Assign All</button>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
             {unassigned.map(s => (
-              <div key={s.name} className="flex items-center gap-2 bg-bg-primary/40 rounded-xl px-3 py-2">
-                <span className="font-mono text-xs text-text-secondary flex-1 truncate">{s.name}</span>
-                <select value={assignTarget[s.name] || ''} onChange={e => setAssignTarget(prev => ({ ...prev, [s.name]: e.target.value }))} className="input-base text-xs !py-1.5 !px-2 !w-28 !rounded-lg">
-                  <option value="">Pool...</option>
-                  {Object.keys(config.sprites || {}).map(t => <option key={t}>{t}</option>)}
-                  <option value="standalone">Standalone</option>
-                </select>
-                <button onClick={() => handleAssign(s.name, assignTarget[s.name])} disabled={!assignTarget[s.name]} className="btn-ghost !text-xs !py-1.5 !px-3 disabled:opacity-20">Add</button>
-              </div>
+              <span
+                key={s.name}
+                draggable
+                onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ sound: s.name, from: '__unassigned__' })); e.dataTransfer.effectAllowed = 'move'; }}
+                className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-mono text-amber-300 border border-amber-500/30 bg-amber-500/8 cursor-grab active:cursor-grabbing hover:border-amber-400/50 hover:bg-amber-500/12 transition-all"
+              >
+                {s.name}
+              </span>
             ))}
           </div>
         </div>
@@ -573,7 +577,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           {immediateTiers.length > 0 && (
             <div className="flex flex-col gap-3 flex-1">
               {immediateTiers.map(([name, cfg]) => (
-                <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+                <PoolCard key={name + '_' + configKey} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
               ))}
             </div>
           )}
@@ -581,7 +585,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           {/* Standalone */}
           {(standaloneSounds.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
             <div className="flex-1">
-              <PoolCard tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds, 5)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+              <PoolCard key={'standalone_' + configKey} tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
             </div>
           )}
 
@@ -594,7 +598,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                 <div className="h-px flex-1 bg-gradient-to-l from-sky-500/30 to-transparent" />
               </div>
               {deferredOnly.map(([name, cfg]) => (
-                <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+                <PoolCard key={name + '_' + configKey} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
               ))}
             </div>
           )}
@@ -608,7 +612,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                 <div className="h-px flex-1 bg-gradient-to-l from-amber-500/30 to-transparent" />
               </div>
               {lazyTiers.map(([name, cfg]) => (
-                <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+                <PoolCard key={name + '_' + configKey} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
               ))}
             </div>
           )}
