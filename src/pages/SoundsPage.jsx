@@ -144,13 +144,8 @@ export default function SoundsPage({ project, setProject, showToast }) {
       const ctx = ctxRef.current;
       const buffer = waveform?.buffer;
       if (ctx && buffer) {
-        const tick = () => {
-          if (!ctxRef.current || ctxRef.current !== ctx) return;
-          const elapsed = ctx.currentTime - playStartRef.current + offsetRef.current;
-          setPlayProgress(Math.min(1, elapsed / buffer.duration));
-          rafRef.current = requestAnimationFrame(tick);
-        };
-        rafRef.current = requestAnimationFrame(tick);
+        // Start playback from the current offset (handles seek-while-paused)
+        startPlayback(ctx, buffer, offsetRef.current);
       }
     }
   };
@@ -185,17 +180,27 @@ export default function SoundsPage({ project, setProject, showToast }) {
     rafRef.current = requestAnimationFrame(tick);
   };
 
-  const seekTo = (fraction, isDrag = false) => {
+  const seekTo = (fraction, isDrag = false, wasPaused = false) => {
     if (!waveform?.buffer || !ctxRef.current) return;
     if (isDrag) {
       // During drag: only move trackhead visually, don't restart audio
       setPlayProgress(fraction);
       return;
     }
-    // On release: restart audio from this position
+    const offset = fraction * waveform.buffer.duration;
+    if (wasPaused) {
+      // Was paused — just update position visually, don't create source (resumeAudio will)
+      setPlayProgress(fraction);
+      offsetRef.current = offset;
+      playStartRef.current = ctxRef.current.currentTime;
+      if (sourceRef.current) { sourceRef.current.onended = null; }
+      try { sourceRef.current?.stop(); } catch {}
+      sourceRef.current = null;
+      return;
+    }
+    // Was playing — restart audio from new position
     if (ctxRef.current.state === 'suspended') ctxRef.current.resume();
     setPaused(false);
-    const offset = fraction * waveform.buffer.duration;
     startPlayback(ctxRef.current, waveform.buffer, offset);
   };
 
@@ -597,7 +602,8 @@ export default function SoundsPage({ project, setProject, showToast }) {
                     onMouseDown={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      // Pause audio during drag — set paused state so UI stays consistent
+                      // Remember if paused before drag — if so, stay paused after seek
+                      const wasPausedBefore = paused;
                       const wasPlaying = ctxRef.current && ctxRef.current.state === 'running';
                       if (wasPlaying) { ctxRef.current.suspend(); setPaused(true); }
                       if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
@@ -613,7 +619,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
                       const up = () => {
                         window.removeEventListener('mousemove', drag);
                         window.removeEventListener('mouseup', up);
-                        seekTo(lastX, false); // commit: restart audio from this position
+                        seekTo(lastX, false, wasPausedBefore); // commit: resume only if was playing
                       };
                       window.addEventListener('mousemove', drag);
                       window.addEventListener('mouseup', up);
