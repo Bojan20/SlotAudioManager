@@ -27,9 +27,28 @@ function buildSnippet(tierName, tierCfg) {
 
 function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
   const tierKeys = Object.keys(config.sprites || {});
+  // Aliases: pattern tier name → possible sprite-config tier names
+  const TIER_ALIASES = {
+    loading: ['loading', 'boot', 'init', 'startup', 'base'],
+    main: ['main', 'reel_win', 'bigwin', 'base_game', 'primary'],
+    bonus: ['bonus', 'freespins', 'free_spins', 'holdandwin', 'picker'],
+  };
   const resolveTier = (name) => {
     if (!name) return null;
-    return tierKeys.find(k => k === name) ?? tierKeys.find(k => k.toLowerCase() === name.toLowerCase()) ?? tierKeys.find(k => k.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(k.toLowerCase())) ?? null;
+    // Exact match
+    const exact = tierKeys.find(k => k === name);
+    if (exact) return exact;
+    // Case-insensitive match
+    const ci = tierKeys.find(k => k.toLowerCase() === name.toLowerCase());
+    if (ci) return ci;
+    // Alias match — check if any tier key matches known aliases for this pattern tier
+    const aliases = TIER_ALIASES[name.toLowerCase()];
+    if (aliases) {
+      const aliasMatch = tierKeys.find(k => aliases.includes(k.toLowerCase()));
+      if (aliasMatch) return aliasMatch;
+    }
+    // Fuzzy substring match
+    return tierKeys.find(k => k.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(k.toLowerCase())) ?? null;
   };
   const PATTERNS = [
     // ── STANDALONE: only base game music that loops from first frame ──
@@ -246,7 +265,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   };
 
   return (
-    <div className={`rounded-2xl border ${theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl`}>
+    <div className={`rounded-2xl border ${theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl h-full flex flex-col`}>
       {/* Header */}
       <div className={`${theme.headerBg} px-6 py-4 flex items-center gap-3 flex-wrap`}>
         <span className={`w-3 h-3 rounded-full ${theme.dot} shrink-0`} />
@@ -288,7 +307,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
       )}
 
       {/* Sounds */}
-      <div className="px-6 py-4">
+      <div className="px-6 py-4 flex-1">
         <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-xs text-text-dim hover:text-text-secondary transition-colors mb-3 uppercase tracking-widest font-bold">
           <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
           Sounds ({sounds.length})
@@ -547,69 +566,99 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
       )}
 
       {/* Pool cards — fill remaining height */}
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-5 pr-1">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+        <div className="flex flex-col gap-3 min-h-full">
 
-        {/* Immediate pools */}
-        {immediateTiers.map(([name, cfg]) => (
-          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-        ))}
+          {/* Immediate pools */}
+          {immediateTiers.length > 0 && (
+            <div className="flex flex-col gap-3 flex-1">
+              {immediateTiers.map(([name, cfg]) => (
+                <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+              ))}
+            </div>
+          )}
 
-        {/* Standalone */}
-        {(standaloneSounds.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
-          <PoolCard tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds, 5)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-        )}
+          {/* Standalone */}
+          {(standaloneSounds.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
+            <div className="flex-1">
+              <PoolCard tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds, 5)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+            </div>
+          )}
 
-        {/* Deferred pools */}
-        {deferredOnly.map(([name, cfg]) => (
-          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-        ))}
-
-        {/* Lazy pools */}
-        {lazyTiers.map(([name, cfg]) => (
-          <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-        ))}
-
-        {/* Encoding */}
-        <div className="rounded-2xl border border-border/50 overflow-hidden">
-          <div className="bg-bg-hover/30 px-6 py-4">
-            <span className="text-sm font-bold tracking-widest uppercase text-text-dim">Encoding Settings</span>
-          </div>
-          <div className="px-6 py-5 space-y-4">
-            {Object.entries(config.encoding || {}).map(([key, enc]) => (
-              <div key={key} className="flex items-center gap-4 flex-wrap">
-                <span className={`text-sm font-bold uppercase tracking-wider w-14 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-4 h-4 accent-accent rounded cursor-pointer" />
-                  <span className="text-sm text-text-dim">Keep Original</span>
-                </label>
-                {enc.keepOriginal ? (
-                  <span className="text-sm text-text-dim italic">320 kbps, source channels & sample rate</span>
-                ) : (
-                  <>
-                    <span className="text-sm text-text-dim">Bitrate:</span>
-                    <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
-                      {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
-                    </select>
-                    <span className="text-sm text-text-dim ml-2">Channels:</span>
-                    <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
-                      <option value={1}>Mono</option>
-                      <option value={2}>Stereo</option>
-                    </select>
-                  </>
-                )}
+          {/* Deferred pools */}
+          {deferredOnly.length > 0 && (
+            <div className="flex flex-col gap-3 flex-1">
+              <div className="flex items-center gap-3 px-1 pt-1">
+                <div className="h-px flex-1 bg-gradient-to-r from-sky-500/30 to-transparent" />
+                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-sky-400/60">Deferred Pools</span>
+                <div className="h-px flex-1 bg-gradient-to-l from-sky-500/30 to-transparent" />
               </div>
-            ))}
-          </div>
-        </div>
+              {deferredOnly.map(([name, cfg]) => (
+                <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+              ))}
+            </div>
+          )}
 
-        {/* Copy all snippets */}
-        {deferredTiers.length > 0 && (
-          <div className="flex justify-end py-3">
-            <button onClick={handleCopyAll} className="btn-ghost">
-              {copied === '__all__' ? '✓ All Snippets Copied' : 'Copy All SubLoader Snippets'}
-            </button>
+          {/* Lazy pools */}
+          {lazyTiers.length > 0 && (
+            <div className="flex flex-col gap-3 flex-1">
+              <div className="flex items-center gap-3 px-1 pt-1">
+                <div className="h-px flex-1 bg-gradient-to-r from-amber-500/30 to-transparent" />
+                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-400/60">Lazy Pools</span>
+                <div className="h-px flex-1 bg-gradient-to-l from-amber-500/30 to-transparent" />
+              </div>
+              {lazyTiers.map(([name, cfg]) => (
+                <PoolCard key={name} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+              ))}
+            </div>
+          )}
+
+          {/* Encoding */}
+          <div className="flex-none">
+            <div className="flex items-center gap-3 px-1 pt-1 pb-3">
+              <div className="h-px flex-1 bg-gradient-to-r from-border/50 to-transparent" />
+              <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-text-dim/60">Encoding</span>
+              <div className="h-px flex-1 bg-gradient-to-l from-border/50 to-transparent" />
+            </div>
+            <div className="rounded-2xl border border-border/50 overflow-hidden">
+              <div className="px-6 py-4 space-y-4">
+                {Object.entries(config.encoding || {}).map(([key, enc]) => (
+                  <div key={key} className="flex items-center gap-4 flex-wrap">
+                    <span className={`text-sm font-bold uppercase tracking-wider w-14 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-4 h-4 accent-accent rounded cursor-pointer" />
+                      <span className="text-sm text-text-dim">Keep Original</span>
+                    </label>
+                    {enc.keepOriginal ? (
+                      <span className="text-sm text-text-dim italic">320 kbps, source channels & sample rate</span>
+                    ) : (
+                      <>
+                        <span className="text-sm text-text-dim">Bitrate:</span>
+                        <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
+                          {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
+                        </select>
+                        <span className="text-sm text-text-dim ml-2">Channels:</span>
+                        <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
+                          <option value={1}>Mono</option>
+                          <option value={2}>Stereo</option>
+                        </select>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        )}
+
+          {/* Copy all snippets */}
+          {deferredTiers.length > 0 && (
+            <div className="flex-none flex justify-end pb-2">
+              <button onClick={handleCopyAll} className="btn-ghost">
+                {copied === '__all__' ? '✓ All Snippets Copied' : 'Copy All SubLoader Snippets'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Auto-Assign Preview Modal */}
