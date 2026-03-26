@@ -349,6 +349,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const [saving, setSaving]           = useState(false);
   const [assignTarget, setAssignTarget] = useState({});
   const [preview, setPreview]         = useState(null);
+  const [previewIsReassign, setPreviewIsReassign] = useState(false);
   const [copied, setCopied]           = useState(null);
   const copyTimerRef = useRef(null);
 
@@ -467,8 +468,28 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
     }).catch(() => showToast('Clipboard copy failed', 'error'));
   };
 
-  const handleOpenPreview = () => setPreview(computeAutoAssign(unassigned, config, project?.soundsJson, config.musicTags));
-  const handleApplyPreview = () => { if (!preview) return; preview.forEach(({ name, tier }) => handleAssign(name, tier)); setPreview(null); };
+  const handleOpenPreview = (reassignAll = false) => {
+    setPreviewIsReassign(reassignAll);
+    if (reassignAll) {
+      const allSounds = (project?.sounds || []).map(s => ({ name: s.name }));
+      setPreview(computeAutoAssign(allSounds, config, project?.soundsJson, config.musicTags));
+    } else {
+      setPreview(computeAutoAssign(unassigned, config, project?.soundsJson, config.musicTags));
+    }
+  };
+  const handleApplyPreview = () => {
+    if (!preview) return;
+    if (previewIsReassign) {
+      // Clear all pools first — full re-assignment
+      update(() => {
+        for (const tier of Object.values(config.sprites || {})) tier.sounds = [];
+        if (config.standalone) config.standalone.sounds = [];
+      });
+    }
+    preview.forEach(({ name, tier }) => handleAssign(name, tier));
+    setPreview(null);
+    setPreviewIsReassign(false);
+  };
   const handleCopyAll = () => handleCopy('__all__', deferredTiers.map(([n, tc]) => buildSnippet(n, tc)).join('\n\n'));
 
   // Group tiers by loading type for visual ordering
@@ -485,11 +506,14 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           <h2 className="text-xl font-bold text-text-primary">Sprite Config</h2>
           <p className="text-sm text-text-dim mt-1">Audio pools, loading strategy, encoding</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => handleOpenPreview(true)} className="btn-ghost text-xs">
+            Re-assign All
+          </button>
           <div className="flex items-center gap-2 bg-bg-card border border-border rounded-xl px-4 py-2.5">
-            <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Sprite Gap</span>
+            <span className="text-xs text-text-dim font-semibold uppercase tracking-wider">Gap</span>
             <input type="number" step="0.01" value={config.spriteGap ?? 0.05} onChange={(e) => update(() => { config.spriteGap = parseFloat(e.target.value) || 0; })} className="input-base !w-16 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
-            <span className="text-xs text-text-dim">sec</span>
+            <span className="text-xs text-text-dim">s</span>
           </div>
           <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary' : 'btn-ghost opacity-40 cursor-not-allowed'}>
             {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
