@@ -258,18 +258,41 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [addStep, setAddStep] = useState(null);
   const [editStep, setEditStep] = useState(null);
   const [confirmDeleteCmd, setConfirmDeleteCmd] = useState(null);
+  const [renameCmd, setRenameCmd] = useState(null);
   const [scanResult, setScanResult] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [scanFixInclude, setScanFixInclude] = useState({ add: {}, remove: {}, fill: {} });
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
     setNewCmd(null); setAddStep(null); setEditStep(null); setConfirmDeleteCmd(null);
-    setScanResult(null);
+    setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
   }, [project?.path]);
 
   const commands = project?.soundsJson?.soundDefinitions?.commands || {};
   const soundSprites = project?.soundsJson?.soundDefinitions?.soundSprites || {};
   const spriteLists = project?.soundsJson?.soundDefinitions?.spriteList || {};
+
+  // Reverse map: hookName → spriteId (for auto-matching scan results to sprites)
+  const scanSpriteMap = useMemo(() => {
+    const map = {};
+    for (const id of Object.keys(soundSprites)) {
+      map[suggestHookName(id)] = id;
+    }
+    return map;
+  }, [soundSprites]);
+
+  useEffect(() => {
+    if (!scanResult) { setScanFixInclude({ add: {}, remove: {}, fill: {} }); return; }
+    const add = {}, remove = {}, fill = {};
+    scanResult.hooks.filter(h => !h.inJson).forEach(h => { add[h.name] = true; });
+    (scanResult.deadCommands || []).forEach(n => { remove[n] = true; });
+    // Only pre-select empty hooks that have a sprite match (others can't be auto-filled)
+    scanResult.hooks.filter(h => h.inJson && h.isEmpty).forEach(h => {
+      fill[h.name] = !!scanSpriteMap[h.name];
+    });
+    setScanFixInclude({ add, remove, fill });
+  }, [scanResult, scanSpriteMap]);
 
   const referencedSprites = useMemo(() => {
     const refs = new Set();
@@ -465,6 +488,78 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (ok) setExpanded(null);
   };
 
+  const handleRenameCmd = async () => {
+    if (saving) return;
+    const newName = renameCmd.newName.trim();
+    const oldName = renameCmd.oldName;
+    if (!newName || newName === oldName) { setRenameCmd(null); return; }
+    if (commands[newName]) { showToast(`"${newName}" već postoji`, 'error'); return; }
+    const j = structuredClone(project.soundsJson);
+    j.soundDefinitions.commands[newName] = j.soundDefinitions.commands[oldName];
+    delete j.soundDefinitions.commands[oldName];
+    const ok = await saveJson(j, `Renamed "${oldName}" → "${newName}"`);
+    if (ok) { setRenameCmd(null); setExpanded(newName); }
+  };
+
+  const handleApplyScanFixes = async () => {
+    setSaving(true);
+    try {
+      const j = structuredClone(project.soundsJson);
+      const cmds = j.soundDefinitions.commands;
+      let added = 0, filled = 0, removed = 0;
+
+      // Add missing hooks
+      for (const [name, include] of Object.entries(scanFixInclude.add)) {
+        if (!include) continue;
+        const spriteId = scanSpriteMap[name];
+        cmds[name] = spriteId ? suggestActions(spriteId) : [];
+        added++;
+      }
+
+      // Fill empty hooks with auto-matched actions
+      for (const [name, include] of Object.entries(scanFixInclude.fill)) {
+        if (!include) continue;
+        const spriteId = scanSpriteMap[name];
+        if (spriteId) {
+          cmds[name] = suggestActions(spriteId);
+          filled++;
+        }
+      }
+
+      // Remove dead commands
+      for (const [name, include] of Object.entries(scanFixInclude.remove)) {
+        if (!include) continue;
+        delete cmds[name];
+        removed++;
+      }
+
+      if (!added && !filled && !removed) {
+        showToast('Ništa nije selektovano', 'error');
+        setSaving(false);
+        return;
+      }
+
+      const parts = [];
+      if (added) parts.push(`${added} dodato`);
+      if (filled) parts.push(`${filled} popunjeno`);
+      if (removed) parts.push(`${removed} obrisano`);
+
+      const ok = await saveJson(j, parts.join(', '));
+      if (ok) {
+        // Reset UI state — deleted commands may still be referenced by expanded/rename/etc.
+        setExpanded(null);
+        setRenameCmd(null);
+        setConfirmDeleteCmd(null);
+        setEditStep(null);
+        setAddStep(null);
+        setScanResult(null);
+      }
+    } catch (e) {
+      showToast('Apply failed: ' + e.message, 'error');
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="anim-fade-up h-full flex flex-col gap-2">
       <div className="shrink-0 flex items-center justify-between">
@@ -531,20 +626,52 @@ export default function CommandsPage({ project, setProject, showToast }) {
           const isOpen = expanded === name;
           return (
             <div key={name} className="card overflow-hidden" style={{ borderRadius: 10 }}>
-              <button
-                onClick={() => setExpanded(isOpen ? null : name)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-bg-hover/50 transition-colors text-left"
-              >
-                <svg className={`w-3 h-3 text-text-dim transition-transform ${isOpen ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M6 4l8 6-8 6V4z" />
-                </svg>
-                <span className="flex-1 text-[13px] font-mono truncate">{name}</span>
-                {issues.length > 0 && <span className="badge bg-danger-dim text-danger">{issues.length} err</span>}
-                <span className="text-xs text-text-dim">{actions.length} action{actions.length !== 1 ? 's' : ''}</span>
-              </button>
+              <div className="w-full flex items-center gap-3 px-4 py-2.5">
+                <button
+                  onClick={() => setExpanded(isOpen ? null : name)}
+                  className="flex items-center gap-3 flex-1 min-w-0 hover:bg-bg-hover/50 transition-colors text-left"
+                >
+                  <svg className={`w-3 h-3 text-text-dim transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M6 4l8 6-8 6V4z" />
+                  </svg>
+                  <span className="flex-1 text-[13px] font-mono truncate">{name}</span>
+                </button>
+                {isOpen && renameCmd?.oldName !== name && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setRenameCmd({ oldName: name, newName: name }); }}
+                    disabled={saving}
+                    className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-accent transition-colors shrink-0"
+                    title="Rename"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                )}
+                {issues.length > 0 && <span className="badge bg-danger-dim text-danger shrink-0">{issues.length} err</span>}
+                <span className="text-xs text-text-dim shrink-0">{actions.length} action{actions.length !== 1 ? 's' : ''}</span>
+              </div>
 
               {isOpen && (
                 <div className="px-4 pb-3 pt-2 border-t border-border space-y-1 anim-fade-in">
+                  {/* Rename command */}
+                  {renameCmd?.oldName === name && (
+                    <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-accent/5 border border-accent/30">
+                      <label className="text-xs text-text-dim shrink-0">Rename:</label>
+                      <input
+                        type="text"
+                        value={renameCmd.newName}
+                        onChange={e => setRenameCmd(prev => ({ ...prev, newName: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') handleRenameCmd(); if (e.key === 'Escape') setRenameCmd(null); }}
+                        className="input-base text-xs font-mono py-1 px-2 flex-1"
+                        maxLength={100}
+                        autoFocus
+                      />
+                      <button onClick={handleRenameCmd} disabled={saving || !renameCmd.newName.trim()} className="text-xs text-accent font-semibold hover:text-accent/80 transition-colors disabled:opacity-40">Save</button>
+                      <button onClick={() => setRenameCmd(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
+                    </div>
+                  )}
+
                   {/* Delete command confirm */}
                   {confirmDeleteCmd === name ? (
                     <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-danger-dim border border-danger/30">
@@ -726,15 +853,32 @@ export default function CommandsPage({ project, setProject, showToast }) {
       )}
 
       {/* Scan Game Hooks Modal */}
-      {scanResult && (
+      {scanResult && (() => {
+        const missingHooks = scanResult.hooks.filter(h => !h.inJson);
+        const emptyHooks = scanResult.hooks.filter(h => h.inJson && h.isEmpty);
+        const okHooks = scanResult.hooks.filter(h => h.inJson && !h.isEmpty);
+        const deadCmds = scanResult.deadCommands || [];
+        const addCount = Object.values(scanFixInclude.add).filter(Boolean).length;
+        const fillCount = Object.values(scanFixInclude.fill).filter(Boolean).length;
+        const removeCount = Object.values(scanFixInclude.remove).filter(Boolean).length;
+        const totalFixes = addCount + fillCount + removeCount;
+
+        const toggleAdd = (name) => setScanFixInclude(p => ({ ...p, add: { ...p.add, [name]: !p.add[name] } }));
+        const toggleFill = (name) => setScanFixInclude(p => ({ ...p, fill: { ...p.fill, [name]: !p.fill[name] } }));
+        const toggleRemove = (name) => setScanFixInclude(p => ({ ...p, remove: { ...p.remove, [name]: !p.remove[name] } }));
+        const toggleAllAdd = (val) => setScanFixInclude(p => ({ ...p, add: Object.fromEntries(missingHooks.map(h => [h.name, val])) }));
+        const toggleAllFill = (val) => setScanFixInclude(p => ({ ...p, fill: Object.fromEntries(emptyHooks.map(h => [h.name, val])) }));
+        const toggleAllRemove = (val) => setScanFixInclude(p => ({ ...p, remove: Object.fromEntries(deadCmds.map(n => [n, val])) }));
+
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[680px] max-h-[85vh] flex flex-col">
+          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col">
             <div className="p-5 border-b border-border flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-text-primary">Game Hook Scanner</h3>
                 <p className="text-xs text-text-dim mt-0.5">
                   Scanned {scanResult.totalFiles} .ts files · {scanResult.hooks.length} hooks found
-                  {scanResult.dynamicCalls.length > 0 && ` · ${scanResult.dynamicCalls.length} dynamic calls (cannot be statically analyzed)`}
+                  {(scanResult.dynamicCalls || []).length > 0 && ` · ${scanResult.dynamicCalls.length} dynamic`}
                 </p>
               </div>
               <button onClick={() => setScanResult(null)} className="text-text-dim hover:text-text-primary transition-colors p-1">
@@ -743,6 +887,30 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 </svg>
               </button>
             </div>
+
+            {/* Summary bar */}
+            {(missingHooks.length > 0 || emptyHooks.length > 0 || deadCmds.length > 0) && (
+              <div className="px-5 py-3 border-b border-border bg-accent/5 flex items-center gap-3 flex-wrap">
+                {missingHooks.length > 0 && (
+                  <span className="badge bg-danger-dim text-danger text-xs">{addCount}/{missingHooks.length} to add</span>
+                )}
+                {emptyHooks.length > 0 && (
+                  <span className="badge bg-orange-dim text-orange text-xs">{fillCount}/{emptyHooks.length} to fill</span>
+                )}
+                {deadCmds.length > 0 && (
+                  <span className="badge bg-bg-hover text-text-dim text-xs">{removeCount}/{deadCmds.length} to remove</span>
+                )}
+                <div className="flex-1" />
+                <button
+                  onClick={() => { toggleAllAdd(true); toggleAllFill(true); toggleAllRemove(true); }}
+                  className="text-xs text-text-dim hover:text-text-primary transition-colors"
+                >Select All</button>
+                <button
+                  onClick={() => { toggleAllAdd(false); toggleAllFill(false); toggleAllRemove(false); }}
+                  className="text-xs text-text-dim hover:text-text-primary transition-colors"
+                >Deselect All</button>
+              </div>
+            )}
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
@@ -753,7 +921,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 return (
                   <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-2">
                     <p className="section-label text-yellow-400">
-                      Recent hooks — added in the last 90 days ({newHooks.length})
+                      Recent hooks — last 90 days ({newHooks.length})
                     </p>
                     <div className="space-y-1">
                       {newHooks.map(h => {
@@ -777,44 +945,107 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 );
               })()}
 
-              {/* Empty hooks — needs attention */}
-              {scanResult.hooks.filter(h => h.inJson && h.isEmpty).length > 0 && (
+              {/* Missing from JSON — with checkboxes */}
+              {missingHooks.length > 0 && (
                 <div>
-                  <p className="section-label mb-2 text-orange">
-                    Empty hooks — in JSON but no actions ({scanResult.hooks.filter(h => h.inJson && h.isEmpty).length})
-                  </p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="section-label text-danger flex-1">
+                      Missing — game calls but not in JSON ({missingHooks.length})
+                    </p>
+                    <button onClick={() => toggleAllAdd(addCount < missingHooks.length)} className="text-xs text-text-dim hover:text-text-primary transition-colors">
+                      {addCount === missingHooks.length ? 'Deselect' : 'Select all'}
+                    </button>
+                  </div>
                   <div className="space-y-1">
-                    {scanResult.hooks.filter(h => h.inJson && h.isEmpty).map(h => (
-                      <div key={h.name} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-orange-dim border border-orange/20 group">
-                        <span className="font-mono text-[12px] text-orange flex-1">{h.name}</span>
-                        {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW · {h.recent.relative}</span>}
-                        <button
-                          onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
-                          className="text-xs text-text-dim hover:text-orange transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-                        >Otvori →</button>
-                        <div className="text-xs text-text-dim font-mono truncate max-w-[180px]" title={h.files.join('\n')}>
-                          {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
+                    {missingHooks.map(h => {
+                      const matched = scanSpriteMap[h.name];
+                      return (
+                        <div key={h.name} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${scanFixInclude.add[h.name] ? 'bg-danger-dim border-danger/30' : 'bg-bg-hover/30 border-border/50 opacity-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={!!scanFixInclude.add[h.name]}
+                            onChange={() => toggleAdd(h.name)}
+                            className="w-3.5 h-3.5 accent-accent shrink-0"
+                          />
+                          <span className="font-mono text-[12px] text-danger flex-1 truncate">{h.name}</span>
+                          {matched ? (
+                            <span className="text-xs text-green font-mono shrink-0" title={`Auto-match: ${matched}`}>→ {matched}</span>
+                          ) : (
+                            <span className="text-xs text-text-dim shrink-0">empty (no match)</span>
+                          )}
+                          {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW</span>}
+                          <div className="text-xs text-text-dim font-mono truncate max-w-[140px] shrink-0" title={h.files.join('\n')}>
+                            {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {/* Missing from JSON */}
-              {scanResult.hooks.filter(h => !h.inJson).length > 0 && (
+              {/* Empty hooks — with checkboxes for auto-fill */}
+              {emptyHooks.length > 0 && (
                 <div>
-                  <p className="section-label mb-2 text-danger">
-                    Missing in sounds.json — game calls them but not defined ({scanResult.hooks.filter(h => !h.inJson).length})
-                  </p>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="section-label text-orange flex-1">
+                      Empty — in JSON but no actions ({emptyHooks.length})
+                    </p>
+                    <button onClick={() => toggleAllFill(fillCount < emptyHooks.length)} className="text-xs text-text-dim hover:text-text-primary transition-colors">
+                      {fillCount === emptyHooks.length ? 'Deselect' : 'Select all'}
+                    </button>
+                  </div>
                   <div className="space-y-1">
-                    {scanResult.hooks.filter(h => !h.inJson).map(h => (
-                      <div key={h.name} className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-danger-dim border border-danger/20">
-                        <span className="font-mono text-[12px] text-danger flex-1">{h.name}</span>
-                        {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW · {h.recent.relative}</span>}
-                        <div className="text-xs text-text-dim font-mono truncate max-w-[180px]" title={h.files.join('\n')}>
-                          {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
+                    {emptyHooks.map(h => {
+                      const matched = scanSpriteMap[h.name];
+                      return (
+                        <div key={h.name} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${scanFixInclude.fill[h.name] ? 'bg-orange-dim border-orange/30' : 'bg-bg-hover/30 border-border/50 opacity-50'}`}>
+                          <input
+                            type="checkbox"
+                            checked={!!scanFixInclude.fill[h.name]}
+                            onChange={() => toggleFill(h.name)}
+                            className="w-3.5 h-3.5 accent-accent shrink-0"
+                            disabled={!matched}
+                          />
+                          <span className="font-mono text-[12px] text-orange flex-1 truncate">{h.name}</span>
+                          {matched ? (
+                            <span className="text-xs text-green font-mono shrink-0">→ {matched}</span>
+                          ) : (
+                            <span className="text-xs text-text-dim shrink-0">no sprite match</span>
+                          )}
+                          {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW</span>}
+                          <div className="text-xs text-text-dim font-mono truncate max-w-[140px] shrink-0" title={h.files.join('\n')}>
+                            {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
+                          </div>
                         </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Dead commands — with checkboxes for removal */}
+              {deadCmds.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="section-label text-text-dim flex-1">
+                      Dead — in JSON but game never calls ({deadCmds.length})
+                    </p>
+                    <button onClick={() => toggleAllRemove(removeCount < deadCmds.length)} className="text-xs text-text-dim hover:text-text-primary transition-colors">
+                      {removeCount === deadCmds.length ? 'Deselect' : 'Select all'}
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {deadCmds.map(n => (
+                      <div key={n} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${scanFixInclude.remove[n] ? 'bg-bg-hover border-border' : 'bg-bg-hover/30 border-border/50 opacity-50'}`}>
+                        <input
+                          type="checkbox"
+                          checked={!!scanFixInclude.remove[n]}
+                          onChange={() => toggleRemove(n)}
+                          className="w-3.5 h-3.5 accent-accent shrink-0"
+                        />
+                        <span className="font-mono text-[12px] text-text-dim flex-1 truncate line-through">{n}</span>
+                        <span className="text-xs text-text-dim shrink-0">{(commands[n] || []).length} actions</span>
                       </div>
                     ))}
                   </div>
@@ -822,13 +1053,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
               )}
 
               {/* Populated hooks — all good */}
-              {scanResult.hooks.filter(h => h.inJson && !h.isEmpty).length > 0 && (
+              {okHooks.length > 0 && (
                 <div>
                   <p className="section-label mb-2 text-green">
-                    Popunjeni — igra ih koristi i sounds.json ima akcije ({scanResult.hooks.filter(h => h.inJson && !h.isEmpty).length})
+                    OK — igra koristi, JSON ima akcije ({okHooks.length})
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {scanResult.hooks.filter(h => h.inJson && !h.isEmpty).map(h => (
+                    {okHooks.map(h => (
                       <button
                         key={h.name}
                         onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
@@ -839,39 +1070,34 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       </button>
                     ))}
                   </div>
-                  {scanResult.hooks.filter(h => h.inJson && !h.isEmpty && h.recent).length > 0 && (
+                  {okHooks.some(h => h.recent) && (
                     <p className="text-xs text-text-dim mt-1.5">✦ = new in the last 90 days</p>
                   )}
                 </div>
               )}
-
-              {/* Dead commands */}
-              {scanResult.deadCommands.length > 0 && (
-                <div>
-                  <p className="section-label mb-2 text-text-dim">
-                    Dead commands — in sounds.json but never called by the game ({scanResult.deadCommands.length})
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {scanResult.deadCommands.map(n => (
-                      <button
-                        key={n}
-                        onClick={() => { setScanResult(null); setFilter(n); setExpanded(n); }}
-                        className="badge bg-bg-hover text-text-dim font-mono text-xs hover:text-text-secondary transition-colors cursor-pointer"
-                      >
-                        {n}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
-            <div className="p-4 border-t border-border flex justify-end">
+            <div className="p-4 border-t border-border flex items-center gap-2">
               <button onClick={() => setScanResult(null)} className="btn-ghost text-xs px-4 py-2">Close</button>
+              <div className="flex-1" />
+              {totalFixes > 0 && (
+                <button
+                  onClick={handleApplyScanFixes}
+                  disabled={saving}
+                  className="btn-primary text-xs px-5 py-2 disabled:opacity-40 flex items-center gap-2"
+                >
+                  {saving ? (
+                    <><span className="anim-pulse-dot w-2 h-2 rounded-full bg-white shrink-0" /> Applying...</>
+                  ) : (
+                    <>Apply {totalFixes} Fix{totalFixes !== 1 ? 'es' : ''}</>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Auto-Generate Modal */}
       {genPreview && (

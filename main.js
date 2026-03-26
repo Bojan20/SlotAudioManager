@@ -1084,24 +1084,100 @@ ipcMain.handle('scan-game-hooks', async () => {
   // {commandName -> Set of relative file paths}
   const hookMap = {};
   const dynamicCalls = []; // files with dynamic execute calls we can't resolve statically
+  const validHookRe = /^on[A-Z][a-zA-Z0-9_]*$/;
 
+  // Pattern 1: direct string literal — soundManager.execute("hookName")
   const executeRe = /soundManager\.execute\(["'`]([^"'`]+)["'`]\)/g;
-  const dynamicRe = /soundManager\.execute\([^"'`)][^)]*\)/g;
+  // Pattern 2: dynamic variable — soundManager.execute(varName)
+  const dynamicRe = /soundManager\.execute\(([^"'`)\s][^)]*)\)/g;
+
+  // Phase 0: Scan framework node_modules (playa-core, playa-table) for built-in hook calls.
+  // These call soundManager.execute() from compiled .js — game src/ doesn't reference them.
+  const frameworkDirs = ['playa-core', 'playa-table', 'playa-slots'].map(
+    pkg => path.join(gameRepoPath, 'node_modules', pkg, 'dist')
+  ).filter(d => fs.existsSync(d));
+
+  const walkJs = (dir, results = []) => {
+    let entries;
+    try { entries = fs.readdirSync(dir); } catch { return results; }
+    for (const e of entries) {
+      const full = path.join(dir, e);
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.isDirectory()) walkJs(full, results);
+      else if (stat.isFile() && e.endsWith('.js')) results.push(full);
+    }
+    return results;
+  };
+
+  for (const fwDir of frameworkDirs) {
+    for (const file of walkJs(fwDir)) {
+      let content;
+      try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
+      const stripped = content.replace(/\/\/.*$/gm, '');
+      const rel = path.relative(gameRepoPath, file).replace(/\\/g, '/');
+      let m;
+      executeRe.lastIndex = 0;
+      while ((m = executeRe.exec(stripped)) !== null) {
+        const name = m[1];
+        if (validHookRe.test(name)) {
+          if (!hookMap[name]) hookMap[name] = new Set();
+          hookMap[name].add(rel);
+        }
+      }
+    }
+  }
+
+  // Phase 1+2 combined: Single pass over game src files.
+  // Collects: direct execute calls, dynamic call flags, const/var hook definitions.
+  const constHookRe = /(?:export\s+)?(?:const|let|var)\s+\w+\s*(?::\s*string\s*)?=\s*["'`](on[A-Z][^"'`]*)["'`]/g;
+  const switchAssignRe = /(?:soundID|soundId|soundName|hookName|hookId|sfxName|sfx)\s*=\s*["'`](on[A-Z][^"'`]*)["'`]/g;
+  const globalHookDefs = {}; // hookValue → Set of files that define it
 
   for (const file of files) {
     let content;
     try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
+    // Strip single-line comments to avoid matching commented-out code
+    const stripped = content.replace(/\/\/.*$/gm, '');
     const rel = path.relative(gameRepoPath, file).replace(/\\/g, '/');
 
     let m;
+    // Direct string literal calls
     executeRe.lastIndex = 0;
-    while ((m = executeRe.exec(content)) !== null) {
+    while ((m = executeRe.exec(stripped)) !== null) {
       const name = m[1];
       if (!hookMap[name]) hookMap[name] = new Set();
       hookMap[name].add(rel);
     }
+
+    // Dynamic calls — flag as unresolvable
     dynamicRe.lastIndex = 0;
-    if (dynamicRe.test(content)) dynamicCalls.push(rel);
+    if (dynamicRe.test(stripped)) {
+      dynamicCalls.push(rel);
+    }
+
+    // Exported/const hook definitions (cross-file resolution)
+    constHookRe.lastIndex = 0;
+    while ((m = constHookRe.exec(stripped)) !== null) {
+      const name = m[1];
+      if (!globalHookDefs[name]) globalHookDefs[name] = new Set();
+      globalHookDefs[name].add(rel);
+    }
+    // Switch/case variable assignments
+    switchAssignRe.lastIndex = 0;
+    while ((m = switchAssignRe.exec(stripped)) !== null) {
+      const name = m[1];
+      if (!globalHookDefs[name]) globalHookDefs[name] = new Set();
+      globalHookDefs[name].add(rel);
+    }
+  }
+
+  // Phase 3: Merge global hook defs into hookMap (cross-file resolution)
+  // Only include clean hook names (no template literal fragments like ${var})
+  for (const [name, defFiles] of Object.entries(globalHookDefs)) {
+    if (!validHookRe.test(name)) continue;
+    if (!hookMap[name]) hookMap[name] = new Set();
+    for (const f of defFiles) hookMap[name].add(f);
   }
 
   // Load current sounds.json commands
@@ -1129,6 +1205,7 @@ ipcMain.handle('scan-game-hooks', async () => {
 
     let currentCommit = null;
     const executeReLine = /soundManager\.execute\(["'`]([^"'`]+)["'`]\)/;
+    const hookDefLine = /=\s*["'`](on[A-Z][^"'`]*)["'`]/;
     for (const line of gitLog.split('\n')) {
       if (line.startsWith('COMMIT_LINE|')) {
         const parts = line.split('|');
@@ -1138,11 +1215,13 @@ ipcMain.handle('scan-game-hooks', async () => {
           message: parts.slice(3).join('|'),
         };
       } else if (line.startsWith('+') && !line.startsWith('+++') && currentCommit) {
-        const m = executeReLine.exec(line);
+        const m = executeReLine.exec(line) || hookDefLine.exec(line);
         if (m) {
           const hookName = m[1];
-          if (!recentlyAdded[hookName] || currentCommit.timestamp > recentlyAdded[hookName].timestamp) {
-            recentlyAdded[hookName] = currentCommit;
+          if (hookName && validHookRe.test(hookName)) {
+            if (!recentlyAdded[hookName] || currentCommit.timestamp > recentlyAdded[hookName].timestamp) {
+              recentlyAdded[hookName] = currentCommit;
+            }
           }
         }
       }
