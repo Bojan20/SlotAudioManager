@@ -993,6 +993,16 @@ ipcMain.handle('kill-game', async () => {
     } else {
       gameProcess = null;
     }
+    // Also close the browser window showing the game
+    if (gameBrowserProcess) {
+      const bpid = gameBrowserProcess.pid;
+      gameBrowserProcess = null;
+      if (isWin && bpid) {
+        exec(`taskkill /T /PID ${bpid}`, () => {
+          setTimeout(() => { exec(`taskkill /F /T /PID ${bpid}`, () => {}); }, 2000);
+        });
+      } else if (bpid) { try { process.kill(bpid); } catch {} }
+    }
     await killPort(8080);
     return { success: true };
   } catch (e) {
@@ -1105,17 +1115,19 @@ ipcMain.handle('launch-local-glr', async (event, { glrName }) => {
 });
 
 // Record GLR — launches game with --record flag (requires VPN)
-ipcMain.handle('record-glr', async () => {
+ipcMain.handle('record-glr', async (event, opts) => {
   if (!projectPath) return { error: 'No project open' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   const pkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
-  const launchScript = pkg?.scripts?.launch || '';
+  const scriptName = opts?.scriptName || 'launch';
+  const launchScript = pkg?.scripts?.[scriptName] || '';
+  if (!launchScript) return { error: `Script "${scriptName}" not found in game package.json` };
   const swMatch = launchScript.match(/--softwareid\s+([\d-]+)/);
   const softwareId = swMatch ? swMatch[1] : null;
-  if (!softwareId) return { error: 'No softwareId found in launch script' };
+  if (!softwareId) return { error: `No softwareId found in "${scriptName}" script` };
   const serverMatch = launchScript.match(/--server\s+([\w-]+)/);
   const server = serverMatch ? serverMatch[1] : 'rgs-gsdev03';
   const channelMatch = launchScript.match(/--channel\s+([A-Z]+)/);
@@ -1187,8 +1199,12 @@ ipcMain.handle('open-game-window', async (event, url) => {
   const killBrowser = (proc) => {
     if (!proc) return;
     const pid = proc.pid;
-    if (isWin && pid) { exec(`taskkill /F /T /PID ${pid}`, () => {}); }
-    else { try { proc.kill(); } catch {} }
+    if (isWin && pid) {
+      // Graceful close first (WM_CLOSE), then force kill after 2s if still alive
+      exec(`taskkill /T /PID ${pid}`, () => {
+        setTimeout(() => { exec(`taskkill /F /T /PID ${pid}`, () => {}); }, 2000);
+      });
+    } else { try { proc.kill(); } catch {} }
   };
 
   if (!browserPath) {
@@ -1201,22 +1217,42 @@ ipcMain.handle('open-game-window', async (event, url) => {
 
   // Kill previous game browser window if still alive
   if (gameBrowserProcess) {
-    killBrowser(gameBrowserProcess);
+    const oldPid = gameBrowserProcess.pid;
     gameBrowserProcess = null;
-    // Brief pause so the OS reclaims the window before we open a new one
-    await new Promise(r => setTimeout(r, 400));
+    if (isWin && oldPid) {
+      // Force kill immediately for quick relaunch — profile prefs patch handles crash state
+      exec(`taskkill /F /T /PID ${oldPid}`, () => {});
+    } else { try { process.kill(oldPid, 'SIGTERM'); } catch {} }
+    await new Promise(r => setTimeout(r, 500));
   }
 
   // Isolated profile so real browser sessions/auth never interfere
   const profileDir = path.join(app.getPath('temp'), 'slot-audio-glr');
 
+  // Clear crash/restore state from previous session — prevents "Restore pages?" prompt
+  try {
+    const prefsFile = path.join(profileDir, 'Default', 'Preferences');
+    if (fs.existsSync(prefsFile)) {
+      const prefs = JSON.parse(fs.readFileSync(prefsFile, 'utf8'));
+      if (!prefs.profile) prefs.profile = {};
+      prefs.profile.exit_type = 'Normal';
+      prefs.profile.exited_cleanly = true;
+      if (!prefs.session) prefs.session = {};
+      prefs.session.restore_on_startup = 0;
+      fs.writeFileSync(prefsFile, JSON.stringify(prefs));
+    }
+  } catch {}
+
   const child = spawn(browserPath, [
     '--new-window',
     '--no-first-run',
     '--no-default-browser-check',
+    '--test-type',
     '--disable-web-security',
     '--allow-running-insecure-content',
     '--ignore-certificate-errors',
+    '--hide-crash-restore-bubble',
+    '--disable-session-crashed-bubble',
     // Block IGT/wagerworks servers — fail fast (NXDOMAIN) instead of hanging without VPN
     '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND',
     `--user-data-dir=${profileDir}`,

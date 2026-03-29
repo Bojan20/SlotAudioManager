@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld('api', {
   // Local GLR launch (no VPN)
   listGlr: () => ipcRenderer.invoke('list-glr'),
   launchLocalGlr: (opts) => ipcRenderer.invoke('launch-local-glr', opts),
-  recordGlr: () => ipcRenderer.invoke('record-glr'),
+  recordGlr: (opts) => ipcRenderer.invoke('record-glr', opts),
   gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
   // Pool measurement
   measurePool: (opts) => ipcRenderer.invoke('measure-pool', opts),

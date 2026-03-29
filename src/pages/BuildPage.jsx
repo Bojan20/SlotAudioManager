@@ -12,6 +12,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [glrList, setGlrList] = useState([]);
   const [glrLoading, setGlrLoading] = useState(false);
   const [glrError, setGlrError] = useState('');
+  const [glrRecordScript, setGlrRecordScript] = useState('');
   const [gameStarted, setGameStarted] = useState(false); // stays true after timeout — keeps Kill visible
   const [gameGit, setGameGit] = useState(null); // { branch, files, hasDevelop, releaseBranches }
   const [gameGitLoading, setGameGitLoading] = useState(false);
@@ -35,7 +36,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   useEffect(() => {
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError('');
-    setGlrList([]); setGlrError('');
+    setGlrList([]); setGlrError(''); setGlrRecordScript('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl('');
     if (project) { loadGameScripts(); loadGlrList(); }
   }, [project?.path]);
@@ -110,8 +111,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const recordGlr = async () => {
     setRunning('record-glr'); setLog(''); setResult(null);
     try {
-      setLog('Starting GLR recording (requires VPN)...\n');
-      const r = await window.api.recordGlr();
+      setLog(`Starting GLR recording using "${glrRecordScript || 'launch'}" (requires VPN)...\n`);
+      const r = await window.api.recordGlr(glrRecordScript ? { scriptName: glrRecordScript } : undefined);
       if (!r.success) {
         setLog(prev => prev + `✖ ${r.error || 'Failed to start recording'}`);
         setResult({ script: 'record-glr', ok: false });
@@ -218,6 +219,21 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setLoadingGameScripts(false);
   };
 
+  // Launch scripts suitable for GLR recording (playa launch with --server)
+  const recordLaunchScripts = useMemo(() =>
+    gameScripts.filter(s => /^playa\s+launch\b/.test(s.cmd) && /--server\s/.test(s.cmd)),
+    [gameScripts]
+  );
+
+  // Auto-select first launch script for GLR recording when list changes
+  useEffect(() => {
+    setGlrRecordScript(prev =>
+      recordLaunchScripts.length > 0 && !recordLaunchScripts.some(s => s.name === prev)
+        ? recordLaunchScripts[0].name
+        : prev
+    );
+  }, [recordLaunchScripts]);
+
   const scripts = project?.scripts || {};
   const buildScripts = useMemo(() => {
     const known = ['build', 'build-audio', 'build-audioSprite', 'build-multi-audioSprites', 'build-audioSprites-size', 'build-validate'];
@@ -247,10 +263,18 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     if (!sj?.soundDefinitions?.soundSprites) return 0;
     const sprites = sj.soundDefinitions.soundSprites;
     const commands = sj.soundDefinitions.commands || {};
-    // Find all spriteIds referenced by any command
+    // Find all spriteIds referenced by any command (direct or via sprite list)
+    const lists = sj.soundDefinitions.spriteList || {};
     const referenced = new Set();
     for (const actions of Object.values(commands)) {
-      for (const a of actions) { if (a.spriteId) referenced.add(a.spriteId); }
+      for (const a of actions) {
+        if (a.spriteId) referenced.add(a.spriteId);
+        if (a.spriteListId && lists[a.spriteListId]) {
+          const list = lists[a.spriteListId];
+          const items = Array.isArray(list) ? list : (list?.items || []);
+          for (const item of items) { if (item) referenced.add(item); }
+        }
+      }
     }
     const orphans = Object.keys(sprites).filter(id => !referenced.has(id));
     if (orphans.length === 0) return 0;
@@ -307,7 +331,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       // Step 3: Build — auto-detect script based on project config
       // If sprite-config.json has sounds assigned to tiers → use tiered build
       // Otherwise fallback to size-based or single sprite build
-      const spriteConfig = project?.spriteConfig;
+      const spriteConfig = latestProject?.spriteConfig;
       const hasTieredSounds = spriteConfig?.sprites && Object.values(spriteConfig.sprites).some(t => t.sounds?.length > 0);
       const buildScript = hasTieredSounds && scripts['build'] ? 'build'
         : scripts['build-audioSprites-size'] ? 'build-audioSprites-size'
@@ -357,16 +381,9 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setRunning(null);
   };
 
-  const pullAndBuild = fullPipeline;
-
   const runScript = async (scriptName) => {
     setRunning(scriptName); setLog(''); setResult(null);
     try {
-      // Auto-fix orphan sprites before any build/validate to ensure 0 warnings
-      if (scriptName.startsWith('build')) {
-        const orphanCount = await autoGenerateOrphanCommands(project);
-        if (orphanCount > 0) setLog(prev => prev + `✔ Auto-fixed ${orphanCount} orphan sprite(s)\n\n`);
-      }
       const r = await window.api.runScript(scriptName);
       if (r?.error) setLog(r.error);
       if (r?.success) {
@@ -494,337 +511,282 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const deployTargetExists = project?.gameRepoExists || false;
   const distInfo = project?.distInfo || null;
   const gameNodeModulesMissing = deployTarget && deployTargetExists && project?.gameNodeModulesExists === false;
+  const gameName = deployTarget ? deployTarget.split(/[/\\]/).pop() : '';
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-2">
+    <div className="anim-fade-up h-full flex flex-col gap-1.5">
       {/* Header */}
-      <div className="shrink-0 py-1">
-        <h2 className="text-xl font-bold text-text-primary">Build & Deploy</h2>
+      <div className="shrink-0 flex items-center gap-2">
+        <h2 className="text-lg font-bold text-text-primary">Build & Deploy</h2>
+        {result && !running && (
+          <span className={`badge ${result.ok ? 'bg-green-dim text-green' : 'bg-danger-dim text-danger'} text-xs`}>
+            {result.script}: {result.ok ? 'OK' : 'FAILED'}
+          </span>
+        )}
       </div>
 
-      {/* 2-column grid - takes all remaining space */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-3">
+      {/* 2-column grid */}
+      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-1.5">
 
-        {/* LEFT column */}
-        <div className="flex flex-col gap-2 min-h-0 overflow-y-auto pr-1">
-
-          {/* BUILD SCRIPTS */}
-          <div className="card p-3 space-y-2">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="badge bg-cyan-dim text-cyan text-xs" title="npm scripts defined in package.json for building audio sprites">Build Scripts</span>
-              {result && (result.script === 'pipeline' || buildScripts.includes(result.script)) && (
-                <span className={`badge ${result.ok ? 'bg-green-dim text-green' : 'bg-danger-dim text-danger'}`}>
-                  {result.ok ? 'PASSED' : 'FAILED'}
-                </span>
+        {/* ═══ LEFT: Audio Pipeline ═══ */}
+        <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto pr-0.5">
+          <div className="card p-2.5 space-y-2">
+            {/* Header row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="badge bg-cyan-dim text-cyan text-xs">Audio Pipeline</span>
+              {distInfo?.hasDist ? (
+                <>
+                  <span className="text-xs text-text-dim">{distInfo.spriteCount} sprites · {distInfo.totalSizeMB} MB</span>
+                  {distInfo.hasSoundsJson && <span className="text-xs text-green">✓ json</span>}
+                </>
+              ) : (
+                <span className="text-xs text-text-dim italic">Not built</span>
               )}
               <div className="ml-auto flex items-center gap-1.5">
                 {deployTarget && (
                   <button
                     onClick={fullPipeline}
                     disabled={running !== null}
-                    title="Pull sounds.json → fix orphans → build → validate → deploy (all in one)"
-                    className={running === 'pipeline' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-3' : 'btn-primary text-xs py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed'}
+                    title="Pull → fix orphans → build → validate → deploy"
+                    className={running === 'pipeline' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-2.5' : 'btn-primary text-xs py-1 px-2.5 disabled:opacity-40 disabled:cursor-not-allowed'}
                   >
-                    {running === 'pipeline' && <span className="inline-block w-2 h-2 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
+                    {running === 'pipeline' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
                     {running === 'pipeline' ? 'Running...' : 'Full Pipeline'}
                   </button>
                 )}
                 <button
                   onClick={handleCleanDist}
                   disabled={cleaning || running !== null}
-                  className="btn-ghost text-xs py-1 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Delete all .m4a files and sounds.json from dist/ folder"
+                  className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
+                  title="Remove .m4a + sounds.json from dist/"
                 >
-                  {cleaning ? 'Cleaning...' : 'Clean dist/'}
+                  {cleaning ? '...' : 'Clean'}
                 </button>
               </div>
             </div>
 
+            {/* Build script buttons — inline flex */}
             {buildScripts.length > 0 ? (
-              <div className="space-y-2">
+              <div className="flex flex-wrap gap-1.5">
                 {buildScripts.map(name => (
-                  <div key={name} className="flex items-center gap-3 py-1.5">
-                    <div className="flex-1">
-                      <p className="text-xs font-mono font-semibold text-text-primary">{name}</p>
-                      <p className="text-xs text-text-dim font-mono truncate mt-0.5">{scripts[name]}</p>
-                    </div>
-                    <button
-                      onClick={() => runScript(name)}
-                      disabled={running !== null}
-                      className={running === name ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs' : running ? 'btn-ghost text-xs opacity-40' : 'btn-primary text-xs py-2'}
-                      title={`Execute this build script (npm run ${name})`}
-                    >
-                      {running === name && <span className="inline-block w-2 h-2 rounded-full bg-cyan mr-2 anim-pulse-dot" />}
-                      {running === name ? 'Running...' : 'Run'}
-                    </button>
-                  </div>
+                  <button
+                    key={name}
+                    onClick={() => runScript(name)}
+                    disabled={running !== null}
+                    className={running === name ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs py-1 px-2.5' : running ? 'btn-ghost text-xs py-1 px-2.5 opacity-40' : 'btn-ghost text-xs py-1 px-2.5'}
+                    title={scripts[name]}
+                  >
+                    {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan mr-1.5 anim-pulse-dot" />}
+                    {running === name ? `${name}...` : name}
+                  </button>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-text-dim">No build scripts found in package.json</p>
+              <p className="text-xs text-text-dim">No build scripts in package.json</p>
             )}
-          </div>
 
-          {/* DIST STATUS */}
-          {distInfo && (
-            <div className="card p-3 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="badge bg-cyan-dim text-cyan text-xs" title="Status of the last audio build — sprite count, total size, and sounds.json presence">Last Build</span>
-                {distInfo.hasDist
-                  ? <span className="badge bg-green-dim text-green text-xs">{distInfo.spriteCount} sprites · {distInfo.totalSizeMB} MB</span>
-                  : <span className="badge bg-orange-dim text-orange text-xs">Not built yet</span>
-                }
-                {distInfo.hasSoundsJson && <span className="badge bg-green-dim text-green text-xs">sounds.json ✓</span>}
+            {/* Dist sprite tags */}
+            {distInfo?.sprites?.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {distInfo.sprites.map(s => (
+                  <span key={s} className="text-xs font-mono text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">{s}</span>
+                ))}
               </div>
-              {distInfo.sprites.length > 0 && (
-                <div className="flex flex-wrap gap-1 pt-0.5">
-                  {distInfo.sprites.map(s => (
-                    <span key={s} className="text-xs font-mono text-text-dim bg-bg-hover px-1.5 py-0.5 rounded">{s}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            )}
 
-          {/* DEPLOY */}
-          <div className="card p-3 space-y-2">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="badge bg-green-dim text-green text-xs" title="Copy built M4A sprites and sounds.json to game repo's assets/sounds/ folder">Deploy</span>
-              {result && deployScripts.includes(result.script) && (
-                <span className={`badge ${result.ok ? 'bg-green-dim text-green' : 'bg-danger-dim text-danger'}`}>
-                  {result.ok ? 'OK' : 'FAILED'}
-                </span>
-              )}
-            </div>
-
+            {/* Deploy — compact single line */}
             {deployTarget ? (
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${deployTargetExists ? 'bg-green' : 'bg-orange'}`} />
-                  <p className="text-xs text-text-secondary font-mono truncate">{deployTarget}</p>
-                </div>
-                <p className="text-xs text-text-dim pl-3.5">→ assets/default/default/default/sounds/</p>
-                {!deployTargetExists && (
-                  <p className="text-xs text-orange pl-3.5">Game repo folder not found — check the path in Setup</p>
-                )}
-                {!distInfo?.hasDist && (
-                  <p className="text-xs text-orange pl-3.5">Run build first before deploying</p>
-                )}
-                {distInfo?.hasDist && !distInfo?.hasSoundsJson && (
-                  <p className="text-xs text-orange pl-3.5">dist/sounds.json missing — re-run build</p>
+              <div className="flex items-center gap-2 pt-1.5 border-t border-border/30">
+                <span className="section-label shrink-0">Deploy</span>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${deployTargetExists ? 'bg-green' : 'bg-orange'}`} />
+                <p className="text-xs font-mono text-text-dim truncate flex-1" title={`${deployTarget} → assets/default/default/default/sounds/`}>{gameName}</p>
+                {!deployTargetExists ? (
+                  <span className="text-xs text-orange shrink-0">Not found</span>
+                ) : !distInfo?.hasDist ? (
+                  <span className="text-xs text-text-dim shrink-0">Build first</span>
+                ) : !distInfo?.hasSoundsJson ? (
+                  <span className="text-xs text-orange shrink-0">Missing sounds.json</span>
+                ) : deployScripts.length > 0 ? (
+                  <button
+                    onClick={() => runDeploy('deploy')}
+                    disabled={running !== null}
+                    className={running === 'deploy' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-2.5' : 'btn-ghost text-xs py-1 px-2.5 disabled:opacity-40'}
+                    title="Copy built audio to game repo"
+                  >
+                    {running === 'deploy' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
+                    {running === 'deploy' ? 'Deploying...' : 'Deploy'}
+                  </button>
+                ) : (
+                  <span className="text-xs text-text-dim shrink-0">No deploy script</span>
                 )}
               </div>
             ) : (
-              <p className="text-xs text-danger">Game repo not configured — go to Setup → Game Repository</p>
+              <p className="text-xs text-text-dim pt-1.5 border-t border-border/30">Link a game repo in Setup to deploy</p>
             )}
 
-            {deployScripts.length > 0 ? (
-              <button
-                onClick={() => runDeploy('deploy')}
-                disabled={running !== null || !deployTarget || !deployTargetExists || !distInfo?.hasDist || !distInfo?.hasSoundsJson}
-                title="Copy built audio sprites and sounds.json to game repo assets/sounds/ folder"
-                className={running === 'deploy' ? 'btn-ghost text-green border-green/30 cursor-wait' : (!deployTarget || !deployTargetExists || !distInfo?.hasDist || !distInfo?.hasSoundsJson) ? 'btn-ghost opacity-40 cursor-not-allowed' : 'btn-primary'}
-              >
-                {running === 'deploy' && <span className="inline-block w-2 h-2 rounded-full bg-green mr-2 anim-pulse-dot" />}
-                {running === 'deploy' ? 'Deploying...' : 'Deploy to Game'}
-              </button>
-            ) : (
-              <p className="text-xs text-text-dim">No deploy script found in package.json</p>
-            )}
-          </div>
-
-          {/* OTHER SCRIPTS */}
-          {otherScripts.length > 0 && (
-            <div className="card p-3 space-y-2">
-              <span className="badge bg-purple-dim text-purple text-xs" title="Additional npm scripts found in package.json that are not build or deploy scripts">Other Scripts</span>
-              <div className="space-y-2">
+            {/* Other scripts — inline buttons */}
+            {otherScripts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-border/30">
+                <span className="section-label shrink-0">Other</span>
                 {otherScripts.map(name => (
-                  <div key={name} className="flex items-center gap-3 py-1">
-                    <div className="flex-1">
-                      <p className="text-xs font-mono font-semibold text-text-primary">{name}</p>
-                      <p className="text-xs text-text-dim font-mono truncate mt-0.5">{scripts[name]}</p>
-                    </div>
-                    <button
-                      onClick={() => runScript(name)}
-                      disabled={running !== null}
-                      className={running === name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs' : running ? 'btn-ghost text-xs opacity-40' : 'btn-ghost text-xs'}
-                      title={`Execute this script (npm run ${name})`}
-                    >
-                      {running === name ? 'Running...' : 'Run'}
-                    </button>
-                  </div>
+                  <button
+                    key={name}
+                    onClick={() => runScript(name)}
+                    disabled={running !== null}
+                    className={running === name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1 px-2.5' : running ? 'btn-ghost text-xs py-1 px-2.5 opacity-40' : 'btn-ghost text-xs py-1 px-2.5'}
+                    title={scripts[name]}
+                  >
+                    {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1.5 anim-pulse-dot" />}
+                    {running === name ? `${name}...` : name}
+                  </button>
                 ))}
               </div>
-            </div>
-          )}
-
+            )}
+          </div>
         </div>
 
-        {/* RIGHT column */}
-        <div className="flex flex-col gap-2 min-h-0 overflow-y-auto pr-1">
+        {/* ═══ RIGHT: Game ═══ */}
+        <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto pr-0.5">
 
-          {/* LAUNCH GAME */}
-          <div className="card p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="badge bg-purple-dim text-purple text-xs" title="Start game dev server using playa CLI scripts from game repo">Launch Game</span>
-                {result && gameScripts.some(s => s.name === result.script) && (
-                  <span className={`badge ${result.ok ? 'bg-green-dim text-green' : 'bg-danger-dim text-danger'}`}>
-                    {result.ok ? 'LAUNCHED' : 'FAILED'}
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                {(running?.startsWith('game:') || gameStarted) && (
+          {/* LAUNCH + GLR — merged card */}
+          <div className="card p-2.5 space-y-2">
+            {/* Header */}
+            <div className="flex items-center gap-2">
+              <span className="badge bg-purple-dim text-purple text-xs">Game</span>
+              {gameRepoPath && (
+                <p className="text-xs font-mono text-text-dim truncate flex-1" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</p>
+              )}
+              <div className="ml-auto flex items-center gap-1.5">
+                {(running?.startsWith('game:') || running?.startsWith('glr:') || running === 'record-glr' || gameStarted) && (
                   <button
-                    onClick={() => { window.api.killGame(); setRunning(null); setGameStarted(false); showToast('Game process killed', 'success'); }}
-                    className="btn-ghost text-danger border-danger/30 text-xs py-1 px-2"
-                    title="Stop the running game server process and free port 8080"
+                    onClick={() => { window.api.killGame(); setRunning(null); setGameStarted(false); showToast('Process killed', 'success'); }}
+                    className="btn-ghost text-danger border-danger/30 text-xs py-0.5 px-2"
+                    title="Kill running game process and free port 8080"
                   >
                     Kill
                   </button>
                 )}
                 <button
-                  onClick={loadGameScripts}
-                  disabled={loadingGameScripts || running !== null}
-                  className="text-xs text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40"
-                  title="Reload available launch scripts from game repo package.json"
+                  onClick={() => { loadGameScripts(); loadGlrList(); }}
+                  disabled={loadingGameScripts || glrLoading || running !== null}
+                  className="text-xs text-text-dim hover:text-text-secondary disabled:opacity-40"
+                  title="Reload launch scripts and GLR list"
                 >
-                  {loadingGameScripts ? 'Loading...' : 'Refresh'}
+                  {loadingGameScripts || glrLoading ? '...' : 'Refresh'}
                 </button>
               </div>
             </div>
 
-            {gameRepoPath && (
-              <p className="text-xs text-text-secondary font-mono truncate">{gameRepoPath}</p>
-            )}
-
-            {gameScriptsError && (
-              <p className="text-xs text-danger font-mono">{gameScriptsError}</p>
-            )}
-
+            {gameScriptsError && <p className="text-xs text-danger font-mono">{gameScriptsError}</p>}
             {gameNodeModulesMissing && (
-              <p className="text-xs text-orange">
-                Game repo missing node_modules — run <span className="font-mono">yarn install</span> in Setup → Game Repository before launching
-              </p>
+              <p className="text-xs text-orange">Missing node_modules — run yarn install in Setup</p>
             )}
 
+            {/* VPN launch scripts */}
             {!deployTarget ? (
               <p className="text-xs text-text-dim">Link a game repo in Setup first</p>
             ) : gameScripts.length > 0 ? (
-              <div className="space-y-2">
+              <div className="space-y-0.5">
                 {gameScripts.map(({ name, cmd }) => (
-                  <div key={name} className="flex items-center gap-3 py-1.5 border-b border-border/40 last:border-0">
-                    <div className="flex-1">
-                      <p className="text-xs font-mono font-semibold text-text-primary">{name}</p>
-                      <p className="text-xs text-text-dim font-mono truncate mt-0.5">{cmd}</p>
-                    </div>
+                  <div key={name} className="flex items-center gap-2 py-1 border-b border-border/20 last:border-0">
+                    <p className="flex-1 text-xs font-mono font-semibold text-text-primary truncate" title={cmd}>{name}</p>
                     <button
                       onClick={() => runGameScript(name)}
                       disabled={running !== null}
-                      className={running === 'game:' + name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs' : running ? 'btn-ghost text-xs opacity-40' : 'btn-ghost text-xs'}
-                      title="Start game dev server with this script (requires VPN for remote servers)"
+                      className={running === 'game:' + name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-0.5 px-2' : running ? 'btn-ghost text-xs py-0.5 px-2 opacity-40' : 'btn-ghost text-xs py-0.5 px-2'}
+                      title={cmd}
                     >
-                      {running === 'game:' + name && <span className="inline-block w-2 h-2 rounded-full bg-purple mr-2 anim-pulse-dot" />}
+                      {running === 'game:' + name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1 anim-pulse-dot" />}
                       {running === 'game:' + name ? 'Launching...' : 'Launch'}
                     </button>
                   </div>
                 ))}
               </div>
+            ) : loadingGameScripts ? (
+              <p className="text-xs text-text-dim">Loading scripts...</p>
             ) : (
-              <p className="text-xs text-text-dim">
-                {loadingGameScripts ? 'Reading game repo...' : 'No launch scripts found in game package.json'}
-              </p>
+              <p className="text-xs text-text-dim">No launch scripts found</p>
             )}
-          </div>
 
-          {/* LOCAL AUDIO TEST — GLR (no VPN) */}
-          <div className="card p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="badge bg-orange-dim text-orange text-xs" title="Launch the game locally using pre-recorded GLR sessions — no VPN or server required">Local Audio Test</span>
-                <span className="badge bg-green-dim text-green text-xs">No VPN</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={recordGlr}
-                  disabled={running !== null || !deployTarget || gameNodeModulesMissing}
-                  className="btn-ghost text-xs py-1.5 flex items-center gap-1.5 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Record new GLR session (requires VPN)"
-                >
-                  {running === 'record-glr' ? (
-                    <span className="anim-pulse-dot w-2 h-2 rounded-full bg-cyan shrink-0" />
-                  ) : (
-                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                      <circle cx="10" cy="10" r="6" />
-                    </svg>
-                  )}
-                  {running === 'record-glr' ? 'Recording...' : 'Record GLR'}
-                </button>
-                <button
-                  onClick={loadGlrList}
-                  disabled={glrLoading || running !== null}
-                  className="text-xs text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40"
-                  title="Reload list of GLR recordings from game/GLR/ folder"
-                >
-                  {glrLoading ? 'Loading...' : 'Refresh'}
-                </button>
-              </div>
-            </div>
-
-            <p className="text-xs text-text-dim">
-              Runs the game locally using a recorded GLR session — no server, no VPN required. Build and deploy audio first, then launch.
-            </p>
-
-            {!deployTarget ? (
-              <p className="text-xs text-text-dim">Link a game repo in Setup first</p>
-            ) : gameNodeModulesMissing ? (
-              <p className="text-xs text-orange">Game repo missing node_modules — run yarn install in Setup → Game Repository</p>
-            ) : glrError ? (
-              <p className="text-xs text-danger font-mono">{glrError}</p>
-            ) : glrList.length === 0 ? (
-              <p className="text-xs text-text-dim">{glrLoading ? 'Reading GLR folder...' : 'No GLR recordings found in game/GLR/'}</p>
-            ) : (
-              <div className="space-y-1">
-                {glrList.map(name => (
-                  <div key={name} className="flex items-center gap-3 py-1.5 border-b border-border/30 last:border-0">
-                    <p className="flex-1 text-sm font-mono text-text-primary">{name}</p>
+            {/* GLR section — within same card */}
+            {deployTarget && !gameNodeModulesMissing && (
+              <div className="pt-1.5 border-t border-border/30 space-y-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="badge bg-orange-dim text-orange text-xs">Local GLR</span>
+                  <span className="badge bg-green-dim text-green text-xs">No VPN</span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    {recordLaunchScripts.length > 1 && (
+                      <select
+                        value={glrRecordScript}
+                        onChange={e => setGlrRecordScript(e.target.value)}
+                        disabled={running !== null}
+                        className="input-base text-xs font-mono py-0.5 px-1.5 w-auto"
+                        title="Select launch script for recording"
+                      >
+                        {recordLaunchScripts.map(s => (
+                          <option key={s.name} value={s.name}>{s.name}</option>
+                        ))}
+                      </select>
+                    )}
                     <button
-                      onClick={() => launchLocalGlr(name)}
-                      disabled={running !== null}
-                      className={running === 'glr:' + name ? 'btn-ghost text-orange border-orange/30 cursor-wait text-xs' : running ? 'btn-ghost text-xs opacity-40' : 'btn-ghost text-xs'}
-                      title={`Launch game locally using GLR "${name}" — no VPN required`}
+                      onClick={recordGlr}
+                      disabled={running !== null || recordLaunchScripts.length === 0}
+                      className="btn-ghost text-xs py-0.5 px-2 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40"
+                      title={recordLaunchScripts.length === 0 ? 'No launch scripts' : `Record GLR using "${glrRecordScript}" (VPN)`}
                     >
-                      {running === 'glr:' + name && <span className="inline-block w-2 h-2 rounded-full bg-orange mr-2 anim-pulse-dot" />}
-                      {running === 'glr:' + name ? 'Launching...' : 'Launch'}
+                      {running === 'record-glr' ? (
+                        <><span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan mr-1 anim-pulse-dot" />Rec...</>
+                      ) : (
+                        <><svg className="w-2.5 h-2.5 mr-1 inline" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6" /></svg>Record</>
+                      )}
                     </button>
                   </div>
-                ))}
+                </div>
+
+                {glrError && <p className="text-xs text-danger font-mono">{glrError}</p>}
+                {glrList.length > 0 ? (
+                  <div className="space-y-0.5">
+                    {glrList.map(name => (
+                      <div key={name} className="flex items-center gap-2 py-1 border-b border-border/20 last:border-0">
+                        <p className="flex-1 text-xs font-mono text-text-primary">{name}</p>
+                        <button
+                          onClick={() => launchLocalGlr(name)}
+                          disabled={running !== null}
+                          className={running === 'glr:' + name ? 'btn-ghost text-orange border-orange/30 cursor-wait text-xs py-0.5 px-2' : running ? 'btn-ghost text-xs py-0.5 px-2 opacity-40' : 'btn-ghost text-xs py-0.5 px-2'}
+                          title={`Launch with GLR "${name}" — no VPN`}
+                        >
+                          {running === 'glr:' + name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange mr-1 anim-pulse-dot" />}
+                          {running === 'glr:' + name ? 'Launching...' : 'Launch'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : !glrLoading && (
+                  <p className="text-xs text-text-dim">No GLR recordings in game/GLR/</p>
+                )}
               </div>
             )}
           </div>
 
-          {/* GAME REPO GIT — commit, push, PR */}
+          {/* GAME GIT — compact */}
           {deployTarget && (
-            <div className="card p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="badge bg-accent-dim text-accent text-xs" title="Commit audio changes to game repo, create branch and PR">Game Repo Git</span>
-                  {gameGit && <span className="badge bg-purple-dim text-purple text-xs">{gameGit.branch}</span>}
-                  {gameGit && gameGit.files.length > 0 && <span className="badge bg-orange-dim text-orange text-xs">{gameGit.files.length} changes</span>}
-                </div>
-                <button onClick={loadGameGitStatus} disabled={gameGitLoading} className="text-xs text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40">
-                  {gameGitLoading ? 'Loading...' : 'Refresh'}
+            <div className="card p-2.5 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="badge bg-accent-dim text-accent text-xs">Game Git</span>
+                {gameGit && <span className="text-xs font-mono text-purple">{gameGit.branch}</span>}
+                {gameGit && gameGit.files.length > 0 && <span className="badge bg-orange-dim text-orange text-xs">{gameGit.files.length}</span>}
+                <button onClick={loadGameGitStatus} disabled={gameGitLoading}
+                  className="ml-auto text-xs text-text-dim hover:text-text-secondary disabled:opacity-40">
+                  {gameGitLoading ? '...' : 'Refresh'}
                 </button>
               </div>
 
               {!gameGit ? (
-                <p className="text-xs text-text-dim">Click Refresh to load game repo git status</p>
+                <p className="text-xs text-text-dim">Click Refresh to load status</p>
               ) : gameGit.files.length === 0 ? (
-                <p className="text-xs text-green">No changes in game repo — deploy first</p>
+                <p className="text-xs text-green">No changes — deploy first</p>
               ) : (
-                <div className="space-y-2">
-                  {/* Target branch */}
+                <div className="space-y-1.5">
                   <div className="flex gap-2 items-center">
                     <label className="text-xs text-text-dim shrink-0">Target:</label>
                     <select value={gameGitTarget} onChange={e => {
@@ -832,7 +794,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                       const audioName = project?.path?.split(/[/\\]/).pop()?.replace('-audio', '') || 'audio';
                       const prefix = e.target.value.startsWith('release') ? 'bugfix/PA-' : 'feature/PA-';
                       setGameGitBranchName(`${prefix}${audioName}-audio-update`);
-                    }} className="input-base text-xs font-mono flex-1 py-1">
+                    }} className="input-base text-xs font-mono flex-1 py-0.5">
                       {gameGit.hasDevelop && <option value="develop">develop</option>}
                       {gameGit.releaseBranches.map(b => <option key={b} value={b}>{b}</option>)}
                       {gameGit.branch !== 'develop' && !gameGit.releaseBranches.includes(gameGit.branch) && (
@@ -840,41 +802,36 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                       )}
                     </select>
                   </div>
-
-                  {/* Branch name */}
                   <div className="flex gap-2 items-center">
                     <label className="text-xs text-text-dim shrink-0">Branch:</label>
                     <input type="text" value={gameGitBranchName} onChange={e => setGameGitBranchName(e.target.value)}
-                      placeholder="feature/PA-audio-update" className="input-base text-xs font-mono flex-1 py-1" maxLength={100} />
+                      placeholder="feature/PA-audio-update" className="input-base text-xs font-mono flex-1 py-0.5" maxLength={100} />
                   </div>
-
-                  {/* Commit message */}
                   <div className="flex gap-2 items-center">
-                    <label className="text-xs text-text-dim shrink-0">Message:</label>
+                    <label className="text-xs text-text-dim shrink-0">Msg:</label>
                     <input type="text" value={gameGitCommitMsg} onChange={e => setGameGitCommitMsg(e.target.value)}
-                      placeholder="Update audio sprites" className="input-base text-xs flex-1 py-1"
+                      placeholder="Update audio sprites" className="input-base text-xs flex-1 py-0.5"
                       onKeyDown={e => e.key === 'Enter' && handleGameGitPush()} />
                   </div>
-
-                  {/* Actions */}
                   <div className="flex items-center gap-2">
                     <button onClick={handleGameGitPush}
                       disabled={gameGitPushing || !gameGitBranchName.trim() || !gameGitCommitMsg.trim()}
-                      className="btn-primary text-xs py-1.5 px-4 disabled:opacity-40"
-                      title="Create branch, commit changes, push, and open PR">
+                      className="btn-primary text-xs py-1 px-3 disabled:opacity-40"
+                      title="Create branch, commit, push, open PR">
                       {gameGitPushing ? 'Pushing...' : 'Commit, Push & PR'}
                     </button>
                     {gameGitPrUrl && (
-                      <button onClick={() => window.api.openUrl(gameGitPrUrl)} className="text-xs text-accent hover:text-accent/80 transition-colors font-mono truncate">
+                      <button onClick={() => window.api.openUrl(gameGitPrUrl)}
+                        className="text-xs text-accent hover:text-accent/80 font-mono truncate">
                         {gameGitPrUrl}
                       </button>
                     )}
                   </div>
-
-                  {/* Changed files preview */}
                   <details className="text-xs">
-                    <summary className="text-text-dim cursor-pointer hover:text-text-secondary">{gameGit.files.length} changed file{gameGit.files.length !== 1 ? 's' : ''}</summary>
-                    <div className="mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                    <summary className="text-text-dim cursor-pointer hover:text-text-secondary">
+                      {gameGit.files.length} file{gameGit.files.length !== 1 ? 's' : ''} changed
+                    </summary>
+                    <div className="mt-1 space-y-0.5 max-h-24 overflow-y-auto">
                       {gameGit.files.map((f, i) => <p key={i} className="font-mono text-text-dim truncate">{f}</p>)}
                     </div>
                   </details>
@@ -882,36 +839,30 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               )}
             </div>
           )}
-
         </div>
 
       </div>
 
-      {/* LOG OUTPUT — full width at bottom, only when active */}
+      {/* LOG — full width, compact */}
       {(log || running) && (
-        <div className="card p-3 space-y-1.5 shrink-0">
+        <div className="card p-2.5 shrink-0 space-y-1">
           <div className="flex items-center gap-2">
-            <span className="section-label" title="Live output from the running script — streams stdout and stderr">Output</span>
+            <span className="section-label">Output</span>
             {running && (
-              <span className="flex items-center gap-1.5 text-xs text-cyan">
+              <span className="flex items-center gap-1 text-xs text-cyan">
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan anim-pulse-dot" />
                 live
-              </span>
-            )}
-            {result && !running && (
-              <span className={`badge ${result.ok ? 'bg-green-dim text-green' : 'bg-danger-dim text-danger'}`}>
-                {result.script}: {result.ok ? 'SUCCESS' : 'FAILED'}
               </span>
             )}
             <button
               onClick={() => { setLog(''); setResult(null); }}
               disabled={running !== null}
-              className="ml-auto text-xs text-text-dim hover:text-text-secondary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              className="ml-auto text-xs text-text-dim hover:text-text-secondary disabled:opacity-40"
             >Clear</button>
           </div>
           <pre
             ref={logRef}
-            className="p-3 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-primary overflow-auto max-h-36 whitespace-pre-wrap leading-relaxed"
+            className="p-2 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-primary overflow-auto max-h-32 whitespace-pre-wrap leading-relaxed"
           >{log || ' '}</pre>
         </div>
       )}

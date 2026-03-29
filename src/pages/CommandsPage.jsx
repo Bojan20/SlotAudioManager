@@ -57,7 +57,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               {spriteListIds.map(id => <option key={id}>{id}</option>)}
             </select>
           </div>
-        ) : isPlay ? (
+        ) : (
           <div>
             <div className="flex items-center gap-2 mb-1">
               <label className="section-label">Target</label>
@@ -153,18 +153,6 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               </select>
             )}
           </div>
-        ) : (
-          <div>
-            <label className="section-label mb-1 block">SpriteId</label>
-            <select
-              value={state.spriteId}
-              onChange={e => setState(m => ({ ...m, spriteId: e.target.value }))}
-              className="input-base text-xs w-full font-mono"
-            >
-              <option value="">— select —</option>
-              {spriteIds.map(id => <option key={id}>{id}</option>)}
-            </select>
-          </div>
         )}
       </div>
 
@@ -258,6 +246,15 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">cancelDelay</span>
             </label>
           )}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={state.overlap}
+              onChange={e => setState(m => ({ ...m, overlap: e.target.checked }))}
+              className="w-4 h-4 accent-accent"
+            />
+            <span className="text-xs text-text-secondary">Overlap</span>
+          </label>
         </div>
       )}
     </div>
@@ -267,7 +264,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
 function emptyStep(overrides = {}) {
   return {
     command: 'Play', commandId: '', spriteId: '', spriteListId: '',
-    targetType: 'sprite', volume: 1, delay: '', loop: false,
+    targetType: 'sprite', volume: 1, delay: '', loop: false, overlap: false,
     pan: '', duration: '', cancelDelay: false, rate: '',
     ...overrides,
   };
@@ -286,6 +283,7 @@ function stepFromAction(action) {
     pan: action.pan ?? '',
     duration: action.duration ?? '',
     cancelDelay: action.cancelDelay === 'true' || action.cancelDelay === true,
+    overlap: action.overlap === 'true' || action.overlap === true,
     rate: action.rate ?? '',
   };
 }
@@ -328,14 +326,18 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const setViewTab = (tab) => { setViewTab_(tab); setExpanded(null); setFilter(''); };
   const [newList, setNewList] = useState(null); // { name, items, type, overlap, tags }
   const [editList, setEditList] = useState(null); // { name, items, type, overlap, tags }
+  const [editListInline, setEditListInline] = useState(null); // { name, items, type, overlap, loop, tags, cmdName, stepIdx }
   const [confirmDeleteList, setConfirmDeleteList] = useState(null);
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
     setNewCmd(null); setAddStep(null); setEditStep(null); setConfirmDeleteCmd(null);
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
-    setNewList(null); setEditList(null); setConfirmDeleteList(null);
+    setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null);
   }, [project?.path]);
+
+  // Close inline list editor when command expand/collapse changes
+  useEffect(() => { setEditListInline(null); }, [expanded]);
 
   const commands = project?.soundsJson?.soundDefinitions?.commands || {};
   const soundSprites = project?.soundsJson?.soundDefinitions?.soundSprites || {};
@@ -371,14 +373,21 @@ export default function CommandsPage({ project, setProject, showToast }) {
     for (const actions of Object.values(commands)) {
       for (const a of actions) {
         if (a.spriteId) refs.add(a.spriteId);
+        if (a.spriteListId && spriteLists[a.spriteListId]) {
+          const list = spriteLists[a.spriteListId];
+          const items = Array.isArray(list) ? list : (list?.items || []);
+          for (const item of items) { if (item) refs.add(item); }
+        }
       }
     }
     return refs;
-  }, [commands]);
+  }, [commands, spriteLists]);
+
+  const allSpriteIds = useMemo(() => Object.keys(soundSprites).sort(), [soundSprites]);
 
   const unmapped = useMemo(() =>
-    Object.keys(soundSprites).filter(id => !referencedSprites.has(id)).sort(),
-    [soundSprites, referencedSprites]
+    allSpriteIds.filter(id => !referencedSprites.has(id)),
+    [allSpriteIds, referencedSprites]
   );
 
   const cmdNames = useMemo(() =>
@@ -482,7 +491,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
       return step;
     }
 
-    // Target: spriteId or spriteListId (Play supports both)
+    // Target: spriteId or spriteListId (all target-based commands support both)
     if (s.targetType === 'list' && s.spriteListId) {
       step.spriteListId = s.spriteListId;
     } else if (s.spriteId) {
@@ -502,6 +511,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     }
     if (s.command === 'Play' && s.loop) step.loop = -1;
     if ((s.command === 'Play' || s.command === 'Stop') && s.cancelDelay) step.cancelDelay = true;
+    if (s.overlap) step.overlap = true;
 
     return step;
   };
@@ -543,12 +553,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[editStep.cmdName][editStep.stepIdx] = buildStep(editStep);
     const ok = await saveJson(j, 'Step saved');
-    if (ok) setEditStep(null);
+    if (ok) { setEditStep(null); setEditListInline(null); }
   };
 
   const handleDeleteStep = async (cmdName, stepIdx) => {
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[cmdName].splice(stepIdx, 1);
+    setEditListInline(null);
     await saveJson(j, 'Step obrisan');
   };
 
@@ -675,6 +686,20 @@ export default function CommandsPage({ project, setProject, showToast }) {
     j.soundDefinitions.spriteList[editList.name] = entry;
     const ok = await saveJson(j, `Sprite list "${editList.name}" updated`);
     if (ok) setEditList(null);
+  };
+
+  const handleSaveEditListInline = async () => {
+    if (saving || !editListInline?.name) return;
+    const cleanItems = editListInline.items.filter(Boolean);
+    if (!cleanItems.length) { showToast('Add at least one sprite', 'error'); return; }
+    const j = structuredClone(project.soundsJson);
+    if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
+    const entry = { items: cleanItems, type: editListInline.type, overlap: editListInline.overlap };
+    if (editListInline.loop) entry.loop = editListInline.loop;
+    if (editListInline.tags?.length) entry.tags = editListInline.tags;
+    j.soundDefinitions.spriteList[editListInline.name] = entry;
+    const ok = await saveJson(j, `List "${editListInline.name}" updated`);
+    if (ok) setEditListInline(null);
   };
 
   const handleDeleteList = async (name) => {
@@ -937,60 +962,132 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         </div>
                       );
                     }
+                    const listEditActive = editListInline?.cmdName === name && editListInline?.stepIdx === idx;
                     return (
-                      <div key={idx} className="flex items-center gap-2 text-[12px] py-0.5 group/step">
-                        <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
-                        <span className="badge bg-cyan-dim text-cyan shrink-0">{action.command}</span>
+                      <div key={idx}>
+                        <div className="flex items-center gap-2 text-[12px] py-0.5 group/step">
+                          <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
+                          <span className="badge bg-cyan-dim text-cyan shrink-0">{action.command}</span>
 
-                        {/* Target display */}
-                        {action.commandId && (
-                          <span className={`font-mono flex-1 truncate ${commands[action.commandId] ? 'text-accent' : 'text-danger line-through'}`}>
-                            → {action.commandId}
-                          </span>
-                        )}
-                        {action.spriteId && (
-                          <span className={`font-mono flex-1 truncate ${soundSprites[action.spriteId] ? 'text-text-primary' : 'text-danger line-through'}`}>
-                            {action.spriteId}
-                          </span>
-                        )}
-                        {action.spriteListId && (
-                          <span className={`font-mono flex-1 ${spriteLists[action.spriteListId] ? 'text-purple' : 'text-danger line-through'}`}>
-                            list:{action.spriteListId}
-                          </span>
-                        )}
-                        {!action.spriteId && !action.spriteListId && !action.commandId && <span className="flex-1" />}
+                          {/* Target display */}
+                          {action.commandId && (
+                            <span className={`font-mono flex-1 truncate ${commands[action.commandId] ? 'text-accent' : 'text-danger line-through'}`}>
+                              → {action.commandId}
+                            </span>
+                          )}
+                          {action.spriteId && (
+                            <span className={`font-mono flex-1 truncate ${soundSprites[action.spriteId] ? 'text-text-primary' : 'text-danger line-through'}`}>
+                              {action.spriteId}
+                            </span>
+                          )}
+                          {action.spriteListId && (
+                            <span className={`font-mono flex-1 ${spriteLists[action.spriteListId] ? 'text-purple' : 'text-danger line-through'}`}>
+                              list:{action.spriteListId}
+                            </span>
+                          )}
+                          {!action.spriteId && !action.spriteListId && !action.commandId && <span className="flex-1" />}
 
-                        {/* Extra fields */}
-                        {action.volume !== undefined && action.volume !== 1 && <span className="text-text-dim text-xs">vol:{action.volume}</span>}
-                        {action.delay !== undefined && action.delay !== 0 && <span className="text-text-dim text-xs">+{action.delay}ms</span>}
-                        {action.duration !== undefined && action.duration !== 0 && <span className="text-text-dim text-xs">dur:{action.duration}ms</span>}
-                        {action.pan !== undefined && action.pan !== 0 && <span className="text-text-dim text-xs">pan:{action.pan}</span>}
-                        {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
-                        {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
-                        {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
+                          {/* Extra fields */}
+                          {action.volume !== undefined && action.volume !== 1 && <span className="text-text-dim text-xs">vol:{action.volume}</span>}
+                          {action.delay !== undefined && action.delay !== 0 && <span className="text-text-dim text-xs">+{action.delay}ms</span>}
+                          {action.duration !== undefined && action.duration !== 0 && <span className="text-text-dim text-xs">dur:{action.duration}ms</span>}
+                          {action.pan !== undefined && action.pan !== 0 && <span className="text-text-dim text-xs">pan:{action.pan}</span>}
+                          {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
+                          {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
+                          {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
+                          {(action.overlap === true || action.overlap === 'true') && <span className="text-purple text-xs">overlap</span>}
 
-                        <div className="flex items-center gap-1 opacity-0 group-hover/step:opacity-100 transition-opacity shrink-0">
-                          <button
-                            onClick={() => setEditStep({ cmdName: name, stepIdx: idx, ...stepFromAction(action) })}
-                            disabled={saving}
-                            className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-accent transition-colors"
-                            title="Edituj step"
-                          >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => handleDeleteStep(name, idx)}
-                            disabled={saving}
-                            className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors"
-                            title="Delete step"
-                          >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
+                          <div className={`flex items-center gap-1 transition-opacity shrink-0 ${listEditActive ? 'opacity-100' : 'opacity-0 group-hover/step:opacity-100'}`}>
+                            {action.spriteListId && spriteLists[action.spriteListId] && (
+                              <button
+                                onClick={() => {
+                                  if (listEditActive) { setEditListInline(null); return; }
+                                  const list = spriteLists[action.spriteListId];
+                                  const items = Array.isArray(list) ? [...list] : [...(list?.items || [])];
+                                  setEditListInline({
+                                    name: action.spriteListId, items, type: list?.type || 'random',
+                                    overlap: list?.overlap ?? false, loop: list?.loop || 0,
+                                    tags: [...(list?.tags || [])], cmdName: name, stepIdx: idx
+                                  });
+                                }}
+                                disabled={saving}
+                                className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${listEditActive ? 'text-purple' : 'text-text-dim hover:text-purple'}`}
+                                title={`Edit sprite list "${action.spriteListId}"`}
+                              >
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h8m-8 6h16" />
+                                </svg>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => { setEditListInline(null); setEditStep({ cmdName: name, stepIdx: idx, ...stepFromAction(action) }); }}
+                              disabled={saving}
+                              className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-accent transition-colors"
+                              title="Edit step"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => handleDeleteStep(name, idx)}
+                              disabled={saving}
+                              className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors"
+                              title="Delete step"
+                            >
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
                         </div>
+
+                        {/* Inline sprite list editor */}
+                        {listEditActive && (
+                          <div className="ml-7 my-1 rounded-lg border border-purple/30 bg-purple/[0.03] p-3 space-y-2 anim-fade-in">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-mono font-semibold text-purple">{editListInline.name}</span>
+                              <div className="flex-1" />
+                              <select value={editListInline.type} onChange={e => setEditListInline(p => ({ ...p, type: e.target.value }))} className="input-base text-xs py-0.5 px-1.5 w-auto">
+                                <option value="random">random</option>
+                                <option value="sequential">sequential</option>
+                              </select>
+                              <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                                <input type="checkbox" checked={editListInline.overlap} onChange={e => setEditListInline(p => ({ ...p, overlap: e.target.checked }))} className="w-3 h-3 accent-accent" />
+                                <span className="text-xs text-text-dim">Overlap</span>
+                              </label>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <span className="text-xs text-text-dim">Loop:</span>
+                                <input type="number" min="-1" step="1" value={editListInline.loop ?? 0} onChange={e => setEditListInline(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))}
+                                  className="input-base text-xs py-0.5 w-12 text-center" title="Loop count (-1 = infinite)" />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              {editListInline.items.map((id, i) => (
+                                <div key={i} className="flex items-center gap-1.5">
+                                  <span className="text-text-dim text-xs w-4 text-right tabular-nums shrink-0">{i + 1}</span>
+                                  <select value={id} onChange={e => setEditListInline(p => { const items = [...p.items]; items[i] = e.target.value; return { ...p, items }; })} className="input-base text-xs font-mono flex-1 py-0.5">
+                                    <option value="">— select sprite —</option>
+                                    {allSpriteIds.map(s => <option key={s}>{s}</option>)}
+                                  </select>
+                                  <button onClick={() => setEditListInline(p => ({ ...p, items: p.items.filter((_, j) => j !== i) }))} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove sprite">
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                  </button>
+                                </div>
+                              ))}
+                              <button onClick={() => setEditListInline(p => ({ ...p, items: [...p.items, ''] }))} className="text-xs text-accent hover:text-accent/80 transition-colors">+ Add Sprite</button>
+                            </div>
+
+                            <div className="flex gap-2 justify-end pt-0.5">
+                              <button onClick={() => setEditListInline(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
+                              <button onClick={handleSaveEditListInline} disabled={saving || editListInline.items.filter(Boolean).length === 0}
+                                className="btn-primary text-xs py-1 px-3 disabled:opacity-40">
+                                {saving ? '...' : 'Save List'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
