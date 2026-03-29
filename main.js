@@ -18,6 +18,22 @@ let projectPath = null;
 let gameProcess = null; // currently running game process (for kill support)
 let gameBrowserProcess = null; // tracked Chrome/Edge window for game preview
 
+// DNS override script — blocks IGT/wagerworks DNS lookups in spawned playa processes
+// Resolves to 127.0.0.1 so connections fail fast instead of hanging on DNS timeout
+let dnsOverridePath = null;
+function getDnsOverridePath() {
+  if (dnsOverridePath) return dnsOverridePath;
+  const script = `const dns=require('dns');const o=dns.lookup;dns.lookup=function(h,p,c){if(typeof p==='function'){c=p;p={}}if(h.endsWith('.wagerworks.com')||h.endsWith('.igt.com')){return c(null,'127.0.0.1',4)}return o.call(dns,h,p,c)};`;
+  dnsOverridePath = path.join(app.getPath('temp'), 'sam-dns-override.js');
+  try { fs.writeFileSync(dnsOverridePath, script); } catch {}
+  return dnsOverridePath;
+}
+function getGameSpawnEnv() {
+  const override = getDnsOverridePath();
+  const existing = process.env.NODE_OPTIONS || '';
+  return { ...process.env, NODE_OPTIONS: `--require "${override}"${existing ? ' ' + existing : ''}` };
+}
+
 // Accept self-signed certs from localhost (playa GLR uses HTTPS with self-signed cert)
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
   if (/^https:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(url)) {
@@ -920,13 +936,15 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       child = spawn(playaBin, args, {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin
+        shell: isWin,
+        env: getGameSpawnEnv()
       });
     } else {
       child = spawn('yarn', [scriptName], {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin
+        shell: isWin,
+        env: getGameSpawnEnv()
       });
     }
     gameProcess = child;
@@ -972,7 +990,8 @@ ipcMain.handle('build-game', async () => {
     const child = spawn('yarn', ['build-dev'], {
       cwd: gameRepoPath,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWin
+      shell: isWin,
+      env: getGameSpawnEnv()
     });
     const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'build-dev timeout (5 min)' }); }, 300000);
     child.stdout.on('data', d => send(d.toString()));
@@ -1057,111 +1076,6 @@ ipcMain.handle('git-pull-game', async () => {
   const pull = await gitSpawn(['pull', 'origin', targetBranch], 15000);
   if (pull.code !== 0) return { success: false, output: pull.output, error: pull.timedOut ? 'git pull timeout' : `Pull failed on ${targetBranch}` };
   return { success: true, output: pull.output };
-});
-
-// List GLR recordings from game project
-ipcMain.handle('list-glr', async () => {
-  if (!projectPath) return { error: 'No project open' };
-  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
-  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
-  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
-  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
-  const glrDir = path.join(gameRepoPath, 'GLR');
-  if (!fs.existsSync(glrDir)) return { glrList: [], gameRepoPath };
-  const glrList = fs.readdirSync(glrDir, { withFileTypes: true })
-    .filter(e => e.isDirectory())
-    .map(e => e.name)
-    .sort();
-  const pkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
-  const launchScript = pkg?.scripts?.launch || '';
-  const swMatch = launchScript.match(/--softwareid\s+(\S+)/);
-  const softwareId = swMatch ? swMatch[1] : null;
-  return { glrList, gameRepoPath, softwareId };
-});
-
-// Launch game locally via GLR (no VPN required)
-ipcMain.handle('launch-local-glr', async (event, { glrName }) => {
-  if (!projectPath) return { error: 'No project open' };
-  if (!glrName || typeof glrName !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(glrName)) {
-    return { error: 'Invalid GLR name' };
-  }
-  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
-  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
-  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
-  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
-  const glrPath = path.join(gameRepoPath, 'GLR', glrName);
-  if (!fs.existsSync(glrPath)) return { error: `GLR "${glrName}" not found` };
-  const pkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
-  const launchScript = pkg?.scripts?.launch || '';
-  const swMatch = launchScript.match(/--softwareid\s+(\S+)/);
-  const softwareId = swMatch ? swMatch[1] : '200-9017-001';
-  const ext = isWin ? '.cmd' : '';
-  const playaBin = path.join(gameRepoPath, 'node_modules', '.bin', `playa${ext}`);
-  if (!fs.existsSync(playaBin)) return { error: 'playa CLI not found in game node_modules' };
-  try {
-    // Kill whatever is on port 8080 before launching
-    await killPort(8080);
-    const child = spawn(playaBin, ['launch', '--glr', glrName, '--softwareid', softwareId, '--port', '8080', '--server', 'localhost'], {
-      cwd: gameRepoPath,
-      detached: true,
-      stdio: 'ignore',
-      shell: isWin
-    });
-    child.unref();
-    return { success: true, pid: child.pid, glrName, softwareId };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-});
-
-// Record GLR — launches game with --record flag (requires VPN)
-ipcMain.handle('record-glr', async (event, opts) => {
-  if (!projectPath) return { error: 'No project open' };
-  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
-  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
-  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
-  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
-  const pkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
-  const scriptName = opts?.scriptName || 'launch';
-  const launchScript = pkg?.scripts?.[scriptName] || '';
-  if (!launchScript) return { error: `Script "${scriptName}" not found in game package.json` };
-  const swMatch = launchScript.match(/--softwareid\s+([\d-]+)/);
-  const softwareId = swMatch ? swMatch[1] : null;
-  if (!softwareId) return { error: `No softwareId found in "${scriptName}" script` };
-  const serverMatch = launchScript.match(/--server\s+([\w-]+)/);
-  const server = serverMatch ? serverMatch[1] : 'rgs-gsdev03';
-  const channelMatch = launchScript.match(/--channel\s+([A-Z]+)/);
-  const channel = channelMatch ? channelMatch[1] : 'INT';
-  const ext = isWin ? '.cmd' : '';
-  const playaBin = path.join(gameRepoPath, 'node_modules', '.bin', `playa${ext}`);
-  if (!fs.existsSync(playaBin)) return { error: 'playa CLI not found in game node_modules' };
-  try {
-    // Kill existing game process before starting new one
-    if (gameProcess && !gameProcess.killed) {
-      const pid = gameProcess.pid;
-      if (isWin) { try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' }); } catch {} }
-      else { try { process.kill(pid, 'SIGTERM'); } catch {} }
-      gameProcess = null;
-    }
-    await killPort(8080);
-    const child = spawn(playaBin, [
-      'launch', '--server', server, '--softwareid', softwareId,
-      '--channel', channel, '--record', '--port', '8080'
-    ], {
-      cwd: gameRepoPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWin
-    });
-    gameProcess = child;
-    const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
-    child.stdout.on('data', d => send(d.toString()));
-    child.stderr.on('data', d => send(d.toString()));
-    child.on('close', () => { if (gameProcess === child) gameProcess = null; });
-    child.on('error', (e) => { send(`ERROR: ${e.message}\n`); });
-    return { success: true, pid: child.pid, server, softwareId, channel };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
 });
 
 // Open URL in system browser

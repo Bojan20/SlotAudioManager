@@ -36,10 +36,6 @@ contextBridge.exposeInMainWorld('api', {
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
   openGameWindow: (url) => ipcRenderer.invoke('open-game-window', url),
   waitForPort: (opts) => ipcRenderer.invoke('wait-for-port', opts),
-  // Local GLR launch (no VPN)
-  listGlr: () => ipcRenderer.invoke('list-glr'),
-  launchLocalGlr: (opts) => ipcRenderer.invoke('launch-local-glr', opts),
-  recordGlr: (opts) => ipcRenderer.invoke('record-glr', opts),
   gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
   // Pool measurement
   measurePool: (opts) => ipcRenderer.invoke('measure-pool', opts),

@@ -9,10 +9,6 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [loadingGameScripts, setLoadingGameScripts] = useState(false);
   const [gameScriptsError, setGameScriptsError] = useState('');
   const [cleaning, setCleaning] = useState(false);
-  const [glrList, setGlrList] = useState([]);
-  const [glrLoading, setGlrLoading] = useState(false);
-  const [glrError, setGlrError] = useState('');
-  const [glrRecordScript, setGlrRecordScript] = useState('');
   const [gameStarted, setGameStarted] = useState(false); // stays true after timeout — keeps Kill visible
   const [gameGit, setGameGit] = useState(null); // { branch, files, hasDevelop, releaseBranches }
   const [gameGitLoading, setGameGitLoading] = useState(false);
@@ -36,110 +32,9 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   useEffect(() => {
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError('');
-    setGlrList([]); setGlrError(''); setGlrRecordScript('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl('');
-    if (project) { loadGameScripts(); loadGlrList(); }
+    if (project) { loadGameScripts(); }
   }, [project?.path]);
-
-  const loadGlrList = async () => {
-    setGlrLoading(true);
-    setGlrError('');
-    try {
-      const r = await window.api.listGlr();
-      if (r?.error) setGlrError(r.error);
-      else setGlrList(r?.glrList || []);
-    } catch (e) { setGlrError(e.message); }
-    setGlrLoading(false);
-  };
-
-  const launchLocalGlr = async (glrName) => {
-    setRunning('glr:' + glrName); setLog(''); setResult(null);
-    try {
-      setLog('Pulling latest game code...\n');
-      const pull = await window.api.gitPullGame();
-      if (!pull.success) {
-        setLog(prev => prev + `⚠️  git pull failed: ${pull.error || 'check network'}\nLaunching with current local version...\n\n`);
-      } else {
-        setLog(prev => prev + (pull.output?.trim() || 'Already up to date.') + '\n\n');
-      }
-
-      // Build game before GLR launch
-      setLog(prev => prev + '── yarn build-dev ──\n');
-      const build = await window.api.buildGame();
-      if (build?.error === 'No build-dev script in game package.json') {
-        setLog(prev => prev + 'No build-dev script found, skipping build step...\n\n');
-      } else if (!build?.success) {
-        setLog(prev => prev + `\n\n✖ build-dev failed: ${build?.error || 'unknown error'}`);
-        setResult({ script: glrName, ok: false });
-        showToast('Game build failed — GLR launch cancelled', 'error');
-        setRunning(null);
-        return;
-      } else {
-        setLog(prev => prev + '\n✔ build-dev complete\n\n');
-      }
-
-      const r = await window.api.launchLocalGlr({ glrName });
-      if (!r.success) {
-        setLog(prev => prev + (r.error || 'Failed to launch'));
-        setResult({ script: glrName, ok: false });
-        showToast(`Launch failed: ${r.error}`, 'error');
-        setRunning(null);
-        return;
-      }
-      setLog(prev => prev + `Launched GLR "${glrName}" locally (no VPN) — PID ${r.pid}\nSoftwareId: ${r.softwareId}\n\nWaiting for server on port 8080...`);
-      showToast(`Launching "${glrName}"...`, 'success');
-      const port = await window.api.waitForPort({ port: 8080, timeout: 60000 });
-      if (port.ready) {
-        setGameStarted(true);
-        setLog(prev => prev + '\nServer ready! Opening browser...');
-        setResult({ script: glrName, ok: true });
-        showToast('Game ready!', 'success');
-        window.api.openGameWindow('http://127.0.0.1:8080');
-      } else {
-        setLog(prev => prev + '\nTimeout — server did not respond within 60s.');
-        setResult({ script: glrName, ok: false });
-        showToast('Server timeout', 'error');
-      }
-    } catch (e) {
-      setLog('Error: ' + e.message);
-      setResult({ script: glrName, ok: false });
-      showToast('Launch error', 'error');
-    }
-    setRunning(null);
-  };
-
-  const recordGlr = async () => {
-    setRunning('record-glr'); setLog(''); setResult(null);
-    try {
-      setLog(`Starting GLR recording using "${glrRecordScript || 'launch'}" (requires VPN)...\n`);
-      const r = await window.api.recordGlr(glrRecordScript ? { scriptName: glrRecordScript } : undefined);
-      if (!r.success) {
-        setLog(prev => prev + `✖ ${r.error || 'Failed to start recording'}`);
-        setResult({ script: 'record-glr', ok: false });
-        showToast(r.error || 'Record failed', 'error');
-        setRunning(null);
-        return;
-      }
-      setLog(prev => prev + `Recording started — PID ${r.pid}\nServer: ${r.server} | SoftwareId: ${r.softwareId} | Channel: ${r.channel}\n\nGame will open at http://127.0.0.1:8080\nPlay through scenarios you want to record (spins, bonus, big win).\nGLR files are saved to game/GLR/ automatically.\nWhen done, click Kill to stop recording.\n\nWaiting for server on port 8080...`);
-      const port = await window.api.waitForPort({ port: 8080, timeout: 60000 });
-      if (port.ready) {
-        setGameStarted(true);
-        setLog(prev => prev + '\n\nServer ready! Opening browser...');
-        setResult({ script: 'record-glr', ok: true });
-        showToast('Recording — play the game to capture GLR', 'success');
-        window.api.openGameWindow('http://127.0.0.1:8080');
-      } else {
-        setLog(prev => prev + '\n\nTimeout — server did not respond. Check VPN connection.');
-        setResult({ script: 'record-glr', ok: false });
-        showToast('Server timeout — VPN connected?', 'error');
-      }
-    } catch (e) {
-      setLog('Error: ' + e.message);
-      setResult({ script: 'record-glr', ok: false });
-      showToast('Record error', 'error');
-    }
-    setRunning(null);
-  };
 
   const loadGameGitStatus = async () => {
     setGameGitLoading(true);
@@ -218,21 +113,6 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     } catch (e) { setGameScriptsError(e.message); }
     setLoadingGameScripts(false);
   };
-
-  // Launch scripts suitable for GLR recording (playa launch with --server)
-  const recordLaunchScripts = useMemo(() =>
-    gameScripts.filter(s => /^playa\s+launch\b/.test(s.cmd) && /--server\s/.test(s.cmd)),
-    [gameScripts]
-  );
-
-  // Auto-select first launch script for GLR recording when list changes
-  useEffect(() => {
-    setGlrRecordScript(prev =>
-      recordLaunchScripts.length > 0 && !recordLaunchScripts.some(s => s.name === prev)
-        ? recordLaunchScripts[0].name
-        : prev
-    );
-  }, [recordLaunchScripts]);
 
   const scripts = project?.scripts || {};
   const buildScripts = useMemo(() => {
@@ -657,7 +537,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 <p className="text-xs font-mono text-text-dim truncate flex-1" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</p>
               )}
               <div className="ml-auto flex items-center gap-1.5">
-                {(running?.startsWith('game:') || running?.startsWith('glr:') || running === 'record-glr' || gameStarted) && (
+                {(running?.startsWith('game:') || gameStarted) && (
                   <button
                     onClick={() => { window.api.killGame(); setRunning(null); setGameStarted(false); showToast('Process killed', 'success'); }}
                     className="btn-ghost text-danger border-danger/30 text-xs py-0.5 px-2"
@@ -667,12 +547,12 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                   </button>
                 )}
                 <button
-                  onClick={() => { loadGameScripts(); loadGlrList(); }}
-                  disabled={loadingGameScripts || glrLoading || running !== null}
+                  onClick={loadGameScripts}
+                  disabled={loadingGameScripts || running !== null}
                   className="text-xs text-text-dim hover:text-text-secondary disabled:opacity-40"
-                  title="Reload launch scripts and GLR list"
+                  title="Reload launch scripts"
                 >
-                  {loadingGameScripts || glrLoading ? '...' : 'Refresh'}
+                  {loadingGameScripts ? '...' : 'Refresh'}
                 </button>
               </div>
             </div>
@@ -708,64 +588,6 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               <p className="text-xs text-text-dim">No launch scripts found</p>
             )}
 
-            {/* GLR section — within same card */}
-            {deployTarget && !gameNodeModulesMissing && (
-              <div className="pt-1.5 border-t border-border/30 space-y-1.5">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="badge bg-orange-dim text-orange text-xs">Local GLR</span>
-                  <span className="badge bg-green-dim text-green text-xs">No VPN</span>
-                  <div className="ml-auto flex items-center gap-1.5">
-                    {recordLaunchScripts.length > 1 && (
-                      <select
-                        value={glrRecordScript}
-                        onChange={e => setGlrRecordScript(e.target.value)}
-                        disabled={running !== null}
-                        className="input-base text-xs font-mono py-0.5 px-1.5 w-auto"
-                        title="Select launch script for recording"
-                      >
-                        {recordLaunchScripts.map(s => (
-                          <option key={s.name} value={s.name}>{s.name}</option>
-                        ))}
-                      </select>
-                    )}
-                    <button
-                      onClick={recordGlr}
-                      disabled={running !== null || recordLaunchScripts.length === 0}
-                      className="btn-ghost text-xs py-0.5 px-2 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40"
-                      title={recordLaunchScripts.length === 0 ? 'No launch scripts' : `Record GLR using "${glrRecordScript}" (VPN)`}
-                    >
-                      {running === 'record-glr' ? (
-                        <><span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan mr-1 anim-pulse-dot" />Rec...</>
-                      ) : (
-                        <><svg className="w-2.5 h-2.5 mr-1 inline" fill="currentColor" viewBox="0 0 20 20"><circle cx="10" cy="10" r="6" /></svg>Record</>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {glrError && <p className="text-xs text-danger font-mono">{glrError}</p>}
-                {glrList.length > 0 ? (
-                  <div className="space-y-0.5">
-                    {glrList.map(name => (
-                      <div key={name} className="flex items-center gap-2 py-1 border-b border-border/20 last:border-0">
-                        <p className="flex-1 text-xs font-mono text-text-primary">{name}</p>
-                        <button
-                          onClick={() => launchLocalGlr(name)}
-                          disabled={running !== null}
-                          className={running === 'glr:' + name ? 'btn-ghost text-orange border-orange/30 cursor-wait text-xs py-0.5 px-2' : running ? 'btn-ghost text-xs py-0.5 px-2 opacity-40' : 'btn-ghost text-xs py-0.5 px-2'}
-                          title={`Launch with GLR "${name}" — no VPN`}
-                        >
-                          {running === 'glr:' + name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange mr-1 anim-pulse-dot" />}
-                          {running === 'glr:' + name ? 'Launching...' : 'Launch'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : !glrLoading && (
-                  <p className="text-xs text-text-dim">No GLR recordings in game/GLR/</p>
-                )}
-              </div>
-            )}
           </div>
 
           {/* GAME GIT — compact */}
