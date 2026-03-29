@@ -8,7 +8,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [gameRepoPath, setGameRepoPath] = useState('');
   const [loadingGameScripts, setLoadingGameScripts] = useState(false);
   const [gameScriptsError, setGameScriptsError] = useState('');
-  const [cleaning, setCleaning] = useState(false);
+  const [autoLaunch, setAutoLaunch] = useState(''); // selected launch script for auto-launch after build
   const [gameStarted, setGameStarted] = useState(false); // stays true after timeout — keeps Kill visible
   const [gameGit, setGameGit] = useState(null); // { branch, files, hasDevelop, releaseBranches }
   const [gameGitLoading, setGameGitLoading] = useState(false);
@@ -18,20 +18,25 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [gameGitPushing, setGameGitPushing] = useState(false);
   const [gameGitPrUrl, setGameGitPrUrl] = useState('');
   const logRef = useRef(null);
+  const abortRef = useRef(false);
 
   // Auto-scroll log to bottom as lines stream in
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
 
   // Subscribe to live script output — mount once, unmount cleanup
   useEffect(() => {
-    const handler = (_, line) => setLog(prev => prev + line);
+    const handler = (_, line) => {
+      // Filter noisy non-fatal DNS/TLS errors from playa process
+      if (/ENOTFOUND.*wagerworks|ENOTFOUND.*igt\.com|NODE_TLS_REJECT_UNAUTHORIZED/.test(line)) return;
+      setLog(prev => prev + line);
+    };
     window.api.onScriptOutput(handler);
     return () => window.api.offScriptOutput(handler);
   }, []);
 
   useEffect(() => {
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
-    setGameScripts([]); setGameRepoPath(''); setGameScriptsError('');
+    setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl('');
     if (project) { loadGameScripts(); }
   }, [project?.path]);
@@ -109,7 +114,14 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     try {
       const r = await window.api.getGameScripts();
       if (r?.error) { setGameScriptsError(r.error); }
-      else if (r?.scripts) { setGameScripts(r.scripts); setGameRepoPath(r.gameRepoPath || ''); }
+      else if (r?.scripts) {
+          setGameScripts(r.scripts); setGameRepoPath(r.gameRepoPath || '');
+          // Auto-select first launch script if none selected
+          if (!autoLaunch && r.scripts.length > 0) {
+            const launchScripts = r.scripts.filter(s => /^playa\s+launch\b/.test(s.cmd));
+            setAutoLaunch(launchScripts.length > 0 ? launchScripts[0].name : r.scripts[0].name);
+          }
+        }
     } catch (e) { setGameScriptsError(e.message); }
     setLoadingGameScripts(false);
   };
@@ -138,144 +150,142 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     );
   }
 
-  const fullPipeline = async () => {
-    setRunning('pipeline'); setLog(''); setResult(null);
-    const step = (label) => setLog(prev => prev + `\n━━ ${label} ━━\n`);
-    try {
-      // Step 1: Build — auto-detect script based on project config
-      // Root sounds.json is source of truth — no pull (user edits are authoritative)
-      const spriteConfig = project?.spriteConfig;
-      const hasTieredSounds = spriteConfig?.sprites && Object.values(spriteConfig.sprites).some(t => t.sounds?.length > 0);
-      const buildScript = hasTieredSounds && scripts['build'] ? 'build'
-        : scripts['build-audioSprites-size'] ? 'build-audioSprites-size'
-        : scripts['build-multi-audioSprites'] ? 'build-multi-audioSprites'
-        : scripts['build-audioSprite'] ? 'build-audioSprite'
-        : scripts['build'] ? 'build'
-        : null;
-      if (!buildScript) {
-        setLog(prev => prev + '✖ No build script found in package.json');
-        setResult({ script: 'pipeline', ok: false }); showToast('No build script', 'error'); setRunning(null); return;
-      }
-      step(`Step 1/3 — Build (${buildScript})`);
-      const build = await window.api.runScript(buildScript);
-      if (!build?.success) {
-        setLog(prev => prev + '\n✖ Build failed');
-        setResult({ script: 'pipeline', ok: false }); showToast('Pipeline failed at Build', 'error'); setRunning(null); return;
-      }
-      setLog(prev => prev + '\n✔ Build complete\n');
-
-      // Step 2: Validate
-      step('Step 2/3 — Validate');
-      const validate = await window.api.runScript('build-validate');
-      if (!validate?.success) {
-        setLog(prev => prev + '\n⚠ Validation has errors — check log above');
-      } else {
-        setLog(prev => prev + '\n✔ Validation passed\n');
-      }
-
-      // Step 3: Deploy
-      const refreshed = await window.api.reloadProject();
-      if (refreshed && setProject) setProject(refreshed);
-      const canDeploy = deployScripts.includes('deploy') && refreshed?.gameRepoExists && refreshed?.distInfo?.hasDist && refreshed?.distInfo?.hasSoundsJson;
-      if (canDeploy) {
-        step('Step 3/3 — Deploy');
-        const dr = await window.api.runDeploy('deploy');
-        setLog(prev => prev + (dr?.success ? '\n✔ Deployed\n' : '\n✖ Deploy failed\n'));
-        setResult({ script: 'pipeline', ok: dr?.success ?? false });
-        showToast(dr?.success ? 'Full Pipeline complete' : 'Pipeline: deploy failed', dr?.success ? 'success' : 'error');
-      } else {
-        setResult({ script: 'pipeline', ok: !validate?.success ? false : true });
-        showToast(canDeploy === false && !deployScripts.includes('deploy') ? 'Pipeline done (no deploy script)' : 'Pipeline done', validate?.success ? 'success' : 'error');
-      }
-    } catch (e) {
-      setLog(prev => prev + '\nError: ' + e.message);
-      setResult({ script: 'pipeline', ok: false }); showToast('Pipeline error', 'error');
-    }
-    setRunning(null);
-  };
-
   const runScript = async (scriptName) => {
+    abortRef.current = false;
     setRunning(scriptName); setLog(''); setResult(null);
+    const stopped = () => abortRef.current;
     try {
       const r = await window.api.runScript(scriptName);
+      if (stopped()) return;
       if (r?.error) setLog(r.error);
       if (r?.success) {
-        // Auto-reload project to pick up new dist/sounds.json and distInfo
         const refreshed = await window.api.reloadProject();
+        if (stopped()) return;
         if (refreshed && setProject) setProject(refreshed);
 
-        // Use freshly reloaded distInfo — stale closure values could reflect pre-build state
         const refreshedDistOk = refreshed?.distInfo?.hasDist && refreshed?.distInfo?.hasSoundsJson;
         const shouldAutoDeploy = !scriptName.includes('validate') && deployScripts.includes('deploy')
           && !!(refreshed?.gameRepoAbsPath) && (refreshed?.gameRepoExists ?? false) && refreshedDistOk;
         if (shouldAutoDeploy) {
           showToast(`${scriptName} passed — deploying...`, 'success');
-          setLog(prev => prev + '\n\n── Auto-deploying ──\n');
+          setLog(prev => prev + '\n\n── Deploy ──\n');
           setRunning('deploy');
           try {
             const dr = await window.api.runDeploy('deploy');
+            if (stopped()) return;
             if (dr?.error) setLog(prev => prev + dr.error);
-            setResult({ script: 'deploy', ok: dr?.success ?? false });
-            showToast(dr?.success ? 'Build + Deploy complete' : 'Deploy failed', dr?.success ? 'success' : 'error');
+            if (!dr?.success) {
+              setResult({ script: 'deploy', ok: false });
+              showToast('Deploy failed', 'error');
+              setRunning(null); return;
+            }
+            setLog(prev => prev + '✔ Deployed\n');
+
+            if (autoLaunch) {
+              setLog(prev => prev + '\n── yarn install ──\n');
+              setRunning('game:install');
+              const yi = await window.api.yarnInstallGame();
+              if (stopped()) return;
+              if (!yi?.success) {
+                setLog(prev => prev + `⚠ yarn install failed: ${yi?.error || 'unknown'}\n`);
+              } else {
+                setLog(prev => prev + '✔ Dependencies OK\n');
+              }
+
+              setLog(prev => prev + '\n── yarn build-dev ──\n');
+              setRunning('game:build');
+              const build = await window.api.buildGame();
+              if (stopped()) return;
+              if (build?.error === 'No build-dev script in game package.json') {
+                setLog(prev => prev + 'No build-dev script, skipping...\n');
+              } else if (!build?.success) {
+                setLog(prev => prev + `\n✖ build-dev failed: ${build?.error || 'unknown'}\n`);
+                setResult({ script: scriptName, ok: false });
+                showToast('Game build failed', 'error');
+                setRunning(null); return;
+              } else {
+                setLog(prev => prev + '\n✔ build-dev complete\n');
+              }
+
+              if (stopped()) return;
+              setLog(prev => prev + `\n── Launch: ${autoLaunch} ──\n`);
+              setRunning('game:' + autoLaunch);
+              const lr = await window.api.runGameScript(autoLaunch);
+              if (stopped()) return;
+              if (!lr.success) {
+                setLog(prev => prev + (lr.error || 'Launch failed'));
+                setResult({ script: scriptName, ok: false });
+                showToast('Launch failed', 'error');
+                setRunning(null); return;
+              }
+              setGameStarted(true);
+              setLog(prev => prev + `${lr.output}\n\nWaiting for server on port 8080...`);
+              const port = await window.api.waitForPort({ port: 8080, timeout: 120000 });
+              if (stopped()) return;
+              if (port.ready) {
+                setLog(prev => prev + '\n✔ Server ready! Opening browser...');
+                setResult({ script: scriptName, ok: true });
+                showToast('Build → Deploy → Launch complete!', 'success');
+                window.api.openGameWindow('http://127.0.0.1:8080');
+              } else {
+                setLog(prev => prev + '\nTimeout — server did not respond.');
+                setResult({ script: scriptName, ok: false });
+                showToast('Server timeout', 'error');
+              }
+            } else {
+              setResult({ script: 'deploy', ok: true });
+              showToast('Build + Deploy complete', 'success');
+            }
           } catch (de) {
-            setLog(prev => prev + '\nDeploy error: ' + de.message);
+            if (stopped()) return;
+            setLog(prev => prev + '\nError: ' + de.message);
             setResult({ script: 'deploy', ok: false });
-            showToast('Deploy error', 'error');
+            showToast('Error', 'error');
           }
         } else {
           setResult({ script: scriptName, ok: true });
           showToast(`${scriptName} passed`, 'success');
         }
       } else {
+        if (stopped()) return;
         setResult({ script: scriptName, ok: false });
         showToast(`${scriptName} failed`, 'error');
       }
     } catch (e) {
+      if (stopped()) return;
       setLog(prev => prev + '\nError: ' + e.message);
       setResult({ script: scriptName, ok: false });
       showToast('Script error', 'error');
     }
-    setRunning(null);
+    if (!stopped()) setRunning(null);
   };
 
-  const runDeploy = async (scriptName) => {
-    setRunning(scriptName); setLog(''); setResult(null);
-    try {
-      const r = await window.api.runDeploy(scriptName);
-      if (r?.error) setLog(r.error);
-      setResult({ script: scriptName, ok: r?.success ?? false });
-      showToast(r?.success ? 'Deploy complete' : 'Deploy failed', r?.success ? 'success' : 'error');
-    } catch (e) {
-      setLog(prev => prev + '\nError: ' + e.message);
-      setResult({ script: scriptName, ok: false });
-      showToast('Deploy error', 'error');
-    }
-    setRunning(null);
-  };
 
   const runGameScript = async (scriptName) => {
+    abortRef.current = false;
     setRunning('game:' + scriptName); setLog(''); setResult(null);
+    const stopped = () => abortRef.current;
     try {
-      // Step 1: build-dev first (unless user clicked build-dev itself)
       if (scriptName !== 'build-dev') {
         setLog('── yarn build-dev ──\n');
         const build = await window.api.buildGame();
+        if (stopped()) return;
         if (build?.error === 'No build-dev script in game package.json') {
           setLog(prev => prev + 'No build-dev script found, skipping build step...\n\n');
         } else if (!build?.success) {
           setLog(prev => prev + `\n\n✖ build-dev failed: ${build?.error || 'unknown error'}`);
           setResult({ script: scriptName, ok: false });
           showToast('Game build failed — launch cancelled', 'error');
-          setRunning(null);
-          return;
+          setRunning(null); return;
         } else {
           setLog(prev => prev + '\n✔ build-dev complete\n\n');
         }
       }
 
-      // Step 2: launch
+      if (stopped()) return;
       setLog(prev => prev + `── yarn ${scriptName} ──\n`);
       const r = await window.api.runGameScript(scriptName);
+      if (stopped()) return;
       if (!r.success) {
         setLog(prev => prev + (r.error || 'Failed to start'));
         setResult({ script: scriptName, ok: false });
@@ -287,6 +297,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       setLog(prev => prev + `${r.output}\n\nWaiting for server on port 8080...`);
       showToast('Launched — waiting for server...', 'success');
       const port = await window.api.waitForPort({ port: 8080, timeout: 120000 });
+      if (stopped()) return;
       if (port.ready) {
         setLog(prev => prev + '\nServer ready! Opening browser...');
         setResult({ script: scriptName, ok: true });
@@ -298,33 +309,18 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         showToast('Server timeout', 'error');
       }
     } catch (e) {
+      if (stopped()) return;
       setLog(prev => prev + '\nError: ' + e.message);
       setResult({ script: scriptName, ok: false });
       showToast('Launch error', 'error');
     }
-    setRunning(null);
-  };
-
-  const handleCleanDist = async () => {
-    setCleaning(true);
-    try {
-      const r = await window.api.cleanDist();
-      if (r?.success) {
-        showToast(r.removed > 0 ? `Removed ${r.removed} file(s) from dist/` : 'dist/ already clean', 'success');
-      } else {
-        showToast(r?.error || 'Clean failed', 'error');
-      }
-    } catch (e) {
-      showToast('Clean failed: ' + e.message, 'error');
-    }
-    setCleaning(false);
+    if (!stopped()) setRunning(null);
   };
 
   const deployTarget = project?.gameRepoAbsPath || null;
   const deployTargetExists = project?.gameRepoExists || false;
   const distInfo = project?.distInfo || null;
   const gameNodeModulesMissing = deployTarget && deployTargetExists && project?.gameNodeModulesExists === false;
-  const gameName = deployTarget ? deployTarget.split(/[/\\]/).pop() : '';
 
   return (
     <div className="anim-fade-up h-full flex flex-col gap-1.5">
@@ -343,8 +339,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
 
         {/* ═══ LEFT: Audio Pipeline ═══ */}
         <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto pr-0.5">
-          <div className="card p-2.5 space-y-2">
-            {/* Header row */}
+          <div className="card p-3 space-y-3">
+            {/* Header */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="badge bg-cyan-dim text-cyan text-xs">Audio Pipeline</span>
               {distInfo?.hasDist ? (
@@ -355,47 +351,47 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               ) : (
                 <span className="text-xs text-text-dim italic">Not built</span>
               )}
-              <div className="ml-auto flex items-center gap-1.5">
-                {deployTarget && (
-                  <button
-                    onClick={fullPipeline}
-                    disabled={running !== null}
-                    title="Build → validate → deploy"
-                    className={running === 'pipeline' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-2.5' : 'btn-primary text-xs py-1 px-2.5 disabled:opacity-40 disabled:cursor-not-allowed'}
-                  >
-                    {running === 'pipeline' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
-                    {running === 'pipeline' ? 'Running...' : 'Full Pipeline'}
-                  </button>
-                )}
-                <button
-                  onClick={handleCleanDist}
-                  disabled={cleaning || running !== null}
-                  className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
-                  title="Remove .m4a + sounds.json from dist/"
-                >
-                  {cleaning ? '...' : 'Clean'}
-                </button>
-              </div>
             </div>
 
-            {/* Build script buttons — inline flex */}
-            {buildScripts.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {buildScripts.map(name => (
-                  <button
-                    key={name}
-                    onClick={() => runScript(name)}
-                    disabled={running !== null}
-                    className={running === name ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs py-1 px-2.5' : running ? 'btn-ghost text-xs py-1 px-2.5 opacity-40' : 'btn-ghost text-xs py-1 px-2.5'}
-                    title={scripts[name]}
-                  >
-                    {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan mr-1.5 anim-pulse-dot" />}
-                    {running === name ? `${name}...` : name}
-                  </button>
-                ))}
+            {/* Build scripts */}
+            <div className="flex flex-col gap-2">
+              {buildScripts.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {buildScripts.map(name => (
+                    <button
+                      key={name}
+                      onClick={() => runScript(name)}
+                      disabled={running !== null}
+                      className={running === name ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
+                      title={scripts[name]}
+                    >
+                      {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan mr-1.5 anim-pulse-dot" />}
+                      {running === name ? `${name}...` : name}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-text-dim">No build scripts in package.json</p>
+              )}
+            </div>
+
+            {/* Auto-launch dropdown */}
+            {deployTarget && gameScripts.length > 0 && (
+              <div className="flex items-center gap-2 pt-2 border-t border-border/30">
+                <span className="section-label shrink-0">After build</span>
+                <select
+                  value={autoLaunch}
+                  onChange={e => setAutoLaunch(e.target.value)}
+                  disabled={running !== null}
+                  className="input-base text-sm font-mono py-1 px-2 w-auto"
+                  title="Deploy + launch this script automatically after build completes"
+                >
+                  <option value="">Deploy only</option>
+                  {gameScripts.filter(s => /^playa\s+launch\b/.test(s.cmd)).map(s => (
+                    <option key={s.name} value={s.name}>Deploy + Launch: {s.name}</option>
+                  ))}
+                </select>
               </div>
-            ) : (
-              <p className="text-xs text-text-dim">No build scripts in package.json</p>
             )}
 
             {/* Dist sprite tags */}
@@ -407,46 +403,16 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               </div>
             )}
 
-            {/* Deploy — compact single line */}
-            {deployTarget ? (
-              <div className="flex items-center gap-2 pt-1.5 border-t border-border/30">
-                <span className="section-label shrink-0">Deploy</span>
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${deployTargetExists ? 'bg-green' : 'bg-orange'}`} />
-                <p className="text-xs font-mono text-text-dim truncate flex-1" title={`${deployTarget} → assets/default/default/default/sounds/`}>{gameName}</p>
-                {!deployTargetExists ? (
-                  <span className="text-xs text-orange shrink-0">Not found</span>
-                ) : !distInfo?.hasDist ? (
-                  <span className="text-xs text-text-dim shrink-0">Build first</span>
-                ) : !distInfo?.hasSoundsJson ? (
-                  <span className="text-xs text-orange shrink-0">Missing sounds.json</span>
-                ) : deployScripts.length > 0 ? (
-                  <button
-                    onClick={() => runDeploy('deploy')}
-                    disabled={running !== null}
-                    className={running === 'deploy' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-2.5' : 'btn-ghost text-xs py-1 px-2.5 disabled:opacity-40'}
-                    title="Copy built audio to game repo"
-                  >
-                    {running === 'deploy' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
-                    {running === 'deploy' ? 'Deploying...' : 'Deploy'}
-                  </button>
-                ) : (
-                  <span className="text-xs text-text-dim shrink-0">No deploy script</span>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-text-dim pt-1.5 border-t border-border/30">Link a game repo in Setup to deploy</p>
-            )}
-
-            {/* Other scripts — inline buttons */}
+            {/* Other scripts */}
             {otherScripts.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-border/30">
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
                 <span className="section-label shrink-0">Other</span>
                 {otherScripts.map(name => (
                   <button
                     key={name}
                     onClick={() => runScript(name)}
                     disabled={running !== null}
-                    className={running === name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1 px-2.5' : running ? 'btn-ghost text-xs py-1 px-2.5 opacity-40' : 'btn-ghost text-xs py-1 px-2.5'}
+                    className={running === name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
                     title={scripts[name]}
                   >
                     {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1.5 anim-pulse-dot" />}
@@ -456,38 +422,37 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               </div>
             )}
           </div>
+
         </div>
 
         {/* ═══ RIGHT: Game ═══ */}
         <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto pr-0.5">
 
           {/* LAUNCH GAME */}
-          <div className="card p-2.5 space-y-2">
+          <div className="card p-3 space-y-3">
             {/* Header */}
             <div className="flex items-center gap-2">
               <span className="badge bg-purple-dim text-purple text-xs">Game</span>
               {gameRepoPath && (
-                <p className="text-xs font-mono text-text-dim truncate flex-1" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</p>
+                <p className="text-xs font-mono text-text-dim truncate" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</p>
               )}
-              <div className="ml-auto flex items-center gap-1.5">
-                {(running?.startsWith('game:') || gameStarted) && (
-                  <button
-                    onClick={() => { window.api.killGame(); setRunning(null); setGameStarted(false); showToast('Process killed', 'success'); }}
-                    className="btn-ghost text-danger border-danger/30 text-xs py-0.5 px-2"
-                    title="Kill running game process and free port 8080"
-                  >
-                    Kill
-                  </button>
-                )}
+              {(running?.startsWith('game:') || gameStarted) && (
                 <button
-                  onClick={loadGameScripts}
-                  disabled={loadingGameScripts || running !== null}
-                  className="text-xs text-text-dim hover:text-text-secondary disabled:opacity-40"
-                  title="Reload launch scripts"
+                  onClick={() => { abortRef.current = true; window.api.stopAll(); setRunning(null); setGameStarted(false); showToast('Process killed', 'success'); }}
+                  className="btn-ghost text-danger border-danger/30 text-xs py-1 px-2.5"
+                  title="Kill running game process and free port 8080"
                 >
-                  {loadingGameScripts ? '...' : 'Refresh'}
+                  Kill
                 </button>
-              </div>
+              )}
+              <button
+                onClick={loadGameScripts}
+                disabled={loadingGameScripts || running !== null}
+                className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
+                title="Reload launch scripts"
+              >
+                {loadingGameScripts ? '...' : 'Refresh'}
+              </button>
             </div>
 
             {gameScriptsError && <p className="text-xs text-danger font-mono">{gameScriptsError}</p>}
@@ -495,24 +460,24 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               <p className="text-xs text-orange">Missing node_modules — run yarn install in Setup</p>
             )}
 
-            {/* VPN launch scripts */}
+            {/* Launch scripts — grid for column alignment */}
             {!deployTarget ? (
               <p className="text-xs text-text-dim">Link a game repo in Setup first</p>
             ) : gameScripts.length > 0 ? (
-              <div className="space-y-0.5">
+              <div style={{ display: 'grid', gridTemplateColumns: 'auto auto', gap: '6px 12px', alignItems: 'center', justifyContent: 'start' }}>
                 {gameScripts.map(({ name, cmd }) => (
-                  <div key={name} className="flex items-center gap-2 py-1 border-b border-border/20 last:border-0">
-                    <p className="flex-1 text-xs font-mono font-semibold text-text-primary truncate" title={cmd}>{name}</p>
+                  <React.Fragment key={name}>
+                    <p className="text-sm font-mono font-semibold text-text-primary" title={cmd}>{name}</p>
                     <button
                       onClick={() => runGameScript(name)}
                       disabled={running !== null}
-                      className={running === 'game:' + name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-0.5 px-2' : running ? 'btn-ghost text-xs py-0.5 px-2 opacity-40' : 'btn-ghost text-xs py-0.5 px-2'}
+                      className={running === 'game:' + name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
                       title={cmd}
                     >
                       {running === 'game:' + name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1 anim-pulse-dot" />}
                       {running === 'game:' + name ? 'Launching...' : 'Launch'}
                     </button>
-                  </div>
+                  </React.Fragment>
                 ))}
               </div>
             ) : loadingGameScripts ? (
@@ -525,31 +490,31 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
 
           {/* GAME GIT — compact */}
           {deployTarget && (
-            <div className="card p-2.5 space-y-1.5">
-              <div className="flex items-center gap-2">
+            <div className="card p-3 space-y-2">
+              <div className="flex items-center gap-3">
                 <span className="badge bg-accent-dim text-accent text-xs">Game Git</span>
-                {gameGit && <span className="text-xs font-mono text-purple">{gameGit.branch}</span>}
+                {gameGit && <span className="text-sm font-mono text-purple">{gameGit.branch}</span>}
                 {gameGit && gameGit.files.length > 0 && <span className="badge bg-orange-dim text-orange text-xs">{gameGit.files.length}</span>}
                 <button onClick={loadGameGitStatus} disabled={gameGitLoading}
-                  className="ml-auto text-xs text-text-dim hover:text-text-secondary disabled:opacity-40">
+                  className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40">
                   {gameGitLoading ? '...' : 'Refresh'}
                 </button>
               </div>
 
               {!gameGit ? (
-                <p className="text-xs text-text-dim">Click Refresh to load status</p>
+                <p className="text-sm text-text-dim">Click Refresh to load status</p>
               ) : gameGit.files.length === 0 ? (
-                <p className="text-xs text-green">No changes — deploy first</p>
+                <p className="text-sm text-green">No changes — deploy first</p>
               ) : (
-                <div className="space-y-1.5">
-                  <div className="flex gap-2 items-center">
-                    <label className="text-xs text-text-dim shrink-0">Target:</label>
+                <div className="space-y-2.5">
+                  <div className="flex gap-3 items-center">
+                    <label className="text-xs text-text-dim shrink-0 w-12">Target</label>
                     <select value={gameGitTarget} onChange={e => {
                       setGameGitTarget(e.target.value);
                       const audioName = project?.path?.split(/[/\\]/).pop()?.replace('-audio', '') || 'audio';
                       const prefix = e.target.value.startsWith('release') ? 'bugfix/PA-' : 'feature/PA-';
                       setGameGitBranchName(`${prefix}${audioName}-audio-update`);
-                    }} className="input-base text-xs font-mono flex-1 py-0.5">
+                    }} className="input-base text-sm font-mono flex-1 py-1">
                       {gameGit.hasDevelop && <option value="develop">develop</option>}
                       {gameGit.releaseBranches.map(b => <option key={b} value={b}>{b}</option>)}
                       {gameGit.branch !== 'develop' && !gameGit.releaseBranches.includes(gameGit.branch) && (
@@ -557,21 +522,21 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                       )}
                     </select>
                   </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="text-xs text-text-dim shrink-0">Branch:</label>
+                  <div className="flex gap-3 items-center">
+                    <label className="text-xs text-text-dim shrink-0 w-12">Branch</label>
                     <input type="text" value={gameGitBranchName} onChange={e => setGameGitBranchName(e.target.value)}
-                      placeholder="feature/PA-audio-update" className="input-base text-xs font-mono flex-1 py-0.5" maxLength={100} />
+                      placeholder="feature/PA-audio-update" className="input-base text-sm font-mono flex-1 py-1" maxLength={100} />
                   </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="text-xs text-text-dim shrink-0">Msg:</label>
+                  <div className="flex gap-3 items-center">
+                    <label className="text-xs text-text-dim shrink-0 w-12">Msg</label>
                     <input type="text" value={gameGitCommitMsg} onChange={e => setGameGitCommitMsg(e.target.value)}
-                      placeholder="Update audio sprites" className="input-base text-xs flex-1 py-0.5"
+                      placeholder="Update audio sprites" className="input-base text-sm flex-1 py-1"
                       onKeyDown={e => e.key === 'Enter' && handleGameGitPush()} />
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <button onClick={handleGameGitPush}
                       disabled={gameGitPushing || !gameGitBranchName.trim() || !gameGitCommitMsg.trim()}
-                      className="btn-primary text-xs py-1 px-3 disabled:opacity-40"
+                      className="btn-primary text-xs py-1.5 px-4 disabled:opacity-40"
                       title="Create branch, commit, push, open PR">
                       {gameGitPushing ? 'Pushing...' : 'Commit, Push & PR'}
                     </button>
@@ -610,14 +575,16 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               </span>
             )}
             <button
-              onClick={() => { setLog(''); setResult(null); }}
-              disabled={running !== null}
-              className="ml-auto text-xs text-text-dim hover:text-text-secondary disabled:opacity-40"
-            >Clear</button>
+              onClick={() => {
+                if (running) { abortRef.current = true; window.api.stopAll(); setRunning(null); setGameStarted(false); setLog(prev => prev + '\n\n✖ Stopped by user\n'); showToast('Stopped', 'success'); }
+                else { setLog(''); setResult(null); }
+              }}
+              className={`ml-auto text-xs ${running ? 'btn-ghost text-danger border-danger/30 py-1 px-2.5' : 'text-text-dim hover:text-text-secondary'}`}
+            >{running ? 'Stop' : 'Clear'}</button>
           </div>
           <pre
             ref={logRef}
-            className="p-2 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-primary overflow-auto max-h-32 whitespace-pre-wrap leading-relaxed"
+            className="p-2 rounded-lg bg-bg-input border border-border text-xs font-mono text-text-primary overflow-auto max-h-64 whitespace-pre-wrap leading-relaxed"
           >{log || ' '}</pre>
         </div>
       )}

@@ -33,9 +33,11 @@ contextBridge.exposeInMainWorld('api', {
   buildGame: () => ipcRenderer.invoke('build-game'),
   runGameScript: (name) => ipcRenderer.invoke('run-game-script', name),
   killGame: () => ipcRenderer.invoke('kill-game'),
+  stopAll: () => ipcRenderer.invoke('stop-all'),
   openUrl: (url) => ipcRenderer.invoke('open-url', url),
   openGameWindow: (url) => ipcRenderer.invoke('open-game-window', url),
   waitForPort: (opts) => ipcRenderer.invoke('wait-for-port', opts),
+  gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
   // Pool measurement
   measurePool: (opts) => ipcRenderer.invoke('measure-pool', opts),
   // Orphan analysis

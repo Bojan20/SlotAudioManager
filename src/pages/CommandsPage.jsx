@@ -337,7 +337,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
   }, [project?.path]);
 
   // Close inline list editor when command expand/collapse changes
-  useEffect(() => { setEditListInline(null); }, [expanded]);
+  useEffect(() => { setEditListInline(null); setConfirmDeleteCmd(null); setRenameCmd(null); }, [expanded]);
 
   const commands = project?.soundsJson?.soundDefinitions?.commands || {};
   const soundSprites = project?.soundsJson?.soundDefinitions?.soundSprites || {};
@@ -718,26 +718,24 @@ export default function CommandsPage({ project, setProject, showToast }) {
 
   return (
     <div className="anim-fade-up h-full flex flex-col gap-2">
-      <div className="shrink-0 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-bg-hover/50 rounded-lg p-0.5">
-            <button onClick={() => setViewTab('commands')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'commands' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
-              Commands
-            </button>
-            <button onClick={() => setViewTab('lists')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'lists' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
-              Sprite Lists
-            </button>
-          </div>
-          {viewTab === 'commands' && (
-            <>
-              <span className="badge bg-cyan-dim text-cyan" title="Total number of sound commands defined in sounds.json">{Object.keys(commands).length} total</span>
-              {totalIssues > 0 && <span className="badge bg-danger-dim text-danger" title="Commands with missing sprite or list references">{totalIssues} broken</span>}
-            </>
-          )}
-          {viewTab === 'lists' && (
-            <span className="badge bg-purple-dim text-purple" title="Sprite lists group multiple sprites for random/sequential playback">{Object.keys(spriteLists).length} lists</span>
-          )}
+      <div className="shrink-0 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1 bg-bg-hover/50 rounded-lg p-0.5">
+          <button onClick={() => setViewTab('commands')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'commands' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
+            Commands
+          </button>
+          <button onClick={() => setViewTab('lists')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'lists' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
+            Sprite Lists
+          </button>
         </div>
+        {viewTab === 'commands' && (
+          <>
+            <span className="badge bg-cyan-dim text-cyan" title="Total number of sound commands defined in sounds.json">{Object.keys(commands).length}</span>
+            {totalIssues > 0 && <span className="badge bg-danger-dim text-danger" title="Commands with missing sprite or list references">{totalIssues} broken</span>}
+          </>
+        )}
+        {viewTab === 'lists' && (
+          <span className="badge bg-purple-dim text-purple" title="Sprite lists group multiple sprites for random/sequential playback">{Object.keys(spriteLists).length}</span>
+        )}
         <div className="flex items-center gap-2">
           {viewTab === 'commands' && (
             <>
@@ -806,7 +804,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
 
       {/* ── Sprite Lists View ── */}
       {viewTab === 'lists' && (
-        <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
           {spriteListNames.map((name) => {
             const list = spriteLists[name];
             const items = Array.isArray(list) ? list : (list?.items || []);
@@ -814,22 +812,22 @@ export default function CommandsPage({ project, setProject, showToast }) {
             const overlap = list?.overlap ?? false;
             const tags = list?.tags || [];
             return (
-              <div key={name} className="card overflow-hidden" style={{ borderRadius: 10 }}>
-                <div className="w-full flex items-center gap-3 px-4 py-2.5">
-                  <button onClick={() => setExpanded(expanded === name ? null : name)} className="flex items-center gap-3 flex-1 min-w-0 hover:bg-bg-hover/50 transition-colors text-left">
-                    <svg className={`w-3 h-3 text-text-dim transition-transform shrink-0 ${expanded === name ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20"><path d="M6 4l8 6-8 6V4z" /></svg>
-                    <span className="flex-1 text-[13px] font-mono truncate">{name}</span>
+              <div key={name} style={{ borderBottom: '1px solid rgba(50,50,90,0.15)' }}>
+                <div className="w-full flex items-center gap-3 px-4 py-3">
+                  <button onClick={() => setExpanded(expanded === name ? null : name)} className="flex items-center gap-3 min-w-0 hover:bg-bg-hover/50 transition-colors text-left rounded-md">
+                    <svg className={`w-3.5 h-3.5 text-text-dim transition-transform shrink-0 ${expanded === name ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20"><path d="M6 4l8 6-8 6V4z" /></svg>
+                    <span className="text-[15px] font-mono truncate">{name}</span>
                   </button>
                   <span className="badge bg-purple-dim text-purple text-xs shrink-0" title={`Playback type: ${listType}`}>{listType}</span>
                   {overlap && <span className="text-xs text-text-dim" title="Sounds can overlap when played">overlap</span>}
-                  <span className="text-xs text-text-dim shrink-0">{items.length} sprite{items.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs text-text-dim shrink-0">{items.length}</span>
                 </div>
 
                 {expanded === name && (
-                  <div className="px-4 pb-3 pt-2 border-t border-border space-y-1.5 anim-fade-in">
+                  <div className="px-4 pb-4 pt-3 border-t border-border/50 space-y-1.5 anim-fade-in bg-white/[0.01]">
                     {/* Items */}
                     {items.map((id, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-[12px] py-0.5">
+                      <div key={idx} className="flex items-center gap-2 text-[13px] py-1" style={{ borderBottom: idx < items.length - 1 ? '1px solid rgba(50,50,90,0.1)' : 'none' }}>
                         <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
                         <span className={`font-mono flex-1 truncate ${soundSprites[id] ? 'text-text-primary' : 'text-danger line-through'}`}>{id}</span>
                       </div>
@@ -865,41 +863,53 @@ export default function CommandsPage({ project, setProject, showToast }) {
       )}
 
       {/* ── Commands View ── */}
-      {viewTab === 'commands' && <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
+      {viewTab === 'commands' && <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
         {cmdNames.map((name) => {
           const actions = commands[name] || [];
           const issues = getIssues(name);
           const isOpen = expanded === name;
           return (
-            <div key={name} className="card overflow-hidden" style={{ borderRadius: 10 }}>
-              <div className="w-full flex items-center gap-3 px-4 py-2.5">
+            <div key={name} style={{ borderBottom: '1px solid rgba(50,50,90,0.15)' }}>
+              <div className="w-full flex items-center gap-3 px-4 py-3">
                 <button
                   onClick={() => setExpanded(isOpen ? null : name)}
-                  className="flex items-center gap-3 flex-1 min-w-0 hover:bg-bg-hover/50 transition-colors text-left"
+                  className="flex items-center gap-3 min-w-0 hover:bg-bg-hover/50 transition-colors text-left rounded-md"
                 >
-                  <svg className={`w-3 h-3 text-text-dim transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+                  <svg className={`w-3.5 h-3.5 text-text-dim transition-transform shrink-0 ${isOpen ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20">
                     <path d="M6 4l8 6-8 6V4z" />
                   </svg>
-                  <span className="flex-1 text-[13px] font-mono truncate">{name}</span>
+                  <span className="text-[15px] font-mono truncate">{name}</span>
                 </button>
-                {isOpen && renameCmd?.oldName !== name && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setRenameCmd({ oldName: name, newName: name }); }}
-                    disabled={saving}
-                    className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-accent transition-colors shrink-0"
-                    title="Rename"
-                  >
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                )}
+                <span className="text-xs text-text-dim shrink-0">{actions.length}</span>
                 {issues.length > 0 && <span className="badge bg-danger-dim text-danger shrink-0">{issues.length} err</span>}
-                <span className="text-xs text-text-dim shrink-0">{actions.length} action{actions.length !== 1 ? 's' : ''}</span>
+                {isOpen && renameCmd?.oldName !== name && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setRenameCmd({ oldName: name, newName: name }); }}
+                      disabled={saving}
+                      className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-accent hover:bg-accent/10 transition-colors"
+                      title="Rename"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteCmd(name); }}
+                      disabled={saving}
+                      className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
+                      title="Delete command"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {isOpen && (
-                <div className="px-4 pb-3 pt-2 border-t border-border space-y-1 anim-fade-in">
+                <div className="px-4 pb-4 pt-3 border-t border-border/50 space-y-1.5 anim-fade-in bg-white/[0.01]">
                   {/* Rename command */}
                   {renameCmd?.oldName === name && (
                     <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-accent/5 border border-accent/30">
@@ -919,22 +929,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   )}
 
                   {/* Delete command confirm */}
-                  {confirmDeleteCmd === name ? (
+                  {confirmDeleteCmd === name && (
                     <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-danger-dim border border-danger/30">
                       <span className="text-xs text-danger flex-1">Obrisati celu komandu?</span>
                       <button onClick={() => handleDeleteCmd(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes, delete</button>
                       <button onClick={() => setConfirmDeleteCmd(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
-                    </div>
-                  ) : (
-                    <div className="flex justify-end pb-0.5">
-                      <button
-                        onClick={() => setConfirmDeleteCmd(name)}
-                        disabled={saving}
-                        className="text-xs text-text-dim hover:text-danger transition-colors disabled:opacity-40"
-                        title="Remove this command and all its action steps from sounds.json"
-                      >
-                        Delete command
-                      </button>
                     </div>
                   )}
 
@@ -964,28 +963,27 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     }
                     const listEditActive = editListInline?.cmdName === name && editListInline?.stepIdx === idx;
                     return (
-                      <div key={idx}>
-                        <div className="flex items-center gap-2 text-[12px] py-0.5 group/step">
+                      <div key={idx} style={{ borderBottom: idx < actions.length - 1 ? '1px solid rgba(50,50,90,0.12)' : 'none' }}>
+                        <div className="flex items-center gap-2 text-[13px] py-1.5 group/step">
                           <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
                           <span className="badge bg-cyan-dim text-cyan shrink-0">{action.command}</span>
 
                           {/* Target display */}
                           {action.commandId && (
-                            <span className={`font-mono flex-1 truncate ${commands[action.commandId] ? 'text-accent' : 'text-danger line-through'}`}>
+                            <span className={`font-mono truncate ${commands[action.commandId] ? 'text-accent' : 'text-danger line-through'}`}>
                               → {action.commandId}
                             </span>
                           )}
                           {action.spriteId && (
-                            <span className={`font-mono flex-1 truncate ${soundSprites[action.spriteId] ? 'text-text-primary' : 'text-danger line-through'}`}>
+                            <span className={`font-mono truncate ${soundSprites[action.spriteId] ? 'text-text-primary' : 'text-danger line-through'}`}>
                               {action.spriteId}
                             </span>
                           )}
                           {action.spriteListId && (
-                            <span className={`font-mono flex-1 ${spriteLists[action.spriteListId] ? 'text-purple' : 'text-danger line-through'}`}>
+                            <span className={`font-mono ${spriteLists[action.spriteListId] ? 'text-purple' : 'text-danger line-through'}`}>
                               list:{action.spriteListId}
                             </span>
                           )}
-                          {!action.spriteId && !action.spriteListId && !action.commandId && <span className="flex-1" />}
 
                           {/* Extra fields */}
                           {action.volume !== undefined && action.volume !== 1 && <span className="text-text-dim text-xs">vol:{action.volume}</span>}
@@ -997,7 +995,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                           {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
                           {(action.overlap === true || action.overlap === 'true') && <span className="text-purple text-xs">overlap</span>}
 
-                          <div className={`flex items-center gap-1 transition-opacity shrink-0 ${listEditActive ? 'opacity-100' : 'opacity-0 group-hover/step:opacity-100'}`}>
+                          <div className={`flex items-center gap-2 transition-opacity shrink-0 ${listEditActive ? 'opacity-100' : 'opacity-0 group-hover/step:opacity-100'}`}>
                             {action.spriteListId && spriteLists[action.spriteListId] && (
                               <button
                                 onClick={() => {
@@ -1011,10 +1009,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
                                   });
                                 }}
                                 disabled={saving}
-                                className={`w-5 h-5 flex items-center justify-center rounded transition-colors ${listEditActive ? 'text-purple' : 'text-text-dim hover:text-purple'}`}
+                                className={`w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] transition-colors ${listEditActive ? 'text-purple' : 'text-text-dim hover:text-purple hover:bg-purple/10'}`}
                                 title={`Edit sprite list "${action.spriteListId}"`}
                               >
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h8m-8 6h16" />
                                 </svg>
                               </button>
@@ -1022,20 +1020,20 @@ export default function CommandsPage({ project, setProject, showToast }) {
                             <button
                               onClick={() => { setEditListInline(null); setEditStep({ cmdName: name, stepIdx: idx, ...stepFromAction(action) }); }}
                               disabled={saving}
-                              className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-accent transition-colors"
+                              className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-accent hover:bg-accent/10 transition-colors"
                               title="Edit step"
                             >
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                               </svg>
                             </button>
                             <button
                               onClick={() => handleDeleteStep(name, idx)}
                               disabled={saving}
-                              className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors"
+                              className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
                               title="Delete step"
                             >
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                               </svg>
                             </button>

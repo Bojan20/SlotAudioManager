@@ -17,22 +17,8 @@ let mainWindow;
 let projectPath = null;
 let gameProcess = null; // currently running game process (for kill support)
 let gameBrowserProcess = null; // tracked Chrome/Edge window for game preview
+let buildProcess = null; // currently running build/deploy script
 
-// DNS override script — blocks IGT/wagerworks DNS lookups in spawned playa processes
-// Resolves to 127.0.0.1 so connections fail fast instead of hanging on DNS timeout
-let dnsOverridePath = null;
-function getDnsOverridePath() {
-  if (dnsOverridePath) return dnsOverridePath;
-  const script = `const dns=require('dns');const o=dns.lookup;dns.lookup=function(h,p,c){if(typeof p==='function'){c=p;p={}}if(h.endsWith('.wagerworks.com')||h.endsWith('.igt.com')){return c(null,'127.0.0.1',4)}return o.call(dns,h,p,c)};`;
-  dnsOverridePath = path.join(app.getPath('temp'), 'sam-dns-override.js');
-  try { fs.writeFileSync(dnsOverridePath, script); } catch {}
-  return dnsOverridePath;
-}
-function getGameSpawnEnv() {
-  const override = getDnsOverridePath();
-  const existing = process.env.NODE_OPTIONS || '';
-  return { ...process.env, NODE_OPTIONS: `--require "${override}"${existing ? ' ' + existing : ''}` };
-}
 
 // Accept self-signed certs from localhost (playa GLR uses HTTPS with self-signed cert)
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
@@ -388,12 +374,13 @@ ipcMain.handle('run-script', async (event, scriptName) => {
   if (!/^[a-zA-Z0-9_-]+$/.test(scriptName)) return { error: 'Invalid script name' };
   return new Promise((resolve) => {
     const child = spawn('npm', ['run', scriptName], { cwd: projectPath, shell: true });
+    buildProcess = child;
     const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
     const timer = setTimeout(() => { child.kill(); send('\n[TIMEOUT — build killed after 5 minutes]\n'); resolve({ success: false, error: 'Timeout' }); }, 300000);
     child.stdout.on('data', d => send(d.toString()));
     child.stderr.on('data', d => send(d.toString()));
-    child.on('error', (e) => { clearTimeout(timer); send(`ERROR: ${e.message}\n`); resolve({ success: false, error: e.message }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ success: code === 0 }); });
+    child.on('error', (e) => { clearTimeout(timer); buildProcess = null; send(`ERROR: ${e.message}\n`); resolve({ success: false, error: e.message }); });
+    child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0 }); });
   });
 });
 
@@ -403,12 +390,13 @@ ipcMain.handle('run-deploy', async (event, scriptName) => {
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) return { error: 'Invalid script name' };
   return new Promise((resolve) => {
     const child = spawn('npm', ['run', name], { cwd: projectPath, shell: true });
+    buildProcess = child;
     const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
     const timer = setTimeout(() => { child.kill(); send('\n[TIMEOUT — deploy killed after 2 minutes]\n'); resolve({ success: false, error: 'Timeout' }); }, 120000);
     child.stdout.on('data', d => send(d.toString()));
     child.stderr.on('data', d => send(d.toString()));
-    child.on('error', (e) => { clearTimeout(timer); send(`ERROR: ${e.message}\n`); resolve({ success: false, error: e.message }); });
-    child.on('close', (code) => { clearTimeout(timer); resolve({ success: code === 0 }); });
+    child.on('error', (e) => { clearTimeout(timer); buildProcess = null; send(`ERROR: ${e.message}\n`); resolve({ success: false, error: e.message }); });
+    child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0 }); });
   });
 });
 
@@ -936,15 +924,13 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       child = spawn(playaBin, args, {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin,
-        env: getGameSpawnEnv()
+        shell: isWin
       });
     } else {
       child = spawn('yarn', [scriptName], {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin,
-        env: getGameSpawnEnv()
+        shell: isWin
       });
     }
     gameProcess = child;
@@ -990,8 +976,7 @@ ipcMain.handle('build-game', async () => {
     const child = spawn('yarn', ['build-dev'], {
       cwd: gameRepoPath,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWin,
-      env: getGameSpawnEnv()
+      shell: isWin
     });
     const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'build-dev timeout (5 min)' }); }, 300000);
     child.stdout.on('data', d => send(d.toString()));
@@ -999,6 +984,37 @@ ipcMain.handle('build-game', async () => {
     child.on('close', (code) => { clearTimeout(timer); resolve({ success: code === 0 }); });
     child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, error: e.message }); });
   });
+});
+
+// Stop everything — build process + game process + browser + port 8080
+ipcMain.handle('stop-all', async () => {
+  try {
+    // Kill build process (npm run build, etc.)
+    if (buildProcess && !buildProcess.killed) {
+      const pid = buildProcess.pid;
+      buildProcess = null;
+      if (isWin && pid) { exec(`taskkill /F /T /PID ${pid}`, () => {}); }
+      else { try { process.kill(pid, 'SIGTERM'); } catch {} }
+    }
+    // Kill game process (playa launch, etc.)
+    if (gameProcess && !gameProcess.killed) {
+      const pid = gameProcess.pid;
+      gameProcess = null;
+      if (isWin && pid) { exec(`taskkill /F /T /PID ${pid}`, () => {}); }
+      else { try { process.kill(pid, 'SIGTERM'); } catch {} }
+    }
+    // Kill browser window
+    if (gameBrowserProcess) {
+      const bpid = gameBrowserProcess.pid;
+      gameBrowserProcess = null;
+      if (isWin && bpid) { exec(`taskkill /F /T /PID ${bpid}`, () => {}); }
+      else if (bpid) { try { process.kill(bpid); } catch {} }
+    }
+    await killPort(8080);
+    return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
 });
 
 // Kill the running game process + anything on port 8080 (includes manually started processes)
@@ -1039,43 +1055,22 @@ ipcMain.handle('git-pull-game', async () => {
 
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
 
-  const gitSpawn = (args, timeoutMs = 15000) => new Promise((resolve) => {
+  // Pull on current branch — don't switch branches
+  try {
+    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    send(`Pulling ${branch}...\n`);
+    const child = spawn('git', ['pull', 'origin', branch], { cwd: gameRepoPath, shell: false });
     let output = '';
-    const child = spawn('git', args, { cwd: gameRepoPath, shell: false });
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
-    const timer = setTimeout(() => { child.kill(); resolve({ code: -1, output, timedOut: true }); }, timeoutMs);
-    child.on('close', code => { clearTimeout(timer); resolve({ code, output }); });
-    child.on('error', e => { clearTimeout(timer); resolve({ code: -1, output: e.message }); });
-  });
-
-  // Step 1: fetch all remote refs
-  send('Fetching from origin...\n');
-  const fetch = await gitSpawn(['fetch', '--all'], 15000);
-  if (fetch.timedOut) return { success: false, error: 'git fetch timeout (no network?)' };
-
-  // Step 2: detect target branch — release > develop > master
-  const lsRelease = await gitSpawn(['ls-remote', '--heads', 'origin', 'release'], 10000);
-  if (lsRelease.timedOut) return { success: false, error: 'git ls-remote timeout' };
-  let targetBranch;
-  if (lsRelease.output.trim().length > 0) {
-    targetBranch = 'release';
-  } else {
-    const lsDevelop = await gitSpawn(['ls-remote', '--heads', 'origin', 'develop'], 10000);
-    if (lsDevelop.timedOut) return { success: false, error: 'git ls-remote timeout' };
-    targetBranch = lsDevelop.output.trim().length > 0 ? 'develop' : 'master';
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'git pull timeout' }); }, 20000);
+      child.on('close', code => { clearTimeout(timer); resolve({ success: code === 0, output, branch }); });
+      child.on('error', e => { clearTimeout(timer); resolve({ success: false, error: e.message }); });
+    });
+  } catch (e) {
+    return { success: false, error: e.message };
   }
-  send(`\nBranch: ${targetBranch}\n`);
-
-  // Step 3: checkout target branch (local op, fast)
-  const checkout = await gitSpawn(['checkout', targetBranch], 8000);
-  if (checkout.code !== 0) return { success: false, output: checkout.output, error: `Failed to checkout ${targetBranch}` };
-
-  // Step 4: pull
-  send(`Pulling ${targetBranch}...\n`);
-  const pull = await gitSpawn(['pull', 'origin', targetBranch], 15000);
-  if (pull.code !== 0) return { success: false, output: pull.output, error: pull.timedOut ? 'git pull timeout' : `Pull failed on ${targetBranch}` };
-  return { success: true, output: pull.output };
 });
 
 // Open URL in system browser

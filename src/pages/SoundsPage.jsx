@@ -401,12 +401,10 @@ export default function SoundsPage({ project, setProject, showToast }) {
 
   return (
     <div className="anim-fade-up h-full flex flex-col gap-2">
-      <div className="shrink-0 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold text-text-primary">Source Sounds</h2>
-          <span className="badge bg-cyan-dim text-cyan" title="Total WAV files in sourceSoundFiles/ directory">{project?.sounds?.length || 0} files</span>
-          <span className="badge bg-bg-hover text-text-dim" title="Total size of all source WAV files">{totalSizeMB} MB</span>
-        </div>
+      <div className="shrink-0 flex items-center gap-3 flex-wrap">
+        <h2 className="text-xl font-bold text-text-primary">Source Sounds</h2>
+        <span className="badge bg-cyan-dim text-cyan" title="Total WAV files in sourceSoundFiles/ directory">{project?.sounds?.length || 0}</span>
+        <span className="badge bg-bg-hover text-text-dim" title="Total size of all source WAV files">{totalSizeMB} MB</span>
         <div className="flex items-center gap-2">
           <button onClick={handleReload} className="btn-ghost text-xs" title="Reload sound files from sourceSoundFiles/ directory">Refresh</button>
           <button onClick={handleShowTrash} className="btn-ghost text-xs flex items-center gap-1.5" title="View and restore deleted sounds from .deleted/ folder">
@@ -442,11 +440,9 @@ export default function SoundsPage({ project, setProject, showToast }) {
 
       {/* JSON CLEANUP */}
       <div className="card p-3 shrink-0 space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="badge bg-orange-dim text-orange text-xs" title="Find and remove sounds.json references to WAV files that no longer exist in sourceSoundFiles/">JSON Cleanup</span>
-            <span className="text-xs text-text-dim">Find sounds in JSON that don't exist in sourceSoundFiles</span>
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="badge bg-orange-dim text-orange text-xs" title="Find and remove sounds.json references to WAV files that no longer exist in sourceSoundFiles/">JSON Cleanup</span>
+          <span className="text-xs text-text-dim">Find sounds in JSON that don't exist in sourceSoundFiles</span>
           <div className="flex items-center gap-2">
             {orphanResult && orphanResult.orphanedSprites.length > 0 && (
               <button
@@ -526,17 +522,17 @@ export default function SoundsPage({ project, setProject, showToast }) {
         )}
       </div>
 
-      <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto auto', gap: '0 12px', alignItems: 'center', justifyContent: 'start' }}>
         {sounds.map((s) => {
           const inJson = inJsonSet.has(s.name);
           const isPlaying = playing === s.filename;
           return (
             <div
               key={s.filename}
-              className={`card flex flex-wrap items-center gap-3 px-3 py-2 group hover:border-border-bright transition-colors ${isPlaying ? 'border-accent/40 bg-accent/5' : ''}`}
-              style={{ borderRadius: 10 }}
+              className={`group hover:bg-bg-hover/30 transition-colors ${isPlaying ? 'bg-accent/5' : ''}`}
+              style={{ display: 'grid', gridTemplateColumns: 'subgrid', gridColumn: '1 / -1', borderRadius: 8, padding: '6px 12px', alignItems: 'center', borderBottom: '1px solid rgba(50,50,90,0.15)' }}
             >
-              <div className="flex items-center gap-0.5 shrink-0">
+              <div className="flex items-center gap-0.5">
                 {/* Play / Pause */}
                 <button
                   onClick={() => handlePlay(s.filename)}
@@ -569,22 +565,22 @@ export default function SoundsPage({ project, setProject, showToast }) {
                 )}
               </div>
 
-              <span className="flex-1 text-xs font-mono text-text-primary truncate">{s.name}</span>
+              <span className="text-sm font-mono text-text-primary whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: '320px' }}>{s.name}</span>
 
               {inJson
-                ? <span className="badge bg-green-dim text-green shrink-0" title="This sound has a matching entry in soundSprites">in JSON</span>
+                ? <span className="badge bg-green-dim text-green" title="This sound has a matching entry in soundSprites">in JSON</span>
                 : (
                   <button
                     onClick={() => setAddModal({ name: s.name, tags: autoTag(s.name), overlap: false, saving: false })}
-                    className="badge bg-orange-dim text-orange shrink-0 cursor-pointer hover:bg-orange/20 transition-colors"
+                    className="badge bg-orange-dim text-orange cursor-pointer hover:bg-orange/20 transition-colors"
                     title="Add to sounds.json"
                   >
-                    + Add to JSON
+                    + Add
                   </button>
                 )
               }
 
-              <span className="text-xs text-text-secondary w-16 text-right tabular-nums font-mono">{s.sizeKB} KB</span>
+              <span className="text-sm text-text-secondary text-right tabular-nums font-mono whitespace-nowrap">{s.sizeKB} KB</span>
 
               <button
                 onClick={() => handleDelete(s.filename)}
@@ -599,7 +595,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
 
               {/* Waveform + Seek */}
               {isPlaying && waveform?.filename === s.filename && waveform.peaks && (
-                <div className="w-full col-span-full flex items-center gap-2 pt-1.5 pb-0.5">
+                <div className="flex items-center gap-2 pt-1.5 pb-0.5" style={{ gridColumn: '1 / -1' }}>
                   <div
                     className="flex-1 h-10 relative cursor-pointer select-none"
                     onMouseDown={(e) => {
@@ -665,7 +661,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
           );
         })}
         {sounds.length === 0 && (
-          <div className="text-center py-16 text-text-dim text-sm">
+          <div className="text-center py-16 text-text-dim text-sm" style={{ gridColumn: '1 / -1' }}>
             {filter ? 'No sounds match filter' : 'No WAV files in sourceSoundFiles/'}
           </div>
         )}
