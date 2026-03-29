@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { execFileSync, exec, spawn } = require('child_process');
+const { execFileSync, execSync, exec, spawn } = require('child_process');
 const { pathToFileURL } = require('url');
 
 // Must be called before app.whenReady()
@@ -103,6 +103,36 @@ app.whenReady().then(() => {
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+
+// Kill all spawned game processes when app quits
+app.on('before-quit', () => {
+  // Kill tracked game process
+  if (gameProcess && !gameProcess.killed) {
+    const pid = gameProcess.pid;
+    if (isWin) { try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' }); } catch {} }
+    else { try { process.kill(pid, 'SIGTERM'); } catch {} }
+    gameProcess = null;
+  }
+  // Kill anything on port 8080 (GLR server, detached dev server, etc.)
+  try {
+    if (isWin) {
+      const out = execSync('netstat -ano', { timeout: 5000, encoding: 'utf8' });
+      const pids = new Set();
+      for (const line of out.split('\n')) {
+        if (line.includes(':8080') && line.includes('LISTENING')) {
+          const parts = line.trim().split(/\s+/);
+          const pid = parts[parts.length - 1];
+          if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid);
+        }
+      }
+      for (const pid of pids) {
+        try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' }); } catch {}
+      }
+    } else {
+      try { execSync("lsof -ti:8080 | xargs kill -9", { stdio: 'ignore' }); } catch {}
+    }
+  } catch {}
+});
 
 // Safe JSON reader
 // Check if a port is free (ECONNREFUSED = free, anything else = still in use)
@@ -593,6 +623,19 @@ ipcMain.handle('init-from-template', async (event, { skipConfigs = false } = {})
         }
       }
     }
+    // Add app-managed scripts (not in template — template stays untouched)
+    if (!projPkg.scripts) projPkg.scripts = {};
+    const appScripts = {
+      'build': 'node scripts/buildTiered.js && node scripts/buildTieredJSON.js',
+      'build-validate': 'node scripts/validateBuild.js',
+      'deploy': 'node scripts/copyAudio.js',
+    };
+    for (const [k, v] of Object.entries(appScripts)) {
+      if (!projPkg.scripts[k]) {
+        projPkg.scripts[k] = v;
+        log.push(`Added script: ${k}`);
+      }
+    }
     fs.writeFileSync(projPkgPath, JSON.stringify(projPkg, null, 2));
 
     // 4. Settings — overwrite with template defaults but preserve gameProjectPath
@@ -945,7 +988,7 @@ ipcMain.handle('launch-local-glr', async (event, { glrName }) => {
   try {
     // Kill whatever is on port 8080 before launching
     await killPort(8080);
-    const child = spawn(playaBin, ['launch', '--glr', glrName, '--softwareid', softwareId, '--port', '8080'], {
+    const child = spawn(playaBin, ['launch', '--glr', glrName, '--softwareid', softwareId, '--port', '8080', '--server', 'localhost'], {
       cwd: gameRepoPath,
       detached: true,
       stdio: 'ignore',
@@ -953,6 +996,54 @@ ipcMain.handle('launch-local-glr', async (event, { glrName }) => {
     });
     child.unref();
     return { success: true, pid: child.pid, glrName, softwareId };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
+// Record GLR — launches game with --record flag (requires VPN)
+ipcMain.handle('record-glr', async () => {
+  if (!projectPath) return { error: 'No project open' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
+  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
+  const pkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
+  const launchScript = pkg?.scripts?.launch || '';
+  const swMatch = launchScript.match(/--softwareid\s+([\d-]+)/);
+  const softwareId = swMatch ? swMatch[1] : null;
+  if (!softwareId) return { error: 'No softwareId found in launch script' };
+  const serverMatch = launchScript.match(/--server\s+([\w-]+)/);
+  const server = serverMatch ? serverMatch[1] : 'rgs-gsdev03';
+  const channelMatch = launchScript.match(/--channel\s+([A-Z]+)/);
+  const channel = channelMatch ? channelMatch[1] : 'INT';
+  const ext = isWin ? '.cmd' : '';
+  const playaBin = path.join(gameRepoPath, 'node_modules', '.bin', `playa${ext}`);
+  if (!fs.existsSync(playaBin)) return { error: 'playa CLI not found in game node_modules' };
+  try {
+    // Kill existing game process before starting new one
+    if (gameProcess && !gameProcess.killed) {
+      const pid = gameProcess.pid;
+      if (isWin) { try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' }); } catch {} }
+      else { try { process.kill(pid, 'SIGTERM'); } catch {} }
+      gameProcess = null;
+    }
+    await killPort(8080);
+    const child = spawn(playaBin, [
+      'launch', '--server', server, '--softwareid', softwareId,
+      '--channel', channel, '--record', '--port', '8080'
+    ], {
+      cwd: gameRepoPath,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: isWin
+    });
+    gameProcess = child;
+    const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
+    child.stdout.on('data', d => send(d.toString()));
+    child.stderr.on('data', d => send(d.toString()));
+    child.on('close', () => { if (gameProcess === child) gameProcess = null; });
+    child.on('error', (e) => { send(`ERROR: ${e.message}\n`); });
+    return { success: true, pid: child.pid, server, softwareId, channel };
   } catch (e) {
     return { success: false, error: e.message };
   }
@@ -1093,7 +1184,7 @@ ipcMain.handle('scan-game-hooks', async () => {
 
   // Phase 0: Scan framework node_modules (playa-core, playa-table) for built-in hook calls.
   // These call soundManager.execute() from compiled .js — game src/ doesn't reference them.
-  const frameworkDirs = ['playa-core', 'playa-table', 'playa-slots'].map(
+  const frameworkDirs = ['playa-core', 'playa-table', 'playa-slot'].map(
     pkg => path.join(gameRepoPath, 'node_modules', pkg, 'dist')
   ).filter(d => fs.existsSync(d));
 
@@ -1130,7 +1221,7 @@ ipcMain.handle('scan-game-hooks', async () => {
 
   // Phase 1+2 combined: Single pass over game src files.
   // Collects: direct execute calls, dynamic call flags, const/var hook definitions.
-  const constHookRe = /(?:export\s+)?(?:const|let|var)\s+\w+\s*(?::\s*string\s*)?=\s*["'`](on[A-Z][^"'`]*)["'`]/g;
+  const constHookRe = /(?:export\s+)?(?:const|let|var)\s+(?:SFX_\w+|SOUND_\w+|soundID|soundId|soundName|hookName|hookId|sfxName)\s*(?::\s*string\s*)?=\s*["'`](on[A-Z][^"'`]*)["'`]/g;
   const switchAssignRe = /(?:soundID|soundId|soundName|hookName|hookId|sfxName|sfx)\s*=\s*["'`](on[A-Z][^"'`]*)["'`]/g;
   const globalHookDefs = {}; // hookValue → Set of files that define it
 
@@ -1184,6 +1275,45 @@ ipcMain.handle('scan-game-hooks', async () => {
   const soundsJson = readJsonSafe(path.join(projectPath, 'sounds.json'));
   const commands = soundsJson?.soundDefinitions?.commands || {};
 
+  // Phase 4: Dynamic hook expansion — match dead commands to dynamic patterns
+  // Covers: template literals `onX${var}` and string concatenation "onX" + var
+  const templatePatterns = []; // { regex, file }
+  const templateLiteralRe = /soundManager\.execute\(`([^`]*\$\{[^`]*)`\)/g;
+  // String concat: soundManager.execute(SFX_CONST + var) where SFX_CONST = "onSomething"
+  // We already have globalHookDefs with values like "onSymbolWin" — if game concatenates, the base is a prefix
+  const allFilesToScan = [...files];
+  for (const fwDir of frameworkDirs) { allFilesToScan.push(...walkJs(fwDir)); }
+  for (const file of allFilesToScan) {
+    let content;
+    try { content = fs.readFileSync(file, 'utf8').replace(/\/\/.*$/gm, ''); } catch { continue; }
+    const rel = path.relative(gameRepoPath, file).replace(/\\/g, '/');
+    let m;
+    // Template literals: `onX${var}Y`
+    templateLiteralRe.lastIndex = 0;
+    while ((m = templateLiteralRe.exec(content)) !== null) {
+      const pattern = m[1].replace(/\$\{[^}]*\}/g, '.+');
+      try { templatePatterns.push({ re: new RegExp('^' + pattern + '$'), file: rel }); } catch {}
+    }
+  }
+  // String concatenation: SFX_CONST + variable → base prefix from globalHookDefs
+  // e.g. SFX_ON_SYMBOL_WIN = "onSymbolWin" used as SFX_ON_SYMBOL_WIN + name → onSymbolWin.+
+  for (const hookBase of Object.keys(globalHookDefs)) {
+    if (validHookRe.test(hookBase)) {
+      templatePatterns.push({ re: new RegExp('^' + hookBase + '.+$'), file: [...globalHookDefs[hookBase]][0] + ' (concat)' });
+    }
+  }
+  // For each command NOT in hookMap, check if any template pattern matches
+  for (const cmdName of Object.keys(commands)) {
+    if (hookMap[cmdName]) continue;
+    for (const { re, file } of templatePatterns) {
+      if (re.test(cmdName)) {
+        if (!hookMap[cmdName]) hookMap[cmdName] = new Set();
+        hookMap[cmdName].add(file);
+        break;
+      }
+    }
+  }
+
   // Git history: find when each hook was last added (last 90 days)
   const recentlyAdded = {}; // { hookName: { timestamp, relative, message } }
   try {
@@ -1205,7 +1335,7 @@ ipcMain.handle('scan-game-hooks', async () => {
 
     let currentCommit = null;
     const executeReLine = /soundManager\.execute\(["'`]([^"'`]+)["'`]\)/;
-    const hookDefLine = /=\s*["'`](on[A-Z][^"'`]*)["'`]/;
+    const hookDefLine = /(?:soundID|soundId|soundName|hookName|hookId|sfxName|sfx|SFX_\w+|SOUND_\w+)\s*=\s*["'`](on[A-Z][^"'`]*)["'`]/;
     for (const line of gitLog.split('\n')) {
       if (line.startsWith('COMMIT_LINE|')) {
         const parts = line.split('|');

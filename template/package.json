@@ -8,10 +8,7 @@
     "build-audio": "node scripts/convertAudio.js && node scripts/makeMyJSON.js audio",
     "build-audioSprite": "node scripts/createAudioSprite.js && node scripts/makeMyJSON.js audioSprite",
     "build-multi-audioSprites": "node scripts/createmultipleAudioSprites.js 3 && node scripts/makeMyJSONMultipleSounds.js audioSprite 3",
-    "build-audioSprites-size": "node scripts/createAudioSpritesBySize.js && node scripts/makeMyJSONSizedSprites.js audioSprite",
-    "build": "node scripts/buildTiered.js && node scripts/buildTieredJSON.js",
-    "build-validate": "node scripts/validateBuild.js",
-    "deploy": "node scripts/copyAudio.js"
+    "build-audioSprites-size": "node scripts/createAudioSpritesBySize.js && node scripts/makeMyJSONSizedSprites.js audioSprite"
   },
   "repository": {
     "type": "git",

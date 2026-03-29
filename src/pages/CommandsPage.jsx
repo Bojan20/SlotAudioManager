@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 
 const COMMANDS = ['Play', 'Stop', 'Fade', 'Set', 'Pause', 'Resume', 'Execute', 'ResetSpriteList'];
 
-function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
+function StepForm({ state, setState, soundSprites, spriteLists, commands, onCreateList }) {
   const spriteIds = Object.keys(soundSprites).sort();
   const spriteListIds = Object.keys(spriteLists).sort();
   const commandIds = Object.keys(commands).sort();
+  const [creatingList, setCreatingList] = React.useState(null); // { name, items, type, overlap }
 
   const cmd = state.command;
   const isExecute = cmd === 'Execute';
@@ -25,7 +26,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
           <label className="section-label mb-1 block">Command</label>
           <select
             value={cmd}
-            onChange={e => setState(m => ({ ...m, command: e.target.value, commandId: '', spriteId: '', spriteListId: '', targetType: 'sprite' }))}
+            onChange={e => { setCreatingList(null); setState(m => ({ ...m, command: e.target.value, commandId: '', spriteId: '', spriteListId: '', targetType: 'sprite' })); }}
             className="input-base text-xs w-full"
           >
             {COMMANDS.map(c => <option key={c}>{c}</option>)}
@@ -62,7 +63,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
               <label className="section-label">Target</label>
               <div className="flex gap-1">
                 <button type="button"
-                  onClick={() => setState(m => ({ ...m, targetType: 'sprite', spriteListId: '' }))}
+                  onClick={() => { setCreatingList(null); setState(m => ({ ...m, targetType: 'sprite', spriteListId: '' })); }}
                   className={`text-xs px-2 py-0.5 rounded border transition-colors ${state.targetType !== 'list' ? 'bg-accent/20 border-accent/50 text-accent' : 'border-border text-text-dim hover:border-border-bright'}`}
                 >Sprite</button>
                 <button type="button"
@@ -72,14 +73,75 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands }) {
               </div>
             </div>
             {state.targetType === 'list' ? (
-              <select
-                value={state.spriteListId || ''}
-                onChange={e => setState(m => ({ ...m, spriteListId: e.target.value }))}
-                className="input-base text-xs w-full font-mono"
-              >
-                <option value="">— select —</option>
-                {spriteListIds.map(id => <option key={id}>{id}</option>)}
-              </select>
+              creatingList ? (
+                <div className="space-y-2.5 border border-accent/20 rounded-xl p-3 bg-accent/[0.03]">
+                  {/* Row 1: List name — full width */}
+                  <input type="text" value={creatingList.name} onChange={e => setCreatingList(p => ({ ...p, name: e.target.value }))}
+                    placeholder="sl_ListName" className="input-base text-xs font-mono w-full py-1.5" maxLength={100} autoFocus />
+
+                  {/* Row 2: Type + Overlap */}
+                  <div className="flex items-center gap-3">
+                    <select value={creatingList.type} onChange={e => setCreatingList(p => ({ ...p, type: e.target.value }))} className="input-base text-xs py-1.5 w-32">
+                      <option value="random">random</option>
+                      <option value="sequential">sequential</option>
+                    </select>
+                    <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                      <input type="checkbox" checked={creatingList.overlap} onChange={e => setCreatingList(p => ({ ...p, overlap: e.target.checked }))} className="w-3.5 h-3.5 accent-accent" />
+                      <span className="text-xs text-text-dim">Overlap</span>
+                    </label>
+                  </div>
+
+                  {/* Row 3: Sprites */}
+                  <div className="space-y-1">
+                    {creatingList.items.map((id, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5">
+                        <span className="text-text-dim text-xs w-4 text-right tabular-nums shrink-0">{idx + 1}</span>
+                        <select value={id} onChange={e => setCreatingList(p => { const items = [...p.items]; items[idx] = e.target.value; return { ...p, items }; })} className="input-base text-xs font-mono flex-1 py-1">
+                          <option value="">— select sprite —</option>
+                          {spriteIds.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                        <button type="button" onClick={() => setCreatingList(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }))} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setCreatingList(p => ({ ...p, items: [...p.items, ''] }))} className="text-xs text-accent hover:text-accent/80 transition-colors pt-0.5">+ Add Sprite</button>
+                  </div>
+
+                  {/* Row 4: Actions */}
+                  <div className="flex gap-2 items-center pt-0.5">
+                    <button type="button" onClick={() => setCreatingList(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
+                    <div className="flex-1" />
+                    <button type="button" onClick={async () => {
+                      const name = creatingList.name.trim();
+                      const items = creatingList.items.filter(Boolean);
+                      if (!name || !items.length) return;
+                      const ok = onCreateList ? await onCreateList({ name, items, type: creatingList.type, overlap: creatingList.overlap }) : false;
+                      if (ok) {
+                        setState(m => ({ ...m, spriteListId: name }));
+                        setCreatingList(null);
+                      }
+                    }} disabled={!creatingList.name.trim() || creatingList.items.filter(Boolean).length === 0}
+                      className="btn-primary text-xs py-1.5 px-4 disabled:opacity-40">Create & Select</button>
+                  </div>
+                </div>
+              ) : spriteListIds.length > 0 ? (
+                <div className="flex gap-1.5">
+                  <select
+                    value={state.spriteListId || ''}
+                    onChange={e => setState(m => ({ ...m, spriteListId: e.target.value }))}
+                    className="input-base text-xs flex-1 font-mono"
+                  >
+                    <option value="">— select —</option>
+                    {spriteListIds.map(id => <option key={id}>{id}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setCreatingList({ name: '', items: ['', ''], type: 'random', overlap: true })}
+                    className="btn-ghost text-xs py-1 px-2 shrink-0" title="Create a new sprite list inline">+ New</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setCreatingList({ name: '', items: ['', ''], type: 'random', overlap: true })}
+                  className="btn-ghost text-xs py-1 w-full" title="No sprite lists yet — create one">+ Create Sprite List</button>
+              )
             ) : (
               <select
                 value={state.spriteId}
@@ -262,11 +324,17 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [scanResult, setScanResult] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [scanFixInclude, setScanFixInclude] = useState({ add: {}, remove: {}, fill: {} });
+  const [viewTab, setViewTab_] = useState('commands'); // 'commands' | 'lists'
+  const setViewTab = (tab) => { setViewTab_(tab); setExpanded(null); setFilter(''); };
+  const [newList, setNewList] = useState(null); // { name, items, type, overlap, tags }
+  const [editList, setEditList] = useState(null); // { name, items, type, overlap, tags }
+  const [confirmDeleteList, setConfirmDeleteList] = useState(null);
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
     setNewCmd(null); setAddStep(null); setEditStep(null); setConfirmDeleteCmd(null);
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
+    setNewList(null); setEditList(null); setConfirmDeleteList(null);
   }, [project?.path]);
 
   const commands = project?.soundsJson?.soundDefinitions?.commands || {};
@@ -281,6 +349,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
     }
     return map;
   }, [soundSprites]);
+
+  // Clear stale scan results when commands change (user edited in Commands tab)
+  const commandKeys = Object.keys(commands).join(',');
+  useEffect(() => { setScanResult(null); }, [commandKeys]);
 
   useEffect(() => {
     if (!scanResult) { setScanFixInclude({ add: {}, remove: {}, fill: {} }); return; }
@@ -560,51 +632,139 @@ export default function CommandsPage({ project, setProject, showToast }) {
     }
   };
 
+  // Inline create list from StepForm
+  const handleInlineCreateList = async ({ name, items, type, overlap, loop }) => {
+    if (saving) return false;
+    const j = structuredClone(project.soundsJson);
+    if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
+    if (j.soundDefinitions.spriteList[name]) { showToast(`"${name}" already exists`, 'error'); return false; }
+    const entry = { items, type, overlap };
+    if (loop) entry.loop = loop;
+    j.soundDefinitions.spriteList[name] = entry;
+    return await saveJson(j, `Sprite list "${name}" created`);
+  };
+
+  // ── Sprite List handlers ──
+  const handleSaveNewList = async () => {
+    if (saving) return;
+    if (!newList?.name?.trim()) return;
+    const name = newList.name.trim();
+    if (spriteLists[name]) { showToast(`"${name}" already exists`, 'error'); return; }
+    const cleanItems = newList.items.filter(Boolean);
+    if (!cleanItems.length) { showToast('Add at least one sprite', 'error'); return; }
+    const j = structuredClone(project.soundsJson);
+    if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
+    const entry = { items: cleanItems, type: newList.type, overlap: newList.overlap };
+    if (newList.loop) entry.loop = newList.loop;
+    if (newList.tags?.length) entry.tags = newList.tags;
+    j.soundDefinitions.spriteList[name] = entry;
+    const ok = await saveJson(j, `Sprite list "${name}" created`);
+    if (ok) setNewList(null);
+  };
+
+  const handleSaveEditList = async () => {
+    if (saving) return;
+    if (!editList?.name) return;
+    const j = structuredClone(project.soundsJson);
+    if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
+    const cleanItems = editList.items.filter(Boolean);
+    if (!cleanItems.length) { showToast('Add at least one sprite', 'error'); return; }
+    const entry = { items: cleanItems, type: editList.type, overlap: editList.overlap };
+    if (editList.loop) entry.loop = editList.loop;
+    if (editList.tags?.length) entry.tags = editList.tags;
+    j.soundDefinitions.spriteList[editList.name] = entry;
+    const ok = await saveJson(j, `Sprite list "${editList.name}" updated`);
+    if (ok) setEditList(null);
+  };
+
+  const handleDeleteList = async (name) => {
+    if (saving) return;
+    const j = structuredClone(project.soundsJson);
+    if (!j.soundDefinitions.spriteList) return;
+    delete j.soundDefinitions.spriteList[name];
+    setConfirmDeleteList(null);
+    await saveJson(j, `Sprite list "${name}" deleted`);
+  };
+
+  const spriteListNames = useMemo(() =>
+    Object.keys(spriteLists).filter(n => n.toLowerCase().includes(filter.toLowerCase())).sort(),
+    [spriteLists, filter]
+  );
+
   return (
     <div className="anim-fade-up h-full flex flex-col gap-2">
       <div className="shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold text-text-primary">Commands</h2>
-          <span className="badge bg-cyan-dim text-cyan">{Object.keys(commands).length} total</span>
-          {totalIssues > 0 && <span className="badge bg-danger-dim text-danger">{totalIssues} broken</span>}
+          <div className="flex items-center gap-1 bg-bg-hover/50 rounded-lg p-0.5">
+            <button onClick={() => setViewTab('commands')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'commands' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
+              Commands
+            </button>
+            <button onClick={() => setViewTab('lists')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'lists' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
+              Sprite Lists
+            </button>
+          </div>
+          {viewTab === 'commands' && (
+            <>
+              <span className="badge bg-cyan-dim text-cyan" title="Total number of sound commands defined in sounds.json">{Object.keys(commands).length} total</span>
+              {totalIssues > 0 && <span className="badge bg-danger-dim text-danger" title="Commands with missing sprite or list references">{totalIssues} broken</span>}
+            </>
+          )}
+          {viewTab === 'lists' && (
+            <span className="badge bg-purple-dim text-purple" title="Sprite lists group multiple sprites for random/sequential playback">{Object.keys(spriteLists).length} lists</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleScan}
-            disabled={scanning || !project?.settings?.gameProjectPath}
-            className="btn-ghost text-xs py-2 flex items-center gap-1.5 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={!project?.settings?.gameProjectPath ? 'Game repo not configured' : ''}
-          >
-            {scanning ? (
-              <span className="anim-pulse-dot w-2 h-2 rounded-full bg-cyan shrink-0" />
-            ) : (
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z" />
-              </svg>
-            )}
-            {scanning ? 'Scanning...' : 'Scan Game'}
-          </button>
-          {unmapped.length > 0 && (
-            <button onClick={handleOpenGen} className="btn-ghost text-xs py-2 flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              Generate Missing ({unmapped.length})
+          {viewTab === 'commands' && (
+            <>
+              <button
+                onClick={handleScan}
+                disabled={scanning || !project?.settings?.gameProjectPath}
+                className="btn-ghost text-xs py-2 flex items-center gap-1.5 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={!project?.settings?.gameProjectPath ? 'Game repo not configured' : 'Scan game source code and frameworks for soundManager.execute() calls — find missing, empty, and unused commands'}
+              >
+                {scanning ? (
+                  <span className="anim-pulse-dot w-2 h-2 rounded-full bg-cyan shrink-0" />
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z" />
+                  </svg>
+                )}
+                {scanning ? 'Scanning...' : 'Scan Game'}
+              </button>
+              {unmapped.length > 0 && (
+                <button onClick={handleOpenGen} className="btn-ghost text-xs py-2 flex items-center gap-1.5" title="Auto-generate commands for sprites that have no command referencing them">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  Generate Missing ({unmapped.length})
+                </button>
+              )}
+              <button
+                onClick={() => setNewCmd(emptyStep({ hookName: '' }))}
+                disabled={saving}
+                title="Create a new sound command with a hook name and action steps"
+                className="btn-primary text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                + New Command
+              </button>
+            </>
+          )}
+          {viewTab === 'lists' && (
+            <button
+              onClick={() => setNewList({ name: '', items: [], type: 'random', overlap: true, tags: [] })}
+              disabled={saving}
+              title="Create a new sprite list — groups sprites for random or sequential playback"
+              className="btn-primary text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              + New Sprite List
             </button>
           )}
-          <button
-            onClick={() => setNewCmd(emptyStep({ hookName: '' }))}
-            disabled={saving}
-            className="btn-primary text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            + New Command
-          </button>
         </div>
       </div>
 
-      {unmapped.length > 0 && (
+      {viewTab === 'commands' && unmapped.length > 0 && (
         <div className="card p-3 border border-orange/30 flex items-center gap-3 shrink-0">
-          <span className="badge bg-orange-dim text-orange text-xs shrink-0">Unmapped</span>
+          <span className="badge bg-orange-dim text-orange text-xs shrink-0" title="Sprites defined in soundSprites but not referenced by any command">Unmapped</span>
           <p className="text-xs text-text-dim flex-1">
             {unmapped.length} sound{unmapped.length !== 1 ? 's' : ''} in soundSprites with no command referencing them
           </p>
@@ -613,13 +773,74 @@ export default function CommandsPage({ project, setProject, showToast }) {
 
       <input
         type="text"
-        placeholder="Search commands..."
+        placeholder={viewTab === 'commands' ? 'Search commands...' : 'Search sprite lists...'}
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
         className="input-base shrink-0"
       />
 
-      <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
+      {/* ── Sprite Lists View ── */}
+      {viewTab === 'lists' && (
+        <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
+          {spriteListNames.map((name) => {
+            const list = spriteLists[name];
+            const items = Array.isArray(list) ? list : (list?.items || []);
+            const listType = list?.type || 'random';
+            const overlap = list?.overlap ?? false;
+            const tags = list?.tags || [];
+            return (
+              <div key={name} className="card overflow-hidden" style={{ borderRadius: 10 }}>
+                <div className="w-full flex items-center gap-3 px-4 py-2.5">
+                  <button onClick={() => setExpanded(expanded === name ? null : name)} className="flex items-center gap-3 flex-1 min-w-0 hover:bg-bg-hover/50 transition-colors text-left">
+                    <svg className={`w-3 h-3 text-text-dim transition-transform shrink-0 ${expanded === name ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20"><path d="M6 4l8 6-8 6V4z" /></svg>
+                    <span className="flex-1 text-[13px] font-mono truncate">{name}</span>
+                  </button>
+                  <span className="badge bg-purple-dim text-purple text-xs shrink-0" title={`Playback type: ${listType}`}>{listType}</span>
+                  {overlap && <span className="text-xs text-text-dim" title="Sounds can overlap when played">overlap</span>}
+                  <span className="text-xs text-text-dim shrink-0">{items.length} sprite{items.length !== 1 ? 's' : ''}</span>
+                </div>
+
+                {expanded === name && (
+                  <div className="px-4 pb-3 pt-2 border-t border-border space-y-1.5 anim-fade-in">
+                    {/* Items */}
+                    {items.map((id, idx) => (
+                      <div key={idx} className="flex items-center gap-2 text-[12px] py-0.5">
+                        <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
+                        <span className={`font-mono flex-1 truncate ${soundSprites[id] ? 'text-text-primary' : 'text-danger line-through'}`}>{id}</span>
+                      </div>
+                    ))}
+                    {tags.length > 0 && (
+                      <div className="flex gap-1 pt-1">
+                        {tags.map(t => <span key={t} className="badge bg-bg-hover text-text-dim text-xs">{t}</span>)}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button onClick={() => setEditList({ name, items: [...items], type: listType, overlap, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
+                      {confirmDeleteList === name ? (
+                        <>
+                          <span className="text-xs text-danger">Delete?</span>
+                          <button onClick={() => handleDeleteList(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes</button>
+                          <button onClick={() => setConfirmDeleteList(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
+                        </>
+                      ) : (
+                        <button onClick={() => setConfirmDeleteList(name)} disabled={saving} className="text-xs text-text-dim hover:text-danger transition-colors" title="Remove this sprite list from sounds.json">Delete</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {spriteListNames.length === 0 && (
+            <div className="text-center py-12 text-text-dim text-sm">
+              {filter ? 'No sprite lists match filter' : 'No sprite lists defined — click + New Sprite List to create one'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Commands View ── */}
+      {viewTab === 'commands' && <div className="space-y-1 flex-1 min-h-0 overflow-y-auto pr-1">
         {cmdNames.map((name) => {
           const actions = commands[name] || [];
           const issues = getIssues(name);
@@ -685,6 +906,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         onClick={() => setConfirmDeleteCmd(name)}
                         disabled={saving}
                         className="text-xs text-text-dim hover:text-danger transition-colors disabled:opacity-40"
+                        title="Remove this command and all its action steps from sounds.json"
                       >
                         Delete command
                       </button>
@@ -705,7 +927,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     if (isEditing) {
                       return (
                         <div key={idx} className="rounded-lg border border-accent/30 bg-accent/5 p-3 space-y-2">
-                          <StepForm state={editStep} setState={setEditStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
+                          <StepForm state={editStep} setState={setEditStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} onCreateList={handleInlineCreateList} />
                           <div className="flex gap-2 justify-end">
                             <button onClick={() => setEditStep(null)} className="btn-ghost text-xs py-1 px-3">Cancel</button>
                             <button onClick={handleSaveEditStep} disabled={saving} className="btn-primary text-xs py-1 px-3 disabled:opacity-40">
@@ -777,6 +999,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     onClick={() => setAddStep(emptyStep({ cmdName: name }))}
                     disabled={saving}
                     className="text-xs text-text-dim hover:text-accent transition-colors pt-1 disabled:opacity-40"
+                    title="Add a new action step to this command"
                   >
                     + Add Step
                   </button>
@@ -790,7 +1013,81 @@ export default function CommandsPage({ project, setProject, showToast }) {
             {filter ? 'No commands match filter' : 'No commands defined in sounds.json'}
           </div>
         )}
-      </div>
+      </div>}
+
+      {/* New/Edit Sprite List Modal */}
+      {(newList || editList) && (() => {
+        const isNew = !!newList;
+        const st = newList || editList;
+        const setSt = isNew ? setNewList : setEditList;
+        const handleSave = isNew ? handleSaveNewList : handleSaveEditList;
+        const spriteIds = Object.keys(soundSprites).sort();
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSt(null)} onKeyDown={e => { if (e.key === 'Escape') setSt(null); }}>
+            <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="p-5 border-b border-border">
+                <h3 className="text-sm font-bold text-text-primary">{isNew ? 'New Sprite List' : `Edit: ${st.name}`}</h3>
+              </div>
+              <div className="p-5 space-y-4 flex-1 overflow-y-auto">
+                {isNew && (
+                  <div>
+                    <label className="section-label mb-1 block">List Name</label>
+                    <input type="text" value={st.name} onChange={e => setSt(p => ({ ...p, name: e.target.value }))}
+                      placeholder="e.g. sl_VOPreCog" className="input-base text-xs font-mono w-full" maxLength={100} autoFocus />
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="section-label mb-1 block">Type</label>
+                    <select value={st.type} onChange={e => setSt(p => ({ ...p, type: e.target.value }))} className="input-base text-xs w-full">
+                      <option value="random">random</option>
+                      <option value="sequential">sequential</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="section-label mb-1 block" title="How many times each sound loops when played. -1 = infinite, 0 = once">Loop</label>
+                    <input type="number" min="-1" step="1" value={st.loop ?? 0} onChange={e => setSt(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))} className="input-base text-xs w-16 text-center" />
+                  </div>
+                  <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer" title="Allow multiple sounds from this list to play simultaneously">
+                      <input type="checkbox" checked={st.overlap} onChange={e => setSt(p => ({ ...p, overlap: e.target.checked }))} className="w-4 h-4 accent-accent" />
+                      <span className="text-xs text-text-secondary">Overlap</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="section-label mb-1 block">Sprites ({st.items.length})</label>
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {st.items.map((id, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <span className="text-text-dim text-xs w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
+                        <select value={id} onChange={e => setSt(p => { const items = [...p.items]; items[idx] = e.target.value; return { ...p, items }; })} className="input-base text-xs font-mono flex-1 py-1">
+                          <option value="">— select —</option>
+                          {spriteIds.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                        <button onClick={() => setSt(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }))} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove this sprite">
+                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button onClick={() => setSt(p => ({ ...p, items: [...p.items, ''] }))} className="text-xs text-accent hover:text-accent/80 transition-colors mt-1.5" title="Add another sprite to this list">
+                    + Add Sprite
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 border-t border-border flex gap-2 justify-end">
+                <button onClick={() => setSt(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
+                <button onClick={handleSave} disabled={saving || (isNew && !st.name.trim()) || st.items.filter(Boolean).length === 0}
+                  className="btn-primary text-xs px-4 py-2 disabled:opacity-40">
+                  {saving ? 'Saving...' : isNew ? 'Create List' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* New Command Modal */}
       {newCmd && (
@@ -811,7 +1108,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   autoFocus
                 />
               </div>
-              <StepForm state={newCmd} setState={setNewCmd} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
+              <StepForm state={newCmd} setState={setNewCmd} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} onCreateList={handleInlineCreateList} />
             </div>
             <div className="p-4 border-t border-border flex gap-2 justify-end">
               <button onClick={() => setNewCmd(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
@@ -836,7 +1133,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
               <p className="text-xs text-text-dim font-mono mt-0.5">{addStep.cmdName}</p>
             </div>
             <div className="p-5">
-              <StepForm state={addStep} setState={setAddStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} />
+              <StepForm state={addStep} setState={setAddStep} soundSprites={soundSprites} spriteLists={spriteLists} commands={commands} onCreateList={handleInlineCreateList} />
             </div>
             <div className="p-4 border-t border-border flex gap-2 justify-end">
               <button onClick={() => setAddStep(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
@@ -870,73 +1167,102 @@ export default function CommandsPage({ project, setProject, showToast }) {
         const toggleAllFill = (val) => setScanFixInclude(p => ({ ...p, fill: Object.fromEntries(emptyHooks.map(h => [h.name, val])) }));
         const toggleAllRemove = (val) => setScanFixInclude(p => ({ ...p, remove: Object.fromEntries(deadCmds.map(n => [n, val])) }));
 
+        const SectionHeader = ({ color, children, count, toggleAll, selectedCount, totalCount }) => (
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border/50">
+            <span className={`w-2 h-2 rounded-full ${color} shrink-0`} />
+            <p className="text-xs font-semibold text-text-primary tracking-wide uppercase flex-1">{children}</p>
+            <span className="text-xs text-text-dim tabular-nums">{count}</span>
+            {toggleAll && (
+              <button onClick={() => toggleAll(selectedCount < totalCount)} className="text-xs text-accent/70 hover:text-accent transition-colors ml-1">
+                {selectedCount === totalCount ? 'None' : 'All'}
+              </button>
+            )}
+          </div>
+        );
+
+        const HookRow = ({ name, checked, onChange, disabled, matched, showMatch, recent, files, selected, colorClass }) => (
+          <div className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all ${selected ? 'bg-white/[0.03] border border-border/60' : 'border border-transparent opacity-40'}`}>
+            <input type="checkbox" checked={checked} onChange={onChange} disabled={disabled} className="w-3.5 h-3.5 accent-accent shrink-0 rounded" />
+            <span className={`font-mono text-[12px] ${colorClass || 'text-text-primary'} flex-1 truncate`}>{name}</span>
+            {showMatch && matched && <span className="text-[11px] text-accent/60 font-mono shrink-0">→ {matched}</span>}
+            {showMatch && !matched && <span className="text-[11px] text-text-dim/50 shrink-0">no match</span>}
+            {recent && <span className="text-[10px] text-yellow-500/60 shrink-0 font-medium">NEW</span>}
+            {files && (
+              <span className="text-[11px] text-text-dim/40 font-mono truncate max-w-[120px] shrink-0" title={files.join('\n')}>
+                {files[0]}{files.length > 1 ? ` +${files.length - 1}` : ''}
+              </span>
+            )}
+          </div>
+        );
+
+        const allClean = missingHooks.length === 0 && emptyHooks.length === 0 && deadCmds.length === 0;
+
         return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col">
-            <div className="p-5 border-b border-border flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setScanResult(null)} onKeyDown={e => { if (e.key === 'Escape') setScanResult(null); }}>
+          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[700px] max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-text-primary">Game Hook Scanner</h3>
-                <p className="text-xs text-text-dim mt-0.5">
-                  Scanned {scanResult.totalFiles} .ts files · {scanResult.hooks.length} hooks found
+                <h3 className="text-sm font-bold text-text-primary tracking-tight">Hook Scanner</h3>
+                <p className="text-[11px] text-text-dim/60 mt-0.5 tabular-nums">
+                  {scanResult.totalFiles} files · {scanResult.hooks.length} hooks
                   {(scanResult.dynamicCalls || []).length > 0 && ` · ${scanResult.dynamicCalls.length} dynamic`}
+                  {allClean && ' · All synced'}
                 </p>
               </div>
-              <button onClick={() => setScanResult(null)} className="text-text-dim hover:text-text-primary transition-colors p-1">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-2">
+                {totalFixes > 0 && (
+                  <button
+                    onClick={handleApplyScanFixes}
+                    disabled={saving}
+                    className="btn-primary text-xs px-4 py-1.5 disabled:opacity-40 flex items-center gap-1.5"
+                  >
+                    {saving ? (
+                      <><span className="anim-pulse-dot w-1.5 h-1.5 rounded-full bg-white shrink-0" /> Applying...</>
+                    ) : (
+                      <>Apply {totalFixes}</>
+                    )}
+                  </button>
+                )}
+                <button onClick={() => setScanResult(null)} className="text-text-dim/40 hover:text-text-primary transition-colors p-1">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
-            {/* Summary bar */}
-            {(missingHooks.length > 0 || emptyHooks.length > 0 || deadCmds.length > 0) && (
-              <div className="px-5 py-3 border-b border-border bg-accent/5 flex items-center gap-3 flex-wrap">
-                {missingHooks.length > 0 && (
-                  <span className="badge bg-danger-dim text-danger text-xs">{addCount}/{missingHooks.length} to add</span>
-                )}
-                {emptyHooks.length > 0 && (
-                  <span className="badge bg-orange-dim text-orange text-xs">{fillCount}/{emptyHooks.length} to fill</span>
-                )}
-                {deadCmds.length > 0 && (
-                  <span className="badge bg-bg-hover text-text-dim text-xs">{removeCount}/{deadCmds.length} to remove</span>
-                )}
-                <div className="flex-1" />
-                <button
-                  onClick={() => { toggleAllAdd(true); toggleAllFill(true); toggleAllRemove(true); }}
-                  className="text-xs text-text-dim hover:text-text-primary transition-colors"
-                >Select All</button>
-                <button
-                  onClick={() => { toggleAllAdd(false); toggleAllFill(false); toggleAllRemove(false); }}
-                  className="text-xs text-text-dim hover:text-text-primary transition-colors"
-                >Deselect All</button>
-              </div>
-            )}
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* All clean state */}
+              {allClean && okHooks.length > 0 && (
+                <div className="text-center py-6">
+                  <p className="text-sm text-green font-medium">All hooks are synced</p>
+                  <p className="text-xs text-text-dim mt-1">{okHooks.length} hooks matched between game source and sounds.json</p>
+                </div>
+              )}
 
-              {/* NEWLY ADDED — top section, sorted newest first */}
+              {/* Recent hooks */}
               {(() => {
                 const newHooks = scanResult.hooks.filter(h => h.recent).sort((a, b) => b.recent.timestamp - a.recent.timestamp);
                 if (!newHooks.length) return null;
                 return (
-                  <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-3 space-y-2">
-                    <p className="section-label text-yellow-400">
-                      Recent hooks — last 90 days ({newHooks.length})
-                    </p>
-                    <div className="space-y-1">
+                  <div className="rounded-xl border border-yellow-500/15 bg-yellow-500/[0.03] p-4 space-y-2">
+                    <SectionHeader color="bg-yellow-500" count={newHooks.length}>Recently changed</SectionHeader>
+                    <div className="space-y-0.5">
                       {newHooks.map(h => {
-                        const statusColor = !h.inJson ? 'text-danger' : h.isEmpty ? 'text-orange' : 'text-green';
+                        const statusColor = !h.inJson ? 'text-orange' : h.isEmpty ? 'text-yellow-500/70' : 'text-green/70';
                         const statusLabel = !h.inJson ? 'MISSING' : h.isEmpty ? 'EMPTY' : 'OK';
-                        const statusBg = !h.inJson ? 'bg-danger-dim border-danger/20' : h.isEmpty ? 'bg-orange-dim border-orange/20' : 'bg-green-dim border-green/20';
                         return (
-                          <div key={h.name} className="flex items-center gap-2 group">
+                          <div key={h.name} className="flex items-center gap-2 py-1 group">
                             <button
                               onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
-                              className="font-mono text-[12px] text-text-primary hover:text-yellow-400 transition-colors text-left"
+                              className="font-mono text-[12px] text-text-secondary hover:text-accent transition-colors text-left truncate"
                             >{h.name}</button>
-                            <span className={`badge ${statusBg} ${statusColor} text-xs shrink-0`}>{statusLabel}</span>
-                            <span className="text-xs text-yellow-500/80 shrink-0">· {h.recent.relative}</span>
-                            <span className="text-xs text-text-dim truncate flex-1" title={h.recent.message}>{h.recent.message}</span>
+                            <span className={`text-[10px] font-semibold uppercase tracking-wider ${statusColor} shrink-0`}>{statusLabel}</span>
+                            <span className="text-[11px] text-text-dim/40 shrink-0">{h.recent.relative}</span>
+                            <span className="text-[11px] text-text-dim/30 truncate flex-1" title={h.recent.message}>{h.recent.message}</span>
                           </div>
                         );
                       })}
@@ -945,154 +1271,95 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 );
               })()}
 
-              {/* Missing from JSON — with checkboxes */}
+              {/* Missing from JSON */}
               {missingHooks.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="section-label text-danger flex-1">
-                      Missing — game calls but not in JSON ({missingHooks.length})
-                    </p>
-                    <button onClick={() => toggleAllAdd(addCount < missingHooks.length)} className="text-xs text-text-dim hover:text-text-primary transition-colors">
-                      {addCount === missingHooks.length ? 'Deselect' : 'Select all'}
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    {missingHooks.map(h => {
-                      const matched = scanSpriteMap[h.name];
-                      return (
-                        <div key={h.name} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${scanFixInclude.add[h.name] ? 'bg-danger-dim border-danger/30' : 'bg-bg-hover/30 border-border/50 opacity-50'}`}>
-                          <input
-                            type="checkbox"
-                            checked={!!scanFixInclude.add[h.name]}
-                            onChange={() => toggleAdd(h.name)}
-                            className="w-3.5 h-3.5 accent-accent shrink-0"
-                          />
-                          <span className="font-mono text-[12px] text-danger flex-1 truncate">{h.name}</span>
-                          {matched ? (
-                            <span className="text-xs text-green font-mono shrink-0" title={`Auto-match: ${matched}`}>→ {matched}</span>
-                          ) : (
-                            <span className="text-xs text-text-dim shrink-0">empty (no match)</span>
-                          )}
-                          {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW</span>}
-                          <div className="text-xs text-text-dim font-mono truncate max-w-[140px] shrink-0" title={h.files.join('\n')}>
-                            {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
-                          </div>
-                        </div>
-                      );
-                    })}
+                  <SectionHeader color="bg-orange" count={missingHooks.length} toggleAll={toggleAllAdd} selectedCount={addCount} totalCount={missingHooks.length}>
+                    Not in sounds.json
+                  </SectionHeader>
+                  <div className="space-y-0.5">
+                    {missingHooks.map(h => (
+                      <HookRow key={h.name} name={h.name} checked={!!scanFixInclude.add[h.name]} onChange={() => toggleAdd(h.name)}
+                        showMatch matched={scanSpriteMap[h.name]} recent={h.recent} files={h.files}
+                        selected={!!scanFixInclude.add[h.name]} colorClass="text-text-secondary" />
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Empty hooks — with checkboxes for auto-fill */}
+              {/* Empty hooks */}
               {emptyHooks.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="section-label text-orange flex-1">
-                      Empty — in JSON but no actions ({emptyHooks.length})
-                    </p>
-                    <button onClick={() => toggleAllFill(fillCount < emptyHooks.length)} className="text-xs text-text-dim hover:text-text-primary transition-colors">
-                      {fillCount === emptyHooks.length ? 'Deselect' : 'Select all'}
-                    </button>
-                  </div>
-                  <div className="space-y-1">
+                  <SectionHeader color="bg-yellow-500" count={emptyHooks.length} toggleAll={toggleAllFill} selectedCount={fillCount} totalCount={emptyHooks.length}>
+                    Empty commands
+                  </SectionHeader>
+                  <div className="space-y-0.5">
                     {emptyHooks.map(h => {
                       const matched = scanSpriteMap[h.name];
                       return (
-                        <div key={h.name} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${scanFixInclude.fill[h.name] ? 'bg-orange-dim border-orange/30' : 'bg-bg-hover/30 border-border/50 opacity-50'}`}>
-                          <input
-                            type="checkbox"
-                            checked={!!scanFixInclude.fill[h.name]}
-                            onChange={() => toggleFill(h.name)}
-                            className="w-3.5 h-3.5 accent-accent shrink-0"
-                            disabled={!matched}
-                          />
-                          <span className="font-mono text-[12px] text-orange flex-1 truncate">{h.name}</span>
-                          {matched ? (
-                            <span className="text-xs text-green font-mono shrink-0">→ {matched}</span>
-                          ) : (
-                            <span className="text-xs text-text-dim shrink-0">no sprite match</span>
-                          )}
-                          {h.recent && <span className="text-xs text-yellow-500/80 shrink-0">NEW</span>}
-                          <div className="text-xs text-text-dim font-mono truncate max-w-[140px] shrink-0" title={h.files.join('\n')}>
-                            {h.files[0]}{h.files.length > 1 ? ` +${h.files.length - 1}` : ''}
-                          </div>
-                        </div>
+                        <HookRow key={h.name} name={h.name} checked={!!scanFixInclude.fill[h.name]} onChange={() => toggleFill(h.name)}
+                          disabled={!matched} showMatch matched={matched} recent={h.recent} files={h.files}
+                          selected={!!scanFixInclude.fill[h.name]} colorClass="text-text-secondary" />
                       );
                     })}
                   </div>
                 </div>
               )}
 
-              {/* Dead commands — with checkboxes for removal */}
+              {/* Dead commands */}
               {deadCmds.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <p className="section-label text-text-dim flex-1">
-                      Dead — in JSON but game never calls ({deadCmds.length})
-                    </p>
-                    <button onClick={() => toggleAllRemove(removeCount < deadCmds.length)} className="text-xs text-text-dim hover:text-text-primary transition-colors">
-                      {removeCount === deadCmds.length ? 'Deselect' : 'Select all'}
-                    </button>
-                  </div>
-                  <div className="space-y-1">
+                  <SectionHeader color="bg-text-dim/50" count={deadCmds.length} toggleAll={toggleAllRemove} selectedCount={removeCount} totalCount={deadCmds.length}>
+                    Unused commands
+                  </SectionHeader>
+                  <div className="space-y-0.5">
                     {deadCmds.map(n => (
-                      <div key={n} className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-colors ${scanFixInclude.remove[n] ? 'bg-bg-hover border-border' : 'bg-bg-hover/30 border-border/50 opacity-50'}`}>
-                        <input
-                          type="checkbox"
-                          checked={!!scanFixInclude.remove[n]}
-                          onChange={() => toggleRemove(n)}
-                          className="w-3.5 h-3.5 accent-accent shrink-0"
-                        />
-                        <span className="font-mono text-[12px] text-text-dim flex-1 truncate line-through">{n}</span>
-                        <span className="text-xs text-text-dim shrink-0">{(commands[n] || []).length} actions</span>
+                      <div key={n} className={`flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all ${scanFixInclude.remove[n] ? 'bg-white/[0.03] border border-border/60' : 'border border-transparent opacity-40'}`}>
+                        <input type="checkbox" checked={!!scanFixInclude.remove[n]} onChange={() => toggleRemove(n)} className="w-3.5 h-3.5 accent-accent shrink-0 rounded" />
+                        <span className="font-mono text-[12px] text-text-dim flex-1 truncate line-through decoration-text-dim/30">{n}</span>
+                        <span className="text-[11px] text-text-dim/40 tabular-nums shrink-0">{(commands[n] || []).length} step{(commands[n] || []).length !== 1 ? 's' : ''}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Populated hooks — all good */}
-              {okHooks.length > 0 && (
+              {/* OK hooks */}
+              {okHooks.length > 0 && !allClean && (
                 <div>
-                  <p className="section-label mb-2 text-green">
-                    OK — igra koristi, JSON ima akcije ({okHooks.length})
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <SectionHeader color="bg-green" count={okHooks.length}>Synced</SectionHeader>
+                  <div className="flex flex-wrap gap-1">
                     {okHooks.map(h => (
                       <button
                         key={h.name}
                         onClick={() => { setScanResult(null); setFilter(h.name); setExpanded(h.name); }}
-                        title={h.recent ? `Dodat: ${h.recent.relative} — ${h.recent.message}` : ''}
-                        className={`badge font-mono text-xs hover:bg-green/20 transition-colors cursor-pointer ${h.recent ? 'bg-yellow-500/10 border border-yellow-500/30 text-yellow-400' : 'bg-green-dim text-green'}`}
+                        title={h.recent ? `${h.recent.relative} — ${h.recent.message}` : ''}
+                        className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-white/[0.03] text-text-dim/60 hover:text-accent hover:bg-accent/5 transition-colors cursor-pointer"
                       >
-                        {h.name}{h.recent ? ' ✦' : ''}
+                        {h.name}
                       </button>
                     ))}
                   </div>
-                  {okHooks.some(h => h.recent) && (
-                    <p className="text-xs text-text-dim mt-1.5">✦ = new in the last 90 days</p>
-                  )}
                 </div>
               )}
             </div>
 
-            <div className="p-4 border-t border-border flex items-center gap-2">
-              <button onClick={() => setScanResult(null)} className="btn-ghost text-xs px-4 py-2">Close</button>
-              <div className="flex-1" />
-              {totalFixes > 0 && (
-                <button
-                  onClick={handleApplyScanFixes}
-                  disabled={saving}
-                  className="btn-primary text-xs px-5 py-2 disabled:opacity-40 flex items-center gap-2"
-                >
-                  {saving ? (
-                    <><span className="anim-pulse-dot w-2 h-2 rounded-full bg-white shrink-0" /> Applying...</>
-                  ) : (
-                    <>Apply {totalFixes} Fix{totalFixes !== 1 ? 'es' : ''}</>
-                  )}
-                </button>
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-border flex items-center">
+              {(missingHooks.length > 0 || emptyHooks.length > 0 || deadCmds.length > 0) && (
+                <div className="flex items-center gap-3 text-[11px] text-text-dim/50">
+                  <button
+                    onClick={() => { toggleAllAdd(true); toggleAllFill(true); toggleAllRemove(true); }}
+                    className="hover:text-text-primary transition-colors"
+                  >Select all</button>
+                  <button
+                    onClick={() => { toggleAllAdd(false); toggleAllFill(false); toggleAllRemove(false); }}
+                    className="hover:text-text-primary transition-colors"
+                  >Clear</button>
+                </div>
               )}
+              <div className="flex-1" />
+              <button onClick={() => setScanResult(null)} className="text-xs text-text-dim/50 hover:text-text-primary transition-colors px-3 py-1.5">Close</button>
             </div>
           </div>
         </div>

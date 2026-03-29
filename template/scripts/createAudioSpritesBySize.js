@@ -57,10 +57,17 @@ const pathArray = gameProjectPath.split("/");
 const gameName = pathArray[pathArray.length - 1];
 
 
+// Read encoding from sprite-config.json if available, otherwise use defaults
+const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
+const enc = spriteConfig?.encoding?.sfx || {};
+
 var opts = {
     output: outDir + gameName + "_audioSprite",
     format: 'howler2',
     export: 'm4a',
+    bitrate: enc.bitrate || 64,
+    channels: enc.channels || 2,
+    samplerate: enc.samplerate || 44100,
     logger: {
         debug: console.log,
         info: console.log,

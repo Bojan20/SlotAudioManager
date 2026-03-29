@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 
-const StatCard = ({ label, value, color, icon }) => (
-  <div className="glass" style={{ padding: '16px', transition: 'all 0.25s' }}>
+const StatCard = ({ label, value, color, icon, title }) => (
+  <div className="glass" style={{ padding: '16px', transition: 'all 0.25s' }} title={title}>
     <div className="flex items-center" style={{ gap: '14px' }}>
       <div style={{ width: '38px', height: '38px', borderRadius: '10px', background: `${color}11`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <svg style={{ width: '18px', height: '18px', color }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -116,19 +116,23 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
           <h2 className="text-text-primary" style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.02em' }}>Dashboard</h2>
           <p style={{ fontSize: '12px', fontFamily: "'SF Mono', 'Fira Code', monospace", color: 'rgba(255,255,255,0.22)', marginTop: '6px' }} className="truncate" title={project.path}>{project.path}</p>
         </div>
-        <button onClick={onReload} className="btn-ghost" style={{ padding: '10px 22px', borderRadius: '12px' }}>Reload</button>
+        <button onClick={onReload} className="btn-ghost" style={{ padding: '10px 22px', borderRadius: '12px' }} title="Reload project data from disk — re-reads all config files and sound lists">Reload</button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 shrink-0" style={{ gap: '12px', marginBottom: '20px' }}>
         <StatCard label="WAV Files" value={sounds.length} color="#38bdf8"
-          icon="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+          icon="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+          title="Total WAV files in sourceSoundFiles/ directory" />
         <StatCard label="Commands" value={Object.keys(commands).length} color="#fb923c"
-          icon="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          icon="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+          title="Total sound commands defined in sounds.json" />
         <StatCard label="Sprites" value={Object.keys(soundSprites).length} color="#4ade80"
-          icon="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          icon="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+          title="Total sound sprites defined in soundSprites" />
         <StatCard label="Unassigned" value={unassigned} color={unassigned > 0 ? '#f87171' : '#4ade80'}
-          icon="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          icon="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+          title="WAV files not yet assigned to any tier in sprite-config.json" />
       </div>
 
       {/* Info panels — single row, no separate cards */}
@@ -137,7 +141,7 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
         <div style={{ padding: '14px 20px' }}>
           <div className="flex items-center" style={{ gap: '8px', marginBottom: '10px' }}>
             <svg style={{ width: '12px', height: '12px', flexShrink: 0, color: hasGame && gameOk ? '#4ade80' : 'rgba(255,255,255,0.25)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)' }}>Game Repo</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)' }} title="Linked game repository — used for deploy, launch, and GLR testing">Game Repo</span>
           </div>
           {hasGame ? (
             <>
@@ -154,7 +158,7 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
           ) : (
             <button onClick={pickAndLink} disabled={linking} className="flex items-center w-full" style={{ gap: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.06)', cursor: linking ? 'wait' : 'pointer', transition: 'all 0.15s', background: 'transparent' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,124,248,0.2)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}>
               <svg style={{ width: '12px', height: '12px', color: 'rgba(255,255,255,0.2)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }}>{linking ? 'Linking...' : 'Link game repository'}</span>
+              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }} title="Pick a game repo folder to link — enables deploy, launch, and GLR features">{linking ? 'Linking...' : 'Link game repository'}</span>
             </button>
           )}
         </div>
@@ -166,9 +170,9 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
         <div style={{ padding: '14px 20px' }}>
           <div className="flex items-center" style={{ gap: '8px', marginBottom: '10px' }}>
             <svg style={{ width: '12px', height: '12px', flexShrink: 0, color: distInfo?.hasDist ? '#4ade80' : 'rgba(255,255,255,0.25)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)' }}>Last Build</span>
+            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)' }} title="Status of the last audio build — sprite count, total size, and output files in dist/">Last Build</span>
             {distInfo?.hasDist && (
-              <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 700, fontFamily: "'SF Mono', monospace", padding: '2px 8px', borderRadius: '6px', background: 'rgba(74,222,128,0.07)', color: '#4ade80' }}>{distInfo.totalSizeMB} MB</span>
+              <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 700, fontFamily: "'SF Mono', monospace", padding: '2px 8px', borderRadius: '6px', background: 'rgba(74,222,128,0.07)', color: '#4ade80' }} title="Total size of all built M4A sprites in dist/">{distInfo.totalSizeMB} MB</span>
             )}
           </div>
           {distInfo?.hasDist ? (

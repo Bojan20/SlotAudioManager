@@ -33,8 +33,13 @@
       "channels": 2,
       "samplerate": 44100
     },
+    "vo": {
+      "bitrate": 64,
+      "channels": 2,
+      "samplerate": 44100
+    },
     "music": {
-      "bitrate": 128,
+      "bitrate": 96,
       "channels": 2,
       "samplerate": 44100
     }

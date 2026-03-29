@@ -275,13 +275,13 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
       {/* Header */}
       <div className={`${theme.headerBg} px-6 py-4 flex items-center gap-3 flex-wrap`}>
         <span className={`w-3 h-3 rounded-full ${theme.dot} shrink-0`} />
-        <h3 className={`text-base font-bold ${theme.accent} uppercase tracking-wide`}>{tierName}</h3>
-        <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider`}>{theme.label}</span>
+        <h3 className={`text-base font-bold ${theme.accent} uppercase tracking-wide`} title={`Audio pool: ${tierName} — sounds in this tier are grouped into one M4A sprite`}>{tierName}</h3>
+        <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider`} title={`Loading strategy: ${theme.label.toLowerCase()} — determines when this pool is loaded by playa-core`}>{theme.label}</span>
         {isDeferred && tierCfg.subLoaderId && (
-          <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg`}>"{tierCfg.subLoaderId}"</span>
+          <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg`} title={`playa-core SubLoader ID — call startSubLoader("${tierCfg.subLoaderId}") to load this pool`}>"{tierCfg.subLoaderId}"</span>
         )}
         {tierCfg?.unloadable && (
-          <span className="bg-amber-500/15 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-lg">UNLOADABLE</span>
+          <span className="bg-amber-500/15 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-lg" title="This pool can be unloaded from RAM when no longer needed (e.g., after bonus ends)">UNLOADABLE</span>
         )}
         <div className="flex-1" />
         <span className="text-sm text-text-dim font-mono tabular-nums">{sounds.length} sounds</span>
@@ -294,9 +294,11 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
           onClick={handleMeasure}
           disabled={measuring || sounds.length === 0}
           className={`btn-ghost !text-xs !py-2 !px-4 ${measuring ? '!text-text-dim !cursor-wait' : ''} disabled:!opacity-20`}
+          title="Estimate compressed M4A size for this tier based on encoding settings"
         >
           {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
         </button>
+
       </div>
 
       {/* Size bar — only show when we have data */}
@@ -360,7 +362,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
               <code className={`text-xs font-mono ${theme.accent}`}>
                 startSubLoader("{tierCfg.subLoaderId}")
               </code>
-              <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost !text-xs !py-1.5 !px-4">{copied === tierName ? '✓ Copied' : 'Copy Snippet'}</button>
+              <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost !text-xs !py-1.5 !px-4" title="Copy SubLoader integration code snippet to clipboard">{copied === tierName ? '✓ Copied' : 'Copy Snippet'}</button>
             </div>
           )}
         </div>
@@ -531,15 +533,15 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           <p className="text-sm text-text-dim mt-1">Audio pools, loading strategy, encoding</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => handleOpenPreview(true)} className="btn-ghost text-xs">
+          <button onClick={() => handleOpenPreview(true)} className="btn-ghost text-xs" title="Clear all tier assignments and re-run auto-assign from scratch based on naming patterns">
             Re-assign All
           </button>
-          <label className="flex items-center gap-2 text-xs text-text-dim font-semibold uppercase tracking-wider">
+          <label className="flex items-center gap-2 text-xs text-text-dim font-semibold uppercase tracking-wider" title="Silence gap between sounds in the sprite (milliseconds)">
             Gap
             <input type="number" step="1" min="0" value={Math.round((config.spriteGap ?? 0.05) * 1000)} onChange={(e) => update(() => { config.spriteGap = (parseInt(e.target.value) || 0) / 1000; })} className="input-base !w-16 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
             ms
           </label>
-          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary' : 'btn-ghost opacity-40 cursor-not-allowed'}>
+          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary' : 'btn-ghost opacity-40 cursor-not-allowed'} title="Save sprite-config.json with current tier assignments and encoding settings">
             {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
           </button>
         </div>
@@ -552,7 +554,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
             <span className="w-3 h-3 rounded-full bg-amber-400 shrink-0 anim-pulse-dot" />
             <span className="text-sm font-bold text-amber-400 uppercase tracking-wide">{unassigned.length} Unassigned Sound{unassigned.length !== 1 ? 's' : ''}</span>
             <div className="flex-1" />
-            <button onClick={handleOpenPreview} className="btn-primary py-2.5 px-5">Auto-Assign All</button>
+            <button onClick={handleOpenPreview} className="btn-primary py-2.5 px-5" title="Automatically assign unassigned sounds to tiers based on naming patterns (loading, main, bonus, standalone)">Auto-Assign All</button>
           </div>
           <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
             {unassigned.map(s => (
@@ -594,7 +596,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
             <div className="flex flex-col gap-3 flex-1">
               <div className="flex items-center gap-3 px-1 pt-1">
                 <div className="h-px flex-1 bg-gradient-to-r from-sky-500/30 to-transparent" />
-                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-sky-400/60">Deferred Pools</span>
+                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-sky-400/60" title="Pools loaded on demand via startSubLoader() — not loaded at game start">Deferred Pools</span>
                 <div className="h-px flex-1 bg-gradient-to-l from-sky-500/30 to-transparent" />
               </div>
               {deferredOnly.map(([name, cfg]) => (
@@ -608,7 +610,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
             <div className="flex flex-col gap-3 flex-1">
               <div className="flex items-center gap-3 px-1 pt-1">
                 <div className="h-px flex-1 bg-gradient-to-r from-amber-500/30 to-transparent" />
-                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-400/60">Lazy Pools</span>
+                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-400/60" title="Pools loaded lazily (SubLoader Z) — loaded just before the sounds are needed">Lazy Pools</span>
                 <div className="h-px flex-1 bg-gradient-to-l from-amber-500/30 to-transparent" />
               </div>
               {lazyTiers.map(([name, cfg]) => (
@@ -621,7 +623,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           <div className="flex-none">
             <div className="flex items-center gap-3 px-1 pt-1 pb-3">
               <div className="h-px flex-1 bg-gradient-to-r from-border/50 to-transparent" />
-              <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-text-dim/60">Encoding</span>
+              <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-text-dim/60" title="M4A encoding settings for SFX and Music — bitrate, channels, and sample rate">Encoding</span>
               <div className="h-px flex-1 bg-gradient-to-l from-border/50 to-transparent" />
             </div>
             <div className="rounded-2xl border border-border/50 overflow-hidden">
@@ -657,7 +659,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           {/* Copy all snippets */}
           {deferredTiers.length > 0 && (
             <div className="flex-none flex justify-end pb-2">
-              <button onClick={handleCopyAll} className="btn-ghost">
+              <button onClick={handleCopyAll} className="btn-ghost" title="Copy all SubLoader integration code snippets for all deferred pools to clipboard">
                 {copied === '__all__' ? '✓ All Snippets Copied' : 'Copy All SubLoader Snippets'}
               </button>
             </div>

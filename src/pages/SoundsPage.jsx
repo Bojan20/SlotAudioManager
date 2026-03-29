@@ -404,12 +404,12 @@ export default function SoundsPage({ project, setProject, showToast }) {
       <div className="shrink-0 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold text-text-primary">Source Sounds</h2>
-          <span className="badge bg-cyan-dim text-cyan">{project?.sounds?.length || 0} files</span>
-          <span className="badge bg-bg-hover text-text-dim">{totalSizeMB} MB</span>
+          <span className="badge bg-cyan-dim text-cyan" title="Total WAV files in sourceSoundFiles/ directory">{project?.sounds?.length || 0} files</span>
+          <span className="badge bg-bg-hover text-text-dim" title="Total size of all source WAV files">{totalSizeMB} MB</span>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={handleReload} className="btn-ghost text-xs">Refresh</button>
-          <button onClick={handleShowTrash} className="btn-ghost text-xs flex items-center gap-1.5">
+          <button onClick={handleReload} className="btn-ghost text-xs" title="Reload sound files from sourceSoundFiles/ directory">Refresh</button>
+          <button onClick={handleShowTrash} className="btn-ghost text-xs flex items-center gap-1.5" title="View and restore deleted sounds from .deleted/ folder">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
@@ -419,14 +419,16 @@ export default function SoundsPage({ project, setProject, showToast }) {
             <button
               onClick={() => setBulkAdd({ overlap: false, saving: false })}
               className="btn-ghost text-xs flex items-center gap-1.5"
+              title="Add all WAV files not yet in sounds.json to soundSprites definitions"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
               </svg>
               Add All to JSON
             </button>
+
           )}
-          <button onClick={handleImport} className="btn-primary text-xs">+ Import WAVs</button>
+          <button onClick={handleImport} className="btn-primary text-xs" title="Select WAV files to copy into sourceSoundFiles/ directory">+ Import WAVs</button>
         </div>
       </div>
 
@@ -442,7 +444,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
       <div className="card p-3 shrink-0 space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="badge bg-orange-dim text-orange text-xs">JSON Cleanup</span>
+            <span className="badge bg-orange-dim text-orange text-xs" title="Find and remove sounds.json references to WAV files that no longer exist in sourceSoundFiles/">JSON Cleanup</span>
             <span className="text-xs text-text-dim">Find sounds in JSON that don't exist in sourceSoundFiles</span>
           </div>
           <div className="flex items-center gap-2">
@@ -459,6 +461,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               onClick={handleAnalyzeOrphans}
               disabled={analyzing}
               className="btn-ghost text-xs py-1 px-3"
+              title="Find WAV files referenced in sounds.json but missing from sourceSoundFiles/"
             >
               {analyzing ? 'Analyzing...' : 'Analyze'}
             </button>
@@ -569,7 +572,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               <span className="flex-1 text-xs font-mono text-text-primary truncate">{s.name}</span>
 
               {inJson
-                ? <span className="badge bg-green-dim text-green shrink-0">in JSON</span>
+                ? <span className="badge bg-green-dim text-green shrink-0" title="This sound has a matching entry in soundSprites">in JSON</span>
                 : (
                   <button
                     onClick={() => setAddModal({ name: s.name, tags: autoTag(s.name), overlap: false, saving: false })}

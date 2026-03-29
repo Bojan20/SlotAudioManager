@@ -55,16 +55,16 @@ export default function GitPage({ project, showToast }) {
         <div className="flex items-center gap-3">
           <h2 className="text-xl font-bold text-text-primary">Git</h2>
           {status && !status.error && (
-            <span className="badge bg-purple-dim text-purple">{status.branch}</span>
+            <span className="badge bg-purple-dim text-purple" title="Current git branch">{status.branch}</span>
           )}
           {hasChanges && (
-            <span className="badge bg-orange-dim text-orange">{files.length} change{files.length !== 1 ? 's' : ''}</span>
+            <span className="badge bg-orange-dim text-orange" title="Number of modified, added, or deleted files in working tree">{files.length} change{files.length !== 1 ? 's' : ''}</span>
           )}
           {status && !status.error && !hasChanges && (
-            <span className="badge bg-green-dim text-green">Clean</span>
+            <span className="badge bg-green-dim text-green" title="Working tree is clean — no uncommitted changes">Clean</span>
           )}
         </div>
-        <button onClick={refresh} disabled={loading} className="btn-ghost text-xs">
+        <button onClick={refresh} disabled={loading} className="btn-ghost text-xs" title="Reload git status — branch, changed files, and recent commits">
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
@@ -78,7 +78,7 @@ export default function GitPage({ project, showToast }) {
 
           {/* LEFT — Changed files */}
           <div className="card p-3 flex flex-col min-h-0">
-            <p className="section-label mb-2 shrink-0">
+            <p className="section-label mb-2 shrink-0" title="Files modified, added, or deleted since last commit">
               {hasChanges ? `Changed Files (${files.length})` : 'Working Tree'}
             </p>
 
@@ -101,7 +101,13 @@ export default function GitPage({ project, showToast }) {
                         label === 'DEL' ? 'bg-danger-dim text-danger' :
                         label === 'REN' ? 'bg-purple-dim text-purple' :
                         'bg-orange-dim text-orange'
-                      }`}>{label}</span>
+                      }`} title={
+                        label === 'NEW' ? 'Untracked file — not yet added to git' :
+                        label === 'ADD' ? 'Newly staged file — added to git index' :
+                        label === 'DEL' ? 'Deleted file — removed from working tree' :
+                        label === 'REN' ? 'Renamed file — path changed' :
+                        'Modified file — content changed since last commit'
+                      }>{label}</span>
                       <span className="text-xs font-mono truncate text-text-secondary">{file}</span>
                     </div>
                   );
@@ -121,7 +127,7 @@ export default function GitPage({ project, showToast }) {
 
           {/* RIGHT — Recent Commits */}
           <div className="card p-3 flex flex-col min-h-0">
-            <p className="section-label mb-2 shrink-0">Recent Commits</p>
+            <p className="section-label mb-2 shrink-0" title="Last 10 commits on current branch">Recent Commits</p>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-0.5">
               {(status.log || '').split('\n').filter(Boolean).map((line, i) => {
                 const hash = line.substring(0, 7);
@@ -142,7 +148,7 @@ export default function GitPage({ project, showToast }) {
       {status && !status.error && hasChanges && (
         <div className="card p-3 shrink-0">
           <div className="flex gap-2 items-center">
-            <p className="section-label shrink-0">Commit & Push</p>
+            <p className="section-label shrink-0" title="Stage all changes, commit with message, and push to remote">Commit & Push</p>
             <input
               type="text"
               placeholder="Commit message..."
@@ -154,6 +160,7 @@ export default function GitPage({ project, showToast }) {
             <button
               onClick={handleCommitPush}
               disabled={pushing || !commitMsg.trim()}
+              title="Stage all changes (git add -A), commit with message, and push to remote"
               className={pushing ? 'btn-ghost text-accent border-accent/30 cursor-wait whitespace-nowrap text-xs' :
                 !commitMsg.trim() ? 'btn-ghost opacity-40 cursor-not-allowed whitespace-nowrap text-xs' : 'btn-primary whitespace-nowrap text-xs'}
             >

@@ -51,7 +51,13 @@ body {
   -moz-osx-font-smoothing: grayscale;
   font-size: 14px;
   line-height: 1.5;
+  user-select: none;
+  -webkit-user-select: none;
 }
+
+/* Allow text selection only in editable fields and log output */
+input, textarea, [contenteditable] { user-select: text; -webkit-user-select: text; }
+pre, code, .select-text { user-select: text; -webkit-user-select: text; }
 
 .drag-region { -webkit-app-region: drag; }
 button, input, select, textarea, a, label { -webkit-app-region: no-drag; }

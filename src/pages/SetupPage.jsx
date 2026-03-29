@@ -8,13 +8,13 @@ const Check = ({ ok }) => ok ? (
 
 const Dot = ({ color = 'bg-accent' }) => <span className={`inline-block w-1.5 h-1.5 rounded-full ${color} anim-pulse-dot`} />;
 
-const ActionBtn = ({ onClick, disabled, loading, loadingText, idleText, variant = 'ghost', color, className = '' }) => {
+const ActionBtn = ({ onClick, disabled, loading, loadingText, idleText, variant = 'ghost', color, className = '', title }) => {
   const base = variant === 'primary'
     ? 'btn-primary text-xs !py-2.5 !px-5 !rounded-xl'
     : 'btn-ghost text-xs !py-2.5 !px-5 !rounded-xl';
   const colorClass = loading && color ? `!border-${color}/30 !text-${color}` : '';
   return (
-    <button onClick={onClick} disabled={disabled} className={`${base} ${colorClass} ${loading ? '!cursor-wait' : ''} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`${base} ${colorClass} ${loading ? '!cursor-wait' : ''} ${className}`} title={title}>
       {loading && <Dot color={`bg-${color || 'accent'}`} />}
       <span className={loading ? 'ml-1.5' : ''}>{loading ? loadingText : idleText}</span>
     </button>
@@ -157,7 +157,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               <svg className="w-4 h-4 shrink-0 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Sync Template</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim" title="Overwrites scripts, configs, and package.json dependencies from the bundled template">Sync Template</span>
               <div className="flex-1" />
               {!confirmSync && (
                 <ActionBtn
@@ -167,6 +167,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                   loadingText="Syncing..."
                   idleText="Sync Template"
                   color="accent"
+                  title="Overwrite scripts and configs from bundled template, then run npm install"
                 />
               )}
             </div>
@@ -179,8 +180,8 @@ export default function SetupPage({ project, setProject, showToast }) {
                   Overwrite <span className="text-text-primary font-semibold">sprite-config.json</span> and <span className="text-text-primary font-semibold">sounds.json</span> from template? If you've already configured sounds — choose "Skip Configs".
                 </p>
                 <div className="flex gap-2.5">
-                  <button onClick={() => { setConfirmSync(false); initFromTemplate(); }} disabled={initializing} className="btn-primary text-xs !py-2.5 !px-5 !rounded-xl flex-1">Sync All</button>
-                  <button onClick={() => { setConfirmSync(false); initFromTemplate({ skipConfigs: true }); }} disabled={initializing} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl !border-cyan/30 !text-cyan flex-1">Skip Configs</button>
+                  <button onClick={() => { setConfirmSync(false); initFromTemplate(); }} disabled={initializing} className="btn-primary text-xs !py-2.5 !px-5 !rounded-xl flex-1" title="Overwrite all scripts, configs, and sounds.json from template">Sync All</button>
+                  <button onClick={() => { setConfirmSync(false); initFromTemplate({ skipConfigs: true }); }} disabled={initializing} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl !border-cyan/30 !text-cyan flex-1" title="Overwrite scripts and dependencies only — keep existing sprite-config.json and sounds.json">Skip Configs</button>
                   <button onClick={() => setConfirmSync(false)} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl">Cancel</button>
                 </div>
               </div>
@@ -215,7 +216,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               <svg className="w-4 h-4 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
               </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Pull sounds.json</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim" title="Copies sounds.json from game repo deploy folder to audio repo root">Pull sounds.json</span>
               <div className="flex-1" />
               {hasGame ? (
                 <ActionBtn
@@ -225,6 +226,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                   loadingText="Pulling..."
                   idleText="Pull from Game"
                   color="green"
+                  title="Copy sounds.json from game/assets/sounds/ to audio repo root"
                 />
               ) : (
                 <span className="text-[10px] text-text-dim/40 italic">Link repo first</span>
@@ -248,7 +250,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               <svg className="w-4 h-4 text-sky-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Game Dependencies</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim" title="Installs npm packages in the game repo (yarn install) — requires VPN for internal registry">Game Dependencies</span>
               <span className="text-[10px] font-mono text-text-dim/50">yarn install</span>
               <div className="flex-1" />
               {hasGame ? (
@@ -260,6 +262,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                   idleText="Install"
                   variant={project?.gameNodeModulesExists === false ? 'primary' : 'ghost'}
                   color="cyan"
+                  title="Run yarn install in game repo — requires VPN access to internal npm registry"
                 />
               ) : (
                 <span className="text-[10px] text-text-dim/40 italic">Link repo first</span>
