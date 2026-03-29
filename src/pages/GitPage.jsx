@@ -6,11 +6,14 @@ export default function GitPage({ project, showToast }) {
   const [commitMsg, setCommitMsg] = useState('');
   const [pushing, setPushing] = useState(false);
 
+  const [autoFilled, setAutoFilled] = useState(false);
+
   const refresh = async () => {
     setLoading(true);
     try {
       const r = await window.api.gitStatus();
       setStatus(r);
+      setAutoFilled(false); // allow auto-fill on next render
     } catch (e) {
       setStatus({ error: e.message });
     }
@@ -20,6 +23,7 @@ export default function GitPage({ project, showToast }) {
   useEffect(() => {
     setStatus(null);
     setCommitMsg('');
+    setAutoFilled(false);
     if (project) refresh();
   }, [project?.path]);
 
@@ -46,6 +50,44 @@ export default function GitPage({ project, showToast }) {
 
   const files = (status?.status || '').split('\n').filter(Boolean);
   const hasChanges = files.length > 0;
+
+  // Auto-generate commit message from changed files
+  const generateCommitMsg = () => {
+    if (!hasChanges) return '';
+    const newWavs = files.filter(f => f.includes('sourceSoundFiles/') && (f.startsWith('??') || f.startsWith(' A') || f.startsWith('A '))).length;
+    const delWavs = files.filter(f => f.includes('sourceSoundFiles/') && (f.startsWith(' D') || f.startsWith('D '))).length;
+    const modWavs = files.filter(f => f.includes('sourceSoundFiles/') && (f.startsWith(' M') || f.startsWith('M '))).length;
+    const soundsJsonChanged = files.some(f => f.endsWith('sounds.json') && !f.includes('dist/'));
+    const spriteConfigChanged = files.some(f => f.includes('sprite-config.json'));
+    const distChanged = files.some(f => f.includes('dist/'));
+    const scriptsChanged = files.some(f => f.includes('scripts/'));
+    const settingsChanged = files.some(f => f.includes('settings.json'));
+    const pkgChanged = files.some(f => f.includes('package.json'));
+
+    const parts = [];
+    if (newWavs > 0) parts.push(`add ${newWavs} sound${newWavs > 1 ? 's' : ''}`);
+    if (delWavs > 0) parts.push(`remove ${delWavs} sound${delWavs > 1 ? 's' : ''}`);
+    if (modWavs > 0) parts.push(`update ${modWavs} sound${modWavs > 1 ? 's' : ''}`);
+    if (soundsJsonChanged && !newWavs && !delWavs) parts.push('update commands');
+    if (spriteConfigChanged) parts.push('update sprite config');
+    if (distChanged && !parts.length) parts.push('rebuild audio sprites');
+    if (scriptsChanged && !parts.length) parts.push('update build scripts');
+    if (settingsChanged && !parts.length) parts.push('update settings');
+    if (pkgChanged && !parts.length) parts.push('update dependencies');
+    if (!parts.length) parts.push(`update ${files.length} file${files.length > 1 ? 's' : ''}`);
+
+    // Capitalize first letter
+    const msg = parts.join(', ');
+    return msg.charAt(0).toUpperCase() + msg.slice(1);
+  };
+
+  // Auto-fill commit message when status changes
+  useEffect(() => {
+    if (!autoFilled && hasChanges && !commitMsg.trim()) {
+      setCommitMsg(generateCommitMsg());
+      setAutoFilled(true);
+    }
+  }, [hasChanges, autoFilled]);
 
   return (
     <div className="anim-fade-up h-full flex flex-col gap-2">

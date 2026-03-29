@@ -219,6 +219,12 @@ function loadProject(dirPath) {
   data.spriteConfig = readJsonSafe(path.join(dirPath, 'sprite-config.json'));
   data.soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
 
+  // Ensure .gitattributes exists for consistent line endings
+  const gitattrsPath = path.join(dirPath, '.gitattributes');
+  if (!fs.existsSync(gitattrsPath)) {
+    try { fs.writeFileSync(gitattrsPath, '* text=auto\n*.wav binary\n*.m4a binary\n*.mp3 binary\n*.ogg binary\n'); } catch {}
+  }
+
   // Resolve gameProjectPath to absolute for UI display
   if (data.settings?.gameProjectPath) {
     const abs = path.resolve(dirPath, data.settings.gameProjectPath);
@@ -432,9 +438,106 @@ ipcMain.handle('git-commit-push', async (event, message) => {
     execFileSync('git', ['add', '-A'], opts);
     execFileSync('git', ['commit', '-m', message.trim()], opts);
     execFileSync('git', ['push'], { cwd: projectPath, timeout: 60000 });
+    try { execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 15000 }); } catch {}
     return { success: true };
   } catch (e) {
     return { error: e.message };
+  }
+});
+
+// ── Game Repo Git Operations ──
+
+ipcMain.handle('game-git-status', async () => {
+  if (!projectPath) return { error: 'No project open' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
+  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
+  try {
+    const opts = { cwd: gameRepoPath, timeout: 10000 };
+    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts).toString().trim();
+    const status = execFileSync('git', ['status', '--porcelain'], opts).toString().trim();
+    const files = status ? status.split('\n') : [];
+    // List remote branches to find develop/release
+    let remoteBranches = [];
+    try {
+      remoteBranches = execFileSync('git', ['branch', '-r', '--format', '%(refname:short)'], opts)
+        .toString().trim().split('\n').filter(Boolean).map(b => b.replace('origin/', '')).filter(b => b !== 'HEAD');
+    } catch {}
+    const hasDevelop = remoteBranches.includes('develop');
+    const releaseBranches = remoteBranches.filter(b => b.startsWith('release'));
+    return { branch, files, hasDevelop, releaseBranches, gameRepoPath };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranch, branchName, commitMsg }) => {
+  if (!projectPath) return { error: 'No project open' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
+  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
+  if (!commitMsg?.trim()) return { error: 'Commit message is required' };
+  if (!branchName?.trim()) return { error: 'Branch name is required' };
+  if (!/^[a-zA-Z0-9/_.-]+$/.test(branchName)) return { error: 'Invalid branch name characters' };
+  if (!targetBranch || !/^[a-zA-Z0-9/_.-]+$/.test(targetBranch)) return { error: 'Invalid target branch' };
+  try {
+    const opts = { cwd: gameRepoPath, timeout: 30000 };
+    // Fetch latest
+    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000 }); } catch {}
+    // Stash any local changes before switching branches
+    try { execFileSync('git', ['stash', '--include-untracked'], opts); } catch {}
+    // Checkout target branch and pull latest
+    execFileSync('git', ['checkout', targetBranch], opts);
+    try { execFileSync('git', ['pull', 'origin', targetBranch], { cwd: gameRepoPath, timeout: 30000 }); } catch {}
+    // Create new branch or switch to existing
+    try {
+      execFileSync('git', ['checkout', '-b', branchName], opts);
+    } catch {
+      // Branch exists — switch to it and reset to target
+      execFileSync('git', ['checkout', branchName], opts);
+      execFileSync('git', ['reset', '--hard', targetBranch], opts);
+    }
+    // Restore stashed changes
+    try { execFileSync('git', ['stash', 'pop'], opts); } catch (stashErr) {
+      // If stash pop fails with conflict, abort and report
+      const stashList = execFileSync('git', ['stash', 'list'], opts).toString().trim();
+      if (stashList) {
+        try { execFileSync('git', ['stash', 'drop'], opts); } catch {}
+        return { error: 'Stash conflict — your deployed files conflict with remote changes. Re-deploy and try again.' };
+      }
+    }
+    // Stage, commit, push
+    execFileSync('git', ['add', '-A'], opts);
+    execFileSync('git', ['commit', '-m', commitMsg.trim()], opts);
+    execFileSync('git', ['push', '-u', 'origin', branchName], { cwd: gameRepoPath, timeout: 60000 });
+    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000 }); } catch {}
+    return { success: true, branch: branchName };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('game-git-create-pr', async (event, { branchName, targetBranch, title }) => {
+  if (!projectPath) return { error: 'No project open' };
+  if (!branchName || !targetBranch || !title?.trim()) return { error: 'Missing PR parameters' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
+  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
+  try {
+    const ghBin = isWin ? 'gh.exe' : 'gh';
+    const result = execFileSync(ghBin, ['pr', 'create',
+      '--base', targetBranch,
+      '--head', branchName,
+      '--title', title.trim(),
+      '--body', 'Audio update'
+    ], { cwd: gameRepoPath, timeout: 30000, encoding: 'utf8' });
+    return { success: true, url: result.trim() };
+  } catch (e) {
+    const msg = e.code === 'ENOENT' ? 'GitHub CLI (gh) not installed — install from https://cli.github.com' : e.message;
+    return { error: msg };
   }
 });
 

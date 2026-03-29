@@ -13,6 +13,13 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [glrLoading, setGlrLoading] = useState(false);
   const [glrError, setGlrError] = useState('');
   const [gameStarted, setGameStarted] = useState(false); // stays true after timeout — keeps Kill visible
+  const [gameGit, setGameGit] = useState(null); // { branch, files, hasDevelop, releaseBranches }
+  const [gameGitLoading, setGameGitLoading] = useState(false);
+  const [gameGitBranchName, setGameGitBranchName] = useState('');
+  const [gameGitCommitMsg, setGameGitCommitMsg] = useState('');
+  const [gameGitTarget, setGameGitTarget] = useState('');
+  const [gameGitPushing, setGameGitPushing] = useState(false);
+  const [gameGitPrUrl, setGameGitPrUrl] = useState('');
   const logRef = useRef(null);
 
   // Auto-scroll log to bottom as lines stream in
@@ -29,6 +36,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError('');
     setGlrList([]); setGlrError('');
+    setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl('');
     if (project) { loadGameScripts(); loadGlrList(); }
   }, [project?.path]);
 
@@ -130,6 +138,73 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       showToast('Record error', 'error');
     }
     setRunning(null);
+  };
+
+  const loadGameGitStatus = async () => {
+    setGameGitLoading(true);
+    try {
+      const r = await window.api.gameGitStatus();
+      if (r?.error) { showToast(r.error, 'error'); setGameGit(null); }
+      else {
+        setGameGit(r);
+        // Auto-select target: prefer develop, fallback to first release, then current branch
+        const target = r.hasDevelop ? 'develop' : r.releaseBranches[0] || r.branch;
+        setGameGitTarget(target);
+
+        // Auto-generate branch name (only if empty or ends with default suffix)
+        const audioName = project?.path?.split(/[/\\]/).pop()?.replace('-audio', '') || 'audio';
+        const prefix = target.startsWith('release') ? 'bugfix/PA-' : 'feature/PA-';
+        const autoName = `${prefix}${audioName}-audio-update`;
+        if (!gameGitBranchName.trim() || gameGitBranchName.endsWith('-audio-update')) {
+          setGameGitBranchName(autoName);
+        }
+
+        // Auto-generate commit message from changed files (only if empty)
+        if (!gameGitCommitMsg.trim() && r.files.length > 0) {
+          const soundFiles = r.files.filter(f => f.includes('sounds/'));
+          const m4aCount = soundFiles.filter(f => f.includes('.m4a')).length;
+          const jsonChanged = soundFiles.some(f => f.includes('sounds.json'));
+          const parts = [];
+          if (m4aCount > 0) parts.push(`update ${m4aCount} audio sprite${m4aCount > 1 ? 's' : ''}`);
+          if (jsonChanged) parts.push('update sounds.json');
+          if (!parts.length) parts.push(`update ${r.files.length} file${r.files.length > 1 ? 's' : ''}`);
+          const msg = parts.join(', ');
+          setGameGitCommitMsg(msg.charAt(0).toUpperCase() + msg.slice(1));
+        }
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+    setGameGitLoading(false);
+  };
+
+  const handleGameGitPush = async () => {
+    if (gameGitPushing || !gameGitBranchName.trim() || !gameGitCommitMsg.trim()) return;
+    setGameGitPushing(true);
+    try {
+      const r = await window.api.gameGitCreateBranchCommitPush({
+        targetBranch: gameGitTarget,
+        branchName: gameGitBranchName.trim(),
+        commitMsg: gameGitCommitMsg.trim(),
+      });
+      if (r?.error) { showToast(r.error, 'error'); }
+      else {
+        showToast(`Pushed to ${r.branch}`, 'success');
+        // Auto-create PR
+        const pr = await window.api.gameGitCreatePr({
+          branchName: gameGitBranchName.trim(),
+          targetBranch: gameGitTarget,
+          title: gameGitCommitMsg.trim(),
+        });
+        if (pr?.success) {
+          setGameGitPrUrl(pr.url);
+          showToast('PR created', 'success');
+        } else {
+          showToast('Push OK but PR failed: ' + (pr?.error || 'gh CLI error'), 'error');
+        }
+        setGameGitCommitMsg('');
+        loadGameGitStatus();
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+    setGameGitPushing(false);
   };
 
   const loadGameScripts = async () => {
@@ -728,6 +803,85 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               </div>
             )}
           </div>
+
+          {/* GAME REPO GIT — commit, push, PR */}
+          {deployTarget && (
+            <div className="card p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="badge bg-accent-dim text-accent text-xs" title="Commit audio changes to game repo, create branch and PR">Game Repo Git</span>
+                  {gameGit && <span className="badge bg-purple-dim text-purple text-xs">{gameGit.branch}</span>}
+                  {gameGit && gameGit.files.length > 0 && <span className="badge bg-orange-dim text-orange text-xs">{gameGit.files.length} changes</span>}
+                </div>
+                <button onClick={loadGameGitStatus} disabled={gameGitLoading} className="text-xs text-text-dim hover:text-text-secondary transition-colors disabled:opacity-40">
+                  {gameGitLoading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
+
+              {!gameGit ? (
+                <p className="text-xs text-text-dim">Click Refresh to load game repo git status</p>
+              ) : gameGit.files.length === 0 ? (
+                <p className="text-xs text-green">No changes in game repo — deploy first</p>
+              ) : (
+                <div className="space-y-2">
+                  {/* Target branch */}
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-text-dim shrink-0">Target:</label>
+                    <select value={gameGitTarget} onChange={e => {
+                      setGameGitTarget(e.target.value);
+                      const audioName = project?.path?.split(/[/\\]/).pop()?.replace('-audio', '') || 'audio';
+                      const prefix = e.target.value.startsWith('release') ? 'bugfix/PA-' : 'feature/PA-';
+                      setGameGitBranchName(`${prefix}${audioName}-audio-update`);
+                    }} className="input-base text-xs font-mono flex-1 py-1">
+                      {gameGit.hasDevelop && <option value="develop">develop</option>}
+                      {gameGit.releaseBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                      {gameGit.branch !== 'develop' && !gameGit.releaseBranches.includes(gameGit.branch) && (
+                        <option value={gameGit.branch}>{gameGit.branch} (current)</option>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Branch name */}
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-text-dim shrink-0">Branch:</label>
+                    <input type="text" value={gameGitBranchName} onChange={e => setGameGitBranchName(e.target.value)}
+                      placeholder="feature/PA-audio-update" className="input-base text-xs font-mono flex-1 py-1" maxLength={100} />
+                  </div>
+
+                  {/* Commit message */}
+                  <div className="flex gap-2 items-center">
+                    <label className="text-xs text-text-dim shrink-0">Message:</label>
+                    <input type="text" value={gameGitCommitMsg} onChange={e => setGameGitCommitMsg(e.target.value)}
+                      placeholder="Update audio sprites" className="input-base text-xs flex-1 py-1"
+                      onKeyDown={e => e.key === 'Enter' && handleGameGitPush()} />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2">
+                    <button onClick={handleGameGitPush}
+                      disabled={gameGitPushing || !gameGitBranchName.trim() || !gameGitCommitMsg.trim()}
+                      className="btn-primary text-xs py-1.5 px-4 disabled:opacity-40"
+                      title="Create branch, commit changes, push, and open PR">
+                      {gameGitPushing ? 'Pushing...' : 'Commit, Push & PR'}
+                    </button>
+                    {gameGitPrUrl && (
+                      <button onClick={() => window.api.openUrl(gameGitPrUrl)} className="text-xs text-accent hover:text-accent/80 transition-colors font-mono truncate">
+                        {gameGitPrUrl}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Changed files preview */}
+                  <details className="text-xs">
+                    <summary className="text-text-dim cursor-pointer hover:text-text-secondary">{gameGit.files.length} changed file{gameGit.files.length !== 1 ? 's' : ''}</summary>
+                    <div className="mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                      {gameGit.files.map((f, i) => <p key={i} className="font-mono text-text-dim truncate">{f}</p>)}
+                    </div>
+                  </details>
+                </div>
+              )}
+            </div>
+          )}
 
         </div>
 

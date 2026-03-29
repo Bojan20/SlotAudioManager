@@ -48,4 +48,8 @@ contextBridge.exposeInMainWorld('api', {
   cleanOrphans: () => ipcRenderer.invoke('clean-orphans'),
   // Game hook scanner
   scanGameHooks: () => ipcRenderer.invoke('scan-game-hooks'),
+  // Game repo git
+  gameGitStatus: () => ipcRenderer.invoke('game-git-status'),
+  gameGitCreateBranchCommitPush: (opts) => ipcRenderer.invoke('game-git-create-branch-commit-push', opts),
+  gameGitCreatePr: (opts) => ipcRenderer.invoke('game-git-create-pr', opts),
 });
