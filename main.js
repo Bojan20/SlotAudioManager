@@ -1129,28 +1129,17 @@ ipcMain.handle('open-game-window', async (event, url) => {
     const oldPid = gameBrowserProcess.pid;
     gameBrowserProcess = null;
     if (isWin && oldPid) {
-      // Force kill immediately for quick relaunch — profile prefs patch handles crash state
       exec(`taskkill /F /T /PID ${oldPid}`, () => {});
     } else { try { process.kill(oldPid, 'SIGTERM'); } catch {} }
     await new Promise(r => setTimeout(r, 500));
   }
 
-  // Isolated profile so real browser sessions/auth never interfere
+  // Isolated profile — wiped on every launch for clean game state (no stale localStorage/SW cache)
   const profileDir = path.join(app.getPath('temp'), 'slot-audio-glr');
-
-  // Clear crash/restore state from previous session — prevents "Restore pages?" prompt
-  try {
-    const prefsFile = path.join(profileDir, 'Default', 'Preferences');
-    if (fs.existsSync(prefsFile)) {
-      const prefs = JSON.parse(fs.readFileSync(prefsFile, 'utf8'));
-      if (!prefs.profile) prefs.profile = {};
-      prefs.profile.exit_type = 'Normal';
-      prefs.profile.exited_cleanly = true;
-      if (!prefs.session) prefs.session = {};
-      prefs.session.restore_on_startup = 0;
-      fs.writeFileSync(prefsFile, JSON.stringify(prefs));
-    }
-  } catch {}
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { if (fs.existsSync(profileDir)) fs.rmSync(profileDir, { recursive: true, force: true }); break; }
+    catch { await new Promise(r => setTimeout(r, 500)); }
+  }
 
   const child = spawn(browserPath, [
     '--new-window',
