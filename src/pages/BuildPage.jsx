@@ -138,80 +138,13 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     );
   }
 
-  const autoGenerateOrphanCommands = async (proj) => {
-    const sj = proj?.soundsJson;
-    if (!sj?.soundDefinitions?.soundSprites) return 0;
-    const sprites = sj.soundDefinitions.soundSprites;
-    const commands = sj.soundDefinitions.commands || {};
-    // Find all spriteIds referenced by any command (direct or via sprite list)
-    const lists = sj.soundDefinitions.spriteList || {};
-    const referenced = new Set();
-    for (const actions of Object.values(commands)) {
-      for (const a of actions) {
-        if (a.spriteId) referenced.add(a.spriteId);
-        if (a.spriteListId && lists[a.spriteListId]) {
-          const list = lists[a.spriteListId];
-          const items = Array.isArray(list) ? list : (list?.items || []);
-          for (const item of items) { if (item) referenced.add(item); }
-        }
-      }
-    }
-    const orphans = Object.keys(sprites).filter(id => !referenced.has(id));
-    if (orphans.length === 0) return 0;
-    const j = structuredClone(sj);
-    if (!j.soundDefinitions.commands) j.soundDefinitions.commands = {};
-    for (const spriteId of orphans) {
-      const n = spriteId.replace(/^s_/, '');
-      const hookName = `on${n}`;
-      const action = /Loop$/i.test(spriteId)
-        ? { command: 'Play', spriteId, volume: 1, loop: -1 }
-        : { command: 'Play', spriteId, volume: 1 };
-      if (j.soundDefinitions.commands[hookName]) {
-        // Command exists — append action only if this spriteId isn't already referenced
-        const existing = j.soundDefinitions.commands[hookName];
-        if (!existing.some(a => a.spriteId === spriteId)) {
-          existing.push(action);
-        }
-      } else {
-        j.soundDefinitions.commands[hookName] = [action];
-      }
-    }
-    const r = await window.api.saveSoundsJson(j);
-    if (!r?.success) return 0; // save failed — don't claim orphans were fixed
-    const updated = structuredClone(proj);
-    updated.soundsJson = j;
-    setProject(updated);
-    return orphans.length;
-  };
-
   const fullPipeline = async () => {
     setRunning('pipeline'); setLog(''); setResult(null);
     const step = (label) => setLog(prev => prev + `\n━━ ${label} ━━\n`);
     try {
-      // Step 1: Pull
-      step('Step 1/5 — Pull sounds.json');
-      const pull = await window.api.pullGameJson();
-      if (!pull?.success) {
-        setLog(prev => prev + `✖ ${pull?.error || 'Failed'}`);
-        setResult({ script: 'pipeline', ok: false }); showToast('Pipeline failed at Pull', 'error'); setRunning(null); return;
-      }
-      if (pull.project) setProject(pull.project);
-      setLog(prev => prev + `✔ Copied from: ${pull.source}\n`);
-
-      // Step 1.5: Auto-generate commands for orphan sprites
-      step('Step 2/5 — Fix orphan sprites');
-      const latestProject = pull.project || project;
-      const orphanCount = await autoGenerateOrphanCommands(latestProject);
-      if (orphanCount > 0) {
-        setLog(prev => prev + `✔ Generated ${orphanCount} command(s) for unmapped sprites\n`);
-      } else {
-        setLog(prev => prev + `✔ No orphans — all sprites have commands\n`);
-      }
-
-      // Step 3: Build — auto-detect script based on project config
-      // If sprite-config.json has sounds assigned to tiers → use tiered build
-      // Otherwise fallback to size-based or single sprite build
-      const spriteConfig = latestProject?.spriteConfig;
+      // Step 1: Build — auto-detect script based on project config
+      // Root sounds.json is source of truth — no pull (user edits are authoritative)
+      const spriteConfig = project?.spriteConfig;
       const hasTieredSounds = spriteConfig?.sprites && Object.values(spriteConfig.sprites).some(t => t.sounds?.length > 0);
       const buildScript = hasTieredSounds && scripts['build'] ? 'build'
         : scripts['build-audioSprites-size'] ? 'build-audioSprites-size'
@@ -223,7 +156,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         setLog(prev => prev + '✖ No build script found in package.json');
         setResult({ script: 'pipeline', ok: false }); showToast('No build script', 'error'); setRunning(null); return;
       }
-      step(`Step 3/5 — Build (${buildScript})`);
+      step(`Step 1/3 — Build (${buildScript})`);
       const build = await window.api.runScript(buildScript);
       if (!build?.success) {
         setLog(prev => prev + '\n✖ Build failed');
@@ -231,8 +164,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       }
       setLog(prev => prev + '\n✔ Build complete\n');
 
-      // Step 4: Validate
-      step('Step 4/5 — Validate');
+      // Step 2: Validate
+      step('Step 2/3 — Validate');
       const validate = await window.api.runScript('build-validate');
       if (!validate?.success) {
         setLog(prev => prev + '\n⚠ Validation has errors — check log above');
@@ -240,12 +173,12 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         setLog(prev => prev + '\n✔ Validation passed\n');
       }
 
-      // Step 5: Deploy
+      // Step 3: Deploy
       const refreshed = await window.api.reloadProject();
       if (refreshed && setProject) setProject(refreshed);
-      const canDeploy = deployScripts.includes('deploy') && refreshed?.gameRepoExists && refreshed?.distInfo?.hasDist;
+      const canDeploy = deployScripts.includes('deploy') && refreshed?.gameRepoExists && refreshed?.distInfo?.hasDist && refreshed?.distInfo?.hasSoundsJson;
       if (canDeploy) {
-        step('Step 5/5 — Deploy');
+        step('Step 3/3 — Deploy');
         const dr = await window.api.runDeploy('deploy');
         setLog(prev => prev + (dr?.success ? '\n✔ Deployed\n' : '\n✖ Deploy failed\n'));
         setResult({ script: 'pipeline', ok: dr?.success ?? false });
@@ -427,7 +360,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                   <button
                     onClick={fullPipeline}
                     disabled={running !== null}
-                    title="Pull → fix orphans → build → validate → deploy"
+                    title="Build → validate → deploy"
                     className={running === 'pipeline' ? 'btn-ghost text-green border-green/30 cursor-wait text-xs py-1 px-2.5' : 'btn-primary text-xs py-1 px-2.5 disabled:opacity-40 disabled:cursor-not-allowed'}
                   >
                     {running === 'pipeline' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green mr-1.5 anim-pulse-dot" />}
@@ -528,7 +461,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         {/* ═══ RIGHT: Game ═══ */}
         <div className="flex flex-col gap-1.5 min-h-0 overflow-y-auto pr-0.5">
 
-          {/* LAUNCH + GLR — merged card */}
+          {/* LAUNCH GAME */}
           <div className="card p-2.5 space-y-2">
             {/* Header */}
             <div className="flex items-center gap-2">
