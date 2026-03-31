@@ -319,6 +319,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [editStep, setEditStep] = useState(null);
   const [confirmDeleteCmd, setConfirmDeleteCmd] = useState(null);
   const [renameCmd, setRenameCmd] = useState(null);
+  const [clipboard, setClipboard] = useState(null); // { name, actions }
   const [scanResult, setScanResult] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [scanFixInclude, setScanFixInclude] = useState({ add: {}, remove: {}, fill: {} });
@@ -333,7 +334,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     setFilter(''); setExpanded(null); setGenPreview(null);
     setNewCmd(null); setAddStep(null); setEditStep(null); setConfirmDeleteCmd(null);
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
-    setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null);
+    setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null); setClipboard(null);
   }, [project?.path]);
 
   // Close inline list editor when command expand/collapse changes
@@ -524,6 +525,17 @@ export default function CommandsPage({ project, setProject, showToast }) {
       if (s.targetType !== 'list' && !s.spriteId) { showToast('Izaberi spriteId', 'error'); return false; }
     }
     return true;
+  };
+
+  const handlePasteCmd = async () => {
+    if (!clipboard || saving) return;
+    let name = clipboard.name + '_copy';
+    let i = 1;
+    while (commands[name]) { name = clipboard.name + '_copy' + (++i); }
+    const j = structuredClone(project.soundsJson);
+    j.soundDefinitions.commands[name] = structuredClone(clipboard.actions);
+    const ok = await saveJson(j, `Pasted "${name}"`);
+    if (ok) setExpanded(name);
   };
 
   const handleSaveNewCmd = async () => {
@@ -762,13 +774,26 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   Generate Missing ({unmapped.length})
                 </button>
               )}
+              {clipboard && (
+                <button
+                  onClick={handlePasteCmd}
+                  disabled={saving}
+                  title={`Paste command "${clipboard.name}" as new`}
+                  className="btn-ghost text-xs py-2 flex items-center gap-1.5 border-cyan/30 text-cyan hover:border-cyan/60 disabled:opacity-40"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  Paste
+                </button>
+              )}
               <button
                 onClick={() => setNewCmd(emptyStep({ hookName: '' }))}
                 disabled={saving}
                 title="Create a new sound command with a hook name and action steps"
                 className="btn-primary text-xs py-2 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                + New Command
+                + New
               </button>
             </>
           )}
@@ -884,6 +909,15 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 {issues.length > 0 && <span className="badge bg-danger-dim text-danger shrink-0">{issues.length} err</span>}
                 {isOpen && renameCmd?.oldName !== name && (
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setClipboard({ name, actions: structuredClone(commands[name] || []) }); showToast(`Copied "${name}"`, 'success'); }}
+                      className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-cyan hover:bg-cyan/10 transition-colors"
+                      title="Copy command"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setRenameCmd({ oldName: name, newName: name }); }}
                       disabled={saving}

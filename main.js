@@ -19,6 +19,18 @@ let gameProcess = null; // currently running game process (for kill support)
 let gameBrowserProcess = null; // tracked Chrome/Edge window for game preview
 let buildProcess = null; // currently running build/deploy script
 
+// Undo/Redo history — tracks file changes (sounds.json, sprite-config.json)
+const undoStack = [];
+const redoStack = [];
+const MAX_HISTORY = 50;
+
+function pushUndo(filePath, prevContent, nextContent) {
+  if (prevContent === nextContent) return; // no change — skip
+  undoStack.push({ file: filePath, prev: prevContent, next: nextContent });
+  if (undoStack.length > MAX_HISTORY) undoStack.shift();
+  redoStack.length = 0; // clear redo on new edit
+}
+
 
 // Accept self-signed certs from localhost (playa GLR uses HTTPS with self-signed cert)
 app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
@@ -211,6 +223,7 @@ ipcMain.handle('open-project', async () => {
   });
   if (result.canceled || !result.filePaths.length) return null;
   projectPath = result.filePaths[0];
+  undoStack.length = 0; redoStack.length = 0;
   return loadProject(projectPath);
 });
 
@@ -343,7 +356,11 @@ function loadProject(dirPath) {
 ipcMain.handle('save-sprite-config', async (event, config) => {
   if (!projectPath) return { error: 'No project open' };
   try {
-    fs.writeFileSync(path.join(projectPath, 'sprite-config.json'), JSON.stringify(config, null, 2));
+    const filePath = path.join(projectPath, 'sprite-config.json');
+    const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
+    const next = JSON.stringify(config, null, 2);
+    fs.writeFileSync(filePath, next);
+    if (prev !== null) pushUndo(filePath, prev, next);
     return { success: true };
   } catch (e) {
     return { error: e.message };
@@ -383,11 +400,41 @@ ipcMain.handle('save-sounds-json', async (event, data) => {
         }
       }
     }
-    fs.writeFileSync(path.join(projectPath, 'sounds.json'), JSON.stringify(data, null, 2));
+    const filePath = path.join(projectPath, 'sounds.json');
+    const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
+    const next = JSON.stringify(data, null, 2);
+    fs.writeFileSync(filePath, next);
+    if (prev !== null) pushUndo(filePath, prev, next);
     return { success: true };
   } catch (e) {
     return { error: e.message };
   }
+});
+
+ipcMain.handle('undo', async () => {
+  if (!projectPath || undoStack.length === 0) return { error: 'Nothing to undo' };
+  if (buildProcess) return { error: 'Cannot undo while build is running' };
+  try {
+    const entry = undoStack.pop();
+    fs.writeFileSync(entry.file, entry.prev);
+    redoStack.push(entry);
+    return { success: true, project: loadProject(projectPath), canUndo: undoStack.length > 0, canRedo: true };
+  } catch (e) { return { error: e.message }; }
+});
+
+ipcMain.handle('redo', async () => {
+  if (!projectPath || redoStack.length === 0) return { error: 'Nothing to redo' };
+  if (buildProcess) return { error: 'Cannot redo while build is running' };
+  try {
+    const entry = redoStack.pop();
+    fs.writeFileSync(entry.file, entry.next);
+    undoStack.push(entry);
+    return { success: true, project: loadProject(projectPath), canUndo: true, canRedo: redoStack.length > 0 };
+  } catch (e) { return { error: e.message }; }
+});
+
+ipcMain.handle('undo-status', async () => {
+  return { canUndo: undoStack.length > 0, canRedo: redoStack.length > 0 };
 });
 
 ipcMain.handle('save-settings', async (event, data) => {

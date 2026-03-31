@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo, Component } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect, Component } from 'react';
 import ProjectPage from './pages/ProjectPage';
 import SoundsPage from './pages/SoundsPage';
 import SpriteConfigPage from './pages/SpriteConfigPage';
@@ -50,11 +50,52 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
   const showToast = useCallback((msg, type = 'info') => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ msg, type });
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
+
+  const refreshUndoStatus = useCallback(async () => {
+    try { const s = await window.api.undoStatus(); setCanUndo(s.canUndo); setCanRedo(s.canRedo); } catch {}
+  }, []);
+
+  const handleUndo = useCallback(async () => {
+    try {
+      const r = await window.api.undo();
+      if (r?.success && r.project) { setProject(r.project); showToast('Undo', 'success'); }
+      else if (r?.error) showToast(r.error, 'error');
+      setCanUndo(r?.canUndo ?? false); setCanRedo(r?.canRedo ?? false);
+    } catch {}
+  }, [showToast]);
+
+  const handleRedo = useCallback(async () => {
+    try {
+      const r = await window.api.redo();
+      if (r?.success && r.project) { setProject(r.project); showToast('Redo', 'success'); }
+      else if (r?.error) showToast(r.error, 'error');
+      setCanUndo(r?.canUndo ?? false); setCanRedo(r?.canRedo ?? false);
+    } catch {}
+  }, [showToast]);
+
+  // Refresh undo status when project changes (after saves)
+  useEffect(() => { refreshUndoStatus(); }, [project, refreshUndoStatus]);
+
+  // Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); handleRedo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); handleRedo(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [handleUndo, handleRedo]);
 
   const openProject = async () => {
     try {
@@ -170,8 +211,28 @@ export default function App() {
           </div>
         </nav>
 
+        {/* ── Undo/Redo ── */}
+        {project && (
+          <div style={{ padding: '8px 16px 0', display: 'flex', gap: '6px' }}>
+            <button onClick={handleUndo} disabled={!canUndo}
+              className="btn-ghost flex-1 text-xs py-1.5 disabled:opacity-20"
+              title="Undo (Ctrl+Z)"
+            >
+              <svg className="w-3.5 h-3.5 mr-1 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" /></svg>
+              Undo
+            </button>
+            <button onClick={handleRedo} disabled={!canRedo}
+              className="btn-ghost flex-1 text-xs py-1.5 disabled:opacity-20"
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              Redo
+              <svg className="w-3.5 h-3.5 ml-1 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4" /></svg>
+            </button>
+          </div>
+        )}
+
         {/* ── Bottom action ── */}
-        <div style={{ padding: '16px 16px 20px 16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+        <div style={{ padding: '12px 16px 20px 16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
           <button onClick={openProject} className="btn-primary w-full" style={{ borderRadius: '12px', fontSize: '13px', padding: '12px 0' }}>
             {project ? 'Switch Project' : 'Open Project'}
           </button>
