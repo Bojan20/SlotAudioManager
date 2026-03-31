@@ -935,8 +935,8 @@ ipcMain.handle('yarn-install-game', async () => {
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   return new Promise((resolve) => {
-    // Accept self-signed certs (IGT internal npm registry) + increase network timeout
-    const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    const env = getGameNodeEnv(gameRepoPath);
+    env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
     const child = exec('yarn install --network-timeout 60000', { cwd: gameRepoPath, timeout: 300000, maxBuffer: 5 * 1024 * 1024, env });
     let output = '';
     child.stdout?.on('data', d => { output += d; });
@@ -1006,14 +1006,14 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: isWin,
-        env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
+        env: getGameNodeEnv(gameRepoPath)
       });
     } else {
       child = spawn('yarn', [scriptName], {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: isWin,
-        env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
+        env: getGameNodeEnv(gameRepoPath)
       });
     }
     gameProcess = child;
@@ -1045,7 +1045,55 @@ ipcMain.handle('pull-game-json', async () => {
   }
 });
 
-// Build game repo (yarn build-dev) — waits for completion, streams output
+// Resolve Node binary for a game repo — checks .nvmrc, engines, nvm versions
+// Returns path to node exe or null (use system default)
+const gameNodeCache = {}; // gameRepoPath → nodeDir (cached per session)
+
+function findNvmNodeVersions() {
+  const nvmHome = process.env.NVM_HOME || process.env.NVM_DIR;
+  if (!nvmHome || !fs.existsSync(nvmHome)) return [];
+  try {
+    return fs.readdirSync(nvmHome)
+      .filter(d => /^v?\d+\.\d+/.test(d) && fs.existsSync(path.join(nvmHome, d, isWin ? 'node.exe' : 'bin/node')))
+      .map(d => ({ version: d.replace(/^v/, ''), dir: path.join(nvmHome, d) }))
+      .sort((a, b) => {
+        const pa = a.version.split('.').map(Number), pb = b.version.split('.').map(Number);
+        for (let i = 0; i < 3; i++) { if ((pa[i]||0) !== (pb[i]||0)) return (pb[i]||0) - (pa[i]||0); }
+        return 0;
+      });
+  } catch { return []; }
+}
+
+function getGameNodeEnv(gameRepoPath) {
+  // Check cache
+  if (gameNodeCache[gameRepoPath]) {
+    const dir = gameNodeCache[gameRepoPath];
+    if (dir === 'system') return { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    const nodeBin = isWin ? dir : path.join(dir, 'bin');
+    return { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', PATH: nodeBin + path.delimiter + process.env.PATH };
+  }
+  return { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+}
+
+function runBuildDev(gameRepoPath, nodeDir, send) {
+  return new Promise((resolve) => {
+    const env = nodeDir
+      ? { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + process.env.PATH }
+      : { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    const child = spawn('yarn', ['build-dev'], {
+      cwd: gameRepoPath, stdio: ['ignore', 'pipe', 'pipe'], shell: isWin, env
+    });
+    buildProcess = child;
+    let output = '';
+    const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'build-dev timeout (5 min)', output }); }, 300000);
+    child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
+    child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
+    child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0, output }); });
+    child.on('error', (e) => { clearTimeout(timer); buildProcess = null; resolve({ success: false, error: e.message, output }); });
+  });
+}
+
+// Build game repo (yarn build-dev) — auto-detects compatible Node version
 ipcMain.handle('build-game', async () => {
   if (!projectPath) return { error: 'No project open' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
@@ -1055,19 +1103,43 @@ ipcMain.handle('build-game', async () => {
   const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
   if (!gamePkg?.scripts?.['build-dev']) return { error: 'No build-dev script in game package.json' };
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
-  return new Promise((resolve) => {
-    const child = spawn('yarn', ['build-dev'], {
-      cwd: gameRepoPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWin,
-      env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
-    });
-    const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'build-dev timeout (5 min)' }); }, 300000);
-    child.stdout.on('data', d => send(d.toString()));
-    child.stderr.on('data', d => send(d.toString()));
-    child.on('close', (code) => { clearTimeout(timer); resolve({ success: code === 0 }); });
-    child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, error: e.message }); });
+
+  // If cached — use directly
+  if (gameNodeCache[gameRepoPath]) {
+    const dir = gameNodeCache[gameRepoPath] === 'system' ? null : gameNodeCache[gameRepoPath];
+    return runBuildDev(gameRepoPath, dir, send);
+  }
+
+  // Try with system Node first
+  send(`build-dev with Node ${process.version}...\n`);
+  const result = await runBuildDev(gameRepoPath, null, send);
+  if (result.success) {
+    gameNodeCache[gameRepoPath] = 'system';
+    return result;
+  }
+
+  // Check if failure is the known Node 22 + old webpack bug
+  const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED/.test(result.output || '');
+  if (!isNodeCompatBug) return result; // real error, not Node version issue
+
+  // Try older Node versions via nvm
+  const versions = findNvmNodeVersions();
+  const fallbacks = versions.filter(v => {
+    const major = parseInt(v.version.split('.')[0]);
+    return major >= 16 && major < parseInt(process.versions.node.split('.')[0]);
   });
+
+  for (const fb of fallbacks) {
+    send(`\n⚠ Node ${process.version} incompatible — retrying with Node ${fb.version}...\n`);
+    const fbResult = await runBuildDev(gameRepoPath, fb.dir, send);
+    if (fbResult.success) {
+      gameNodeCache[gameRepoPath] = fb.dir;
+      send(`\n✔ Cached Node ${fb.version} for this game repo\n`);
+      return fbResult;
+    }
+  }
+
+  return { success: false, error: `build-dev failed with all Node versions (${process.version}, ${fallbacks.map(f => f.version).join(', ')})` };
 });
 
 // Stop everything — build process + game process + browser + port 8080
