@@ -227,6 +227,38 @@ function loadProject(dirPath) {
     try { fs.writeFileSync(gitattrsPath, '* text=auto\n*.wav binary\n*.m4a binary\n*.mp3 binary\n*.ogg binary\n'); } catch {}
   }
 
+  // Auto-detect game repo if not configured — convention: {name}-audio → {name}-game in same parent
+  if (!data.settings?.gameProjectPath) {
+    const folderName = path.basename(dirPath);
+    if (folderName.endsWith('-audio')) {
+      const gameName = folderName.replace(/-audio$/, '-game');
+      const gameCandidate = path.join(path.dirname(dirPath), gameName);
+      if (fs.existsSync(gameCandidate) && fs.existsSync(path.join(gameCandidate, 'package.json'))) {
+        const relPath = path.relative(dirPath, gameCandidate);
+        // Auto-configure: write to settings.json and update package.json
+        if (!data.settings) data.settings = {};
+        data.settings.gameProjectPath = relPath;
+        try {
+          const settingsPath = path.join(dirPath, 'settings.json');
+          const existing = readJsonSafe(settingsPath) || {};
+          existing.gameProjectPath = relPath;
+          fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 4));
+        } catch {}
+        // Update package.json name/description
+        try {
+          const pkgPath = path.join(dirPath, 'package.json');
+          const audioPkg = readJsonSafe(pkgPath);
+          if (audioPkg) {
+            const audioSlug = folderName;
+            audioPkg.name = audioSlug;
+            audioPkg.description = `Audio for ${gameName}`;
+            fs.writeFileSync(pkgPath, JSON.stringify(audioPkg, null, 2) + '\n');
+          }
+        } catch {}
+      }
+    }
+  }
+
   // Resolve gameProjectPath to absolute for UI display
   if (data.settings?.gameProjectPath) {
     const abs = path.resolve(dirPath, data.settings.gameProjectPath);

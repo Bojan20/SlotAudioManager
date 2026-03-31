@@ -473,9 +473,15 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               <p className="text-xs text-text-dim">Link a game repo in Setup first</p>
             ) : gameScripts.length > 0 ? (
               <div style={{ display: 'grid', gridTemplateColumns: 'auto auto', gap: '6px 12px', alignItems: 'center', justifyContent: 'start' }}>
-                {gameScripts.map(({ name, cmd }) => (
+                {gameScripts.map(({ name, cmd }) => {
+                  const serverMatch = cmd.match(/--server\s+([\w-]+)/);
+                  const server = serverMatch ? serverMatch[1] : null;
+                  return (
                   <React.Fragment key={name}>
-                    <p className="text-sm font-mono font-semibold text-text-primary" title={cmd}>{name}</p>
+                    <div>
+                      <p className="text-sm font-mono font-semibold text-text-primary" title={cmd}>{name}</p>
+                      {server && <p className="text-xs font-mono text-text-dim">{server}</p>}
+                    </div>
                     <button
                       onClick={() => runGameScript(name)}
                       disabled={running !== null}
@@ -486,7 +492,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                       {running === 'game:' + name ? 'Launching...' : 'Launch'}
                     </button>
                   </React.Fragment>
-                ))}
+                  );
+                })}
               </div>
             ) : loadingGameScripts ? (
               <p className="text-xs text-text-dim">Loading scripts...</p>
