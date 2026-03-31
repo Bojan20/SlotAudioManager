@@ -26,8 +26,16 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   // Subscribe to live script output — mount once, unmount cleanup
   useEffect(() => {
     const handler = (_, line) => {
-      // Filter noisy non-fatal DNS/TLS errors from playa process
-      if (/ENOTFOUND.*wagerworks|ENOTFOUND.*igt\.com|NODE_TLS_REJECT_UNAUTHORIZED/.test(line)) return;
+      // Filter noisy non-fatal warnings from yarn/playa/webpack
+      if (/NODE_TLS_REJECT_UNAUTHORIZED/.test(line)) return;
+      if (/ENOTFOUND.*wagerworks|ENOTFOUND.*igt\.com/.test(line)) return;
+      if (/warning.*incorrect peer dependency|warning.*unmet peer dependency/.test(line)) return;
+      if (/warning.*Invalid bin field/.test(line)) return;
+      if (/warning.*Workspaces can only be enabled/.test(line)) return;
+      if (/info There appears to be trouble with your network/.test(line)) return;
+      if (/ERR_INVALID_IP_ADDRESS/.test(line)) return;
+      if (/^\s*\(node:\d+\) Warning:/.test(line)) return;
+      if (/Use `node --trace-warnings/.test(line)) return;
       setLog(prev => prev + line);
     };
     window.api.onScriptOutput(handler);

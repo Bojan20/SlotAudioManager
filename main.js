@@ -856,7 +856,9 @@ ipcMain.handle('yarn-install-game', async () => {
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   return new Promise((resolve) => {
-    const child = exec('yarn install', { cwd: gameRepoPath, timeout: 300000, maxBuffer: 5 * 1024 * 1024 });
+    // Accept self-signed certs (IGT internal npm registry) + increase network timeout
+    const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    const child = exec('yarn install --network-timeout 60000', { cwd: gameRepoPath, timeout: 300000, maxBuffer: 5 * 1024 * 1024, env });
     let output = '';
     child.stdout?.on('data', d => { output += d; });
     child.stderr?.on('data', d => { output += d; });
@@ -924,13 +926,15 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       child = spawn(playaBin, args, {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin
+        shell: isWin,
+        env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
       });
     } else {
       child = spawn('yarn', [scriptName], {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin
+        shell: isWin,
+        env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
       });
     }
     gameProcess = child;
@@ -976,7 +980,8 @@ ipcMain.handle('build-game', async () => {
     const child = spawn('yarn', ['build-dev'], {
       cwd: gameRepoPath,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: isWin
+      shell: isWin,
+      env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' }
     });
     const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'build-dev timeout (5 min)' }); }, 300000);
     child.stdout.on('data', d => send(d.toString()));
@@ -1564,7 +1569,7 @@ ipcMain.handle('npm-install', async () => {
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   return new Promise((resolve) => {
     let output = '';
-    const child = exec(cmd, { cwd: projectPath, timeout: 240000, maxBuffer: 5 * 1024 * 1024 });
+    const child = exec(cmd, { cwd: projectPath, timeout: 240000, maxBuffer: 5 * 1024 * 1024, env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
     child.stdout?.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr?.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.on('close', (code) => {

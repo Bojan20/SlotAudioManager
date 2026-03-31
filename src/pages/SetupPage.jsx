@@ -118,7 +118,8 @@ export default function SetupPage({ project, setProject, showToast }) {
     setGameInstalling(true); setGameInstallLog('Running yarn install in game repo...\n');
     try {
       const r = await window.api.yarnInstallGame();
-      setGameInstallLog(r.output || r.error || '');
+      const noise = /NODE_TLS_REJECT_UNAUTHORIZED|incorrect peer dependency|unmet peer dependency|Invalid bin field|Workspaces can only be enabled|trouble with your network|\(node:\d+\) Warning:|Use `node --trace-warnings/;
+      setGameInstallLog((r.output || r.error || '').split('\n').filter(l => !noise.test(l)).join('\n'));
       if (r.success) {
         if (r.success && r.project) setProject(r.project);
         showToast('Game dependencies installed', 'success');

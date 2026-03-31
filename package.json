@@ -36,15 +36,15 @@
     }
   },
   "type": "commonjs",
-  "dependencies": {},
   "devDependencies": {
-    "electron": "^28.3.3",
-    "electron-builder": "^26.8.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
     "@tailwindcss/vite": "^4.2.1",
     "@vitejs/plugin-react": "^6.0.0",
     "concurrently": "^9.2.1",
+    "electron": "^28.3.3",
+    "electron-builder": "^26.8.1",
+    "marked": "^17.0.5",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "tailwindcss": "^4.2.1",
     "vite": "^8.0.0",
     "wait-on": "^9.0.4"
