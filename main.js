@@ -1104,42 +1104,53 @@ ipcMain.handle('build-game', async () => {
   if (!gamePkg?.scripts?.['build-dev']) return { error: 'No build-dev script in game package.json' };
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
 
-  // If cached — use directly
+  // If cached — verify and use
   if (gameNodeCache[gameRepoPath]) {
     const dir = gameNodeCache[gameRepoPath] === 'system' ? null : gameNodeCache[gameRepoPath];
-    return runBuildDev(gameRepoPath, dir, send);
+    if (dir && !fs.existsSync(path.join(dir, isWin ? 'node.exe' : 'bin/node'))) {
+      delete gameNodeCache[gameRepoPath]; // stale cache — Node version was uninstalled
+    } else {
+      return runBuildDev(gameRepoPath, dir, send);
+    }
   }
 
-  // Try with system Node first
-  send(`build-dev with Node ${process.version}...\n`);
-  const result = await runBuildDev(gameRepoPath, null, send);
+  // Try with system Node silently (don't stream output — if it fails, user doesn't see noise)
+  const silentSend = () => {};
+  const result = await runBuildDev(gameRepoPath, null, silentSend);
   if (result.success) {
     gameNodeCache[gameRepoPath] = 'system';
+    // Re-stream the successful output line-by-line so renderer filter works per-line
+    for (const line of (result.output || '').split('\n')) send(line + '\n');
     return result;
   }
 
   // Check if failure is the known Node 22 + old webpack bug
   const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED/.test(result.output || '');
-  if (!isNodeCompatBug) return result; // real error, not Node version issue
+  if (!isNodeCompatBug) {
+    for (const line of (result.output || '').split('\n')) send(line + '\n');
+    return result;
+  }
 
-  // Try older Node versions via nvm
+  // Try older Node versions via nvm — stream output for these attempts
   const versions = findNvmNodeVersions();
   const fallbacks = versions.filter(v => {
     const major = parseInt(v.version.split('.')[0]);
     return major >= 16 && major < parseInt(process.versions.node.split('.')[0]);
   });
 
+  let lastError = '';
   for (const fb of fallbacks) {
-    send(`\n⚠ Node ${process.version} incompatible — retrying with Node ${fb.version}...\n`);
+    send(`Using Node ${fb.version} for this game...\n`);
     const fbResult = await runBuildDev(gameRepoPath, fb.dir, send);
     if (fbResult.success) {
       gameNodeCache[gameRepoPath] = fb.dir;
-      send(`\n✔ Cached Node ${fb.version} for this game repo\n`);
       return fbResult;
     }
+    lastError = fbResult.error || '';
   }
 
-  return { success: false, error: `build-dev failed with all Node versions (${process.version}, ${fallbacks.map(f => f.version).join(', ')})` };
+  const tried = [process.version, ...fallbacks.map(f => f.version)].join(', ');
+  return { success: false, error: fallbacks.length === 0 ? 'build-dev failed — no compatible Node found via nvm' : `build-dev failed with Node ${tried}${lastError ? ': ' + lastError : ''}` };
 });
 
 // Stop everything — build process + game process + browser + port 8080
