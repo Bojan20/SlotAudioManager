@@ -235,7 +235,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">Loop</span>
             </label>
           )}
-          {(isPlay || isStop) && (
+          {(isPlay || isStop || isFade) && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -329,13 +329,19 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [editList, setEditList] = useState(null); // { name, items, type, overlap, tags }
   const [editListInline, setEditListInline] = useState(null); // { name, items, type, overlap, loop, tags, cmdName, stepIdx }
   const [confirmDeleteList, setConfirmDeleteList] = useState(null);
+  const [selected, setSelected] = useState(new Set()); // multi-select for bulk ops
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
     setNewCmd(null); setAddStep(null); setEditStep(null); setConfirmDeleteCmd(null);
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
     setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null); setClipboard(null);
+    setSelected(new Set()); setConfirmBulkDelete(false);
   }, [project?.path]);
+
+  // Clear selection when switching tabs
+  useEffect(() => { setSelected(new Set()); setConfirmBulkDelete(false); }, [viewTab]);
 
   // Close inline list editor when command expand/collapse changes
   useEffect(() => { setEditListInline(null); setConfirmDeleteCmd(null); setRenameCmd(null); }, [expanded]);
@@ -511,7 +517,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
       if (!isNaN(r)) step.rate = r;
     }
     if (s.command === 'Play' && s.loop) step.loop = -1;
-    if ((s.command === 'Play' || s.command === 'Stop') && s.cancelDelay) step.cancelDelay = true;
+    if ((s.command === 'Play' || s.command === 'Stop' || s.command === 'Fade') && s.cancelDelay) step.cancelDelay = true;
     if (s.overlap) step.overlap = true;
 
     return step;
@@ -536,6 +542,14 @@ export default function CommandsPage({ project, setProject, showToast }) {
     j.soundDefinitions.commands[name] = structuredClone(clipboard.actions);
     const ok = await saveJson(j, `Pasted "${name}"`);
     if (ok) setExpanded(name);
+  };
+
+  const handlePasteSteps = async (targetCmd) => {
+    if (!clipboard || saving || !targetCmd) return;
+    const j = structuredClone(project.soundsJson);
+    const existing = j.soundDefinitions.commands[targetCmd] || [];
+    j.soundDefinitions.commands[targetCmd] = [...existing, ...structuredClone(clipboard.actions)];
+    await saveJson(j, `Pasted ${clipboard.actions.length} step(s) into "${targetCmd}"`);
   };
 
   const handleSaveNewCmd = async () => {
@@ -580,7 +594,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
     delete j.soundDefinitions.commands[cmdName];
     setConfirmDeleteCmd(null);
     const ok = await saveJson(j, `Command "${cmdName}" deleted`);
-    if (ok) setExpanded(null);
+    if (ok) {
+      setExpanded(null);
+      setSelected(prev => { const next = new Set(prev); next.delete(cmdName); return next; });
+    }
   };
 
   const handleRenameCmd = async () => {
@@ -714,13 +731,42 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (ok) setEditListInline(null);
   };
 
+  const toggleSelect = (name) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    return next;
+  });
+
+  const toggleSelectAll = (names) => setSelected(prev => {
+    const allSelected = names.every(n => prev.has(n));
+    if (allSelected) return new Set();
+    return new Set(names);
+  });
+
+  const handleBulkDelete = async () => {
+    if (!selected.size || saving) return;
+    setSaving(true);
+    try {
+      const j = structuredClone(project.soundsJson);
+      const section = viewTab === 'commands' ? 'commands' : 'spriteList';
+      if (!j.soundDefinitions[section]) { setSaving(false); return; }
+      for (const name of selected) delete j.soundDefinitions[section][name];
+      const ok = await saveJson(j, `Deleted ${selected.size} ${viewTab === 'commands' ? 'command' : 'sprite list'}${selected.size > 1 ? 's' : ''}`);
+      if (ok) { setSelected(new Set()); setConfirmBulkDelete(false); setExpanded(null); }
+    } catch (e) {
+      showToast('Bulk delete failed: ' + e.message, 'error');
+    }
+    setSaving(false);
+  };
+
   const handleDeleteList = async (name) => {
     if (saving) return;
     const j = structuredClone(project.soundsJson);
     if (!j.soundDefinitions.spriteList) return;
     delete j.soundDefinitions.spriteList[name];
     setConfirmDeleteList(null);
-    await saveJson(j, `Sprite list "${name}" deleted`);
+    const ok = await saveJson(j, `Sprite list "${name}" deleted`);
+    if (ok) setSelected(prev => { const next = new Set(prev); next.delete(name); return next; });
   };
 
   const spriteListNames = useMemo(() =>
@@ -747,6 +793,24 @@ export default function CommandsPage({ project, setProject, showToast }) {
         )}
         {viewTab === 'lists' && (
           <span className="badge bg-purple-dim text-purple" title="Sprite lists group multiple sprites for random/sequential playback">{Object.keys(spriteLists).length}</span>
+        )}
+        {selected.size > 0 && (
+          <div className="flex items-center gap-2 relative">
+            <span className="badge bg-danger-dim text-danger">{selected.size} selected</span>
+            {!confirmBulkDelete ? (
+              <button onClick={() => setConfirmBulkDelete(true)} disabled={saving} className="btn-ghost text-xs py-1.5 px-3 !border-danger/30 text-danger hover:bg-danger/10 disabled:opacity-40">
+                Delete Selected
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-bg-secondary border border-danger/40 shadow-lg anim-fade-in">
+                <span className="text-xs text-danger">Delete {selected.size}?</span>
+                <button onClick={handleBulkDelete} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400">Yes</button>
+                <span className="text-border">|</span>
+                <button onClick={() => setConfirmBulkDelete(false)} className="text-xs text-text-dim hover:text-text-primary">Cancel</button>
+              </div>
+            )}
+            <button onClick={() => setSelected(new Set())} className="text-xs text-text-dim hover:text-text-primary">Clear</button>
+          </div>
         )}
         <div className="flex items-center gap-2">
           {viewTab === 'commands' && (
@@ -830,6 +894,17 @@ export default function CommandsPage({ project, setProject, showToast }) {
       {/* ── Sprite Lists View ── */}
       {viewTab === 'lists' && (
         <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+          {spriteListNames.length > 0 && (
+            <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border/30 shrink-0 sticky top-0 bg-bg-primary/90 backdrop-blur-sm z-[1]">
+              <input
+                type="checkbox"
+                checked={spriteListNames.length > 0 && spriteListNames.every(n => selected.has(n))}
+                onChange={() => toggleSelectAll(spriteListNames)}
+                className="w-3.5 h-3.5 accent-accent shrink-0 rounded cursor-pointer"
+              />
+              <span className="text-[10px] text-text-dim uppercase tracking-wider">Select All</span>
+            </div>
+          )}
           {spriteListNames.map((name) => {
             const list = spriteLists[name];
             const items = Array.isArray(list) ? list : (list?.items || []);
@@ -839,6 +914,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
             return (
               <div key={name} style={{ borderBottom: '1px solid rgba(50,50,90,0.15)' }}>
                 <div className="w-full flex items-center gap-3 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(name)}
+                    onChange={() => toggleSelect(name)}
+                    className="w-3.5 h-3.5 accent-accent shrink-0 rounded cursor-pointer"
+                    onClick={e => e.stopPropagation()}
+                  />
                   <button onClick={() => setExpanded(expanded === name ? null : name)} className="flex items-center gap-3 min-w-0 hover:bg-bg-hover/50 transition-colors text-left rounded-md">
                     <svg className={`w-3.5 h-3.5 text-text-dim transition-transform shrink-0 ${expanded === name ? 'rotate-90' : ''}`} fill="currentColor" viewBox="0 0 20 20"><path d="M6 4l8 6-8 6V4z" /></svg>
                     <span className="text-[15px] font-mono truncate">{name}</span>
@@ -864,15 +946,16 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     )}
                     <div className="flex items-center gap-2 pt-1">
                       <button onClick={() => setEditList({ name, items: [...items], type: listType, overlap, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
-                      {confirmDeleteList === name ? (
-                        <>
-                          <span className="text-xs text-danger">Delete?</span>
-                          <button onClick={() => handleDeleteList(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes</button>
-                          <button onClick={() => setConfirmDeleteList(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
-                        </>
-                      ) : (
-                        <button onClick={() => setConfirmDeleteList(name)} disabled={saving} className="text-xs text-text-dim hover:text-danger transition-colors" title="Remove this sprite list from sounds.json">Delete</button>
-                      )}
+                      <div className="relative">
+                        <button onClick={() => setConfirmDeleteList(confirmDeleteList === name ? null : name)} disabled={saving} className="text-xs text-text-dim hover:text-danger transition-colors" title="Remove this sprite list from sounds.json">Delete</button>
+                        {confirmDeleteList === name && (
+                          <div className="absolute top-full left-0 mt-1 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-bg-secondary border border-danger/40 shadow-lg whitespace-nowrap anim-fade-in">
+                            <button onClick={() => handleDeleteList(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes, delete</button>
+                            <span className="text-border">|</span>
+                            <button onClick={() => setConfirmDeleteList(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -889,6 +972,17 @@ export default function CommandsPage({ project, setProject, showToast }) {
 
       {/* ── Commands View ── */}
       {viewTab === 'commands' && <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+        {cmdNames.length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-1.5 border-b border-border/30 shrink-0 sticky top-0 bg-bg-primary/90 backdrop-blur-sm z-[1]">
+            <input
+              type="checkbox"
+              checked={cmdNames.length > 0 && cmdNames.every(n => selected.has(n))}
+              onChange={() => toggleSelectAll(cmdNames)}
+              className="w-3.5 h-3.5 accent-accent shrink-0 rounded cursor-pointer"
+            />
+            <span className="text-[10px] text-text-dim uppercase tracking-wider">Select All</span>
+          </div>
+        )}
         {cmdNames.map((name) => {
           const actions = commands[name] || [];
           const issues = getIssues(name);
@@ -896,6 +990,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
           return (
             <div key={name} style={{ borderBottom: '1px solid rgba(50,50,90,0.15)' }}>
               <div className="w-full flex items-center gap-3 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={selected.has(name)}
+                  onChange={() => toggleSelect(name)}
+                  className="w-3.5 h-3.5 accent-accent shrink-0 rounded cursor-pointer"
+                  onClick={e => e.stopPropagation()}
+                />
                 <button
                   onClick={() => setExpanded(isOpen ? null : name)}
                   className="flex items-center gap-3 min-w-0 hover:bg-bg-hover/50 transition-colors text-left rounded-md"
@@ -928,16 +1029,25 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteCmd(name); }}
-                      disabled={saving}
-                      className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-danger hover:bg-danger/10 transition-colors"
-                      title="Delete command"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteCmd(confirmDeleteCmd === name ? null : name); }}
+                        disabled={saving}
+                        className={`w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] transition-colors ${confirmDeleteCmd === name ? 'text-danger bg-danger/10' : 'text-text-dim hover:text-danger hover:bg-danger/10'}`}
+                        title="Delete command"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                      {confirmDeleteCmd === name && (
+                        <div className="absolute top-full right-0 mt-1 z-10 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-bg-secondary border border-danger/40 shadow-lg whitespace-nowrap anim-fade-in">
+                          <button onClick={(e) => { e.stopPropagation(); handleDeleteCmd(name); }} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes, delete</button>
+                          <span className="text-border">|</span>
+                          <button onClick={(e) => { e.stopPropagation(); setConfirmDeleteCmd(null); }} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -962,14 +1072,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     </div>
                   )}
 
-                  {/* Delete command confirm */}
-                  {confirmDeleteCmd === name && (
-                    <div className="flex items-center gap-2 py-1.5 px-2 rounded-lg bg-danger-dim border border-danger/30">
-                      <span className="text-xs text-danger flex-1">Obrisati celu komandu?</span>
-                      <button onClick={() => handleDeleteCmd(name)} disabled={saving} className="text-xs text-danger font-semibold hover:text-red-400 transition-colors">Yes, delete</button>
-                      <button onClick={() => setConfirmDeleteCmd(null)} className="text-xs text-text-dim hover:text-text-primary transition-colors">Cancel</button>
-                    </div>
-                  )}
+                  {/* Delete confirm is now a dropdown popover below the delete button in the header */}
 
                   {issues.map((iss, i) => (
                     <p key={i} className="text-xs text-danger flex items-center gap-1.5">
@@ -1124,14 +1227,29 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     );
                   })}
 
-                  <button
-                    onClick={() => setAddStep(emptyStep({ cmdName: name }))}
-                    disabled={saving}
-                    className="text-xs text-text-dim hover:text-accent transition-colors pt-1 disabled:opacity-40"
-                    title="Add a new action step to this command"
-                  >
-                    + Add Step
-                  </button>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      onClick={() => setAddStep(emptyStep({ cmdName: name }))}
+                      disabled={saving}
+                      className="text-xs text-text-dim hover:text-accent transition-colors disabled:opacity-40"
+                      title="Add a new action step to this command"
+                    >
+                      + Add Step
+                    </button>
+                    {clipboard && clipboard.name !== name && (
+                      <button
+                        onClick={() => handlePasteSteps(name)}
+                        disabled={saving}
+                        className="text-xs text-cyan hover:text-cyan/80 transition-colors disabled:opacity-40 flex items-center gap-1"
+                        title={`Paste ${clipboard.actions.length} step(s) from "${clipboard.name}"`}
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                        Paste {clipboard.actions.length} step(s)
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

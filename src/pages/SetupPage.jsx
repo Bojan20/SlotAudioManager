@@ -55,12 +55,21 @@ export default function SetupPage({ project, setProject, showToast }) {
   const [gameInstalling, setGameInstalling] = useState(false);
   const [gameInstallLog, setGameInstallLog] = useState('');
   const [pulling, setPulling] = useState(false);
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [switching, setSwitching] = useState(false);
+  const [branchLog, setBranchLog] = useState('');
 
   useEffect(() => {
     setInitLog([]);
     setGameInstallLog('');
     setConfirmSync(false);
+    setBranchLog('');
+    setSelectedBranch(project?.gameRepoBranch || '');
   }, [project?.path]);
+
+  useEffect(() => {
+    if (project?.gameRepoBranch) setSelectedBranch(project.gameRepoBranch);
+  }, [project?.gameRepoBranch]);
 
   if (!project) {
     return (
@@ -121,8 +130,9 @@ export default function SetupPage({ project, setProject, showToast }) {
       const noise = /NODE_TLS_REJECT_UNAUTHORIZED|incorrect peer dependency|unmet peer dependency|Invalid bin field|Workspaces can only be enabled|trouble with your network|\(node:\d+\) Warning:|Use `node --trace-warnings/;
       setGameInstallLog((r.output || r.error || '').split('\n').filter(l => !noise.test(l)).join('\n'));
       if (r.success) {
-        if (r.success && r.project) setProject(r.project);
-        showToast('Game dependencies installed', 'success');
+        if (r.project) setProject(r.project);
+        if (r.detectedNode) showToast(`Game uses Node ${r.detectedNode} (auto-detected via nvm)`, 'success');
+        else showToast('Game dependencies installed', 'success');
       } else {
         showToast(r.error || 'yarn install failed', 'error');
       }
@@ -133,6 +143,28 @@ export default function SetupPage({ project, setProject, showToast }) {
     setGameInstalling(false);
   };
 
+  const checkoutBranch = async () => {
+    if (!selectedBranch || selectedBranch === project?.gameRepoBranch) return;
+    setSwitching(true); setBranchLog('');
+    try {
+      const r = await window.api.checkoutGameBranch(selectedBranch);
+      if (r?.success) {
+        if (r.project) setProject(r.project);
+        const newBranch = r.branch || selectedBranch;
+        setSelectedBranch(newBranch);
+        showToast(`Switched to ${newBranch}`, 'success');
+      } else {
+        setBranchLog(r?.error || 'Branch switch failed');
+        showToast(r?.error || 'Branch switch failed', 'error');
+      }
+    } catch (e) {
+      setBranchLog('Error: ' + e.message);
+      showToast('Branch switch failed', 'error');
+    }
+    setSwitching(false);
+  };
+
+  const gameOperationBusy = switching || gameInstalling || pulling;
   const hasGame = project?.settings?.gameProjectPath && project?.gameRepoExists;
 
   return (
@@ -211,6 +243,64 @@ export default function SetupPage({ project, setProject, showToast }) {
         {/* ═══ RIGHT — Game Repo Actions ═══ */}
         <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pl-0.5">
 
+          {/* ── 0. Game Branch Selector ── */}
+          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
+            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
+              <svg className="w-4 h-4 text-purple shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Game Branch</span>
+              {project?.gameRepoBranch && (
+                <span className="badge bg-purple-dim text-purple text-[10px]">{project.gameRepoBranch}</span>
+              )}
+              {project?.gameNodeVersion && (
+                <span className="badge bg-green/10 text-green text-[10px]" title="Detected Node version for this game repo">Node {project.gameNodeVersion}</span>
+              )}
+              <div className="flex-1" />
+            </div>
+            <div className="px-5 py-4">
+              {hasGame && project?.gameRepoBranches?.length > 0 ? (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2.5">
+                    <select
+                      value={selectedBranch}
+                      onChange={e => setSelectedBranch(e.target.value)}
+                      disabled={gameOperationBusy}
+                      className="input-base text-xs flex-1 !py-2 !rounded-xl"
+                    >
+                      {project.gameRepoBranch && !project.gameRepoBranches.includes(project.gameRepoBranch) && (
+                        <option value={project.gameRepoBranch}>{project.gameRepoBranch} (local)</option>
+                      )}
+                      {project.gameRepoBranches.map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                    </select>
+                    <ActionBtn
+                      onClick={checkoutBranch}
+                      disabled={gameOperationBusy || !selectedBranch || selectedBranch === project?.gameRepoBranch}
+                      loading={switching}
+                      loadingText="Switching..."
+                      idleText="Switch & Pull"
+                      color="purple"
+                      title="Checkout selected branch and pull latest changes"
+                    />
+                  </div>
+                  {selectedBranch === project?.gameRepoBranch && !switching && (
+                    <p className="text-[10px] text-text-dim/50 pl-1">Already on this branch</p>
+                  )}
+                  <LogBlock text={branchLog} maxH="max-h-20" />
+                </div>
+              ) : !hasGame ? (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-bg-primary/40 border border-border/30">
+                  <svg className="w-3.5 h-3.5 text-text-dim/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <p className="text-xs text-text-dim/60">Link a game repository in Project tab first</p>
+                </div>
+              ) : (
+                <p className="text-[11px] text-text-dim">No remote branches found</p>
+              )}
+            </div>
+          </div>
+
           {/* ── 1. Pull sounds.json ── */}
           <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
             <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
@@ -222,7 +312,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               {hasGame ? (
                 <ActionBtn
                   onClick={pullGameJson}
-                  disabled={pulling || !hasGame}
+                  disabled={gameOperationBusy || !hasGame}
                   loading={pulling}
                   loadingText="Pulling..."
                   idleText="Pull from Game"
@@ -257,7 +347,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               {hasGame ? (
                 <ActionBtn
                   onClick={yarnInstallGame}
-                  disabled={gameInstalling || !hasGame}
+                  disabled={gameOperationBusy || !hasGame}
                   loading={gameInstalling}
                   loadingText="Installing..."
                   idleText="Install"

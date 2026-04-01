@@ -50,6 +50,11 @@ if (!fs.existsSync(outDir)) {
 const soundDataFiles = fs.readdirSync(outDir).filter(f => f.startsWith('soundData_') && f.endsWith('.json'));
 console.log(`Found ${soundDataFiles.length} sprite data files`);
 
+if (soundDataFiles.length === 0) {
+    console.error('No soundData files found in ' + outDir + ' — run build first to generate sprite data.');
+    process.exit(1);
+}
+
 // Build a map: spriteId -> { soundId, startTime } from soundData files
 const spriteDataMap = {};
 const manifestEntries = [];
@@ -324,11 +329,8 @@ async function buildFinalJSON() {
     console.log(`  Sound sprites: ${Object.keys(sortedSoundSprites).length}`);
     console.log(`  Commands: ${Object.keys(cleanedCommands).length}`);
 
-    // Clean up soundData files
-    for (const dataFile of soundDataFiles) {
-        fs.rmSync(outDir + dataFile);
-    }
-    console.log(`Cleaned up ${soundDataFiles.length} temporary soundData files`);
+    // Keep soundData files — needed for incremental builds (cached tiers skip audiosprite,
+    // so these files are the only source of sprite timing for buildTieredJSON.js)
 }
 
 function formatJson(input) {

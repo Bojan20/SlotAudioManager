@@ -355,6 +355,16 @@ function loadProject(dirPath) {
     data.deployTarget = path.join(abs, 'assets', 'default', 'default', 'default', 'sounds');
     data.deployTargetExists = fs.existsSync(data.deployTarget);
 
+    // Surface cached Node version for game repo
+    const cached = gameNodeCache[abs];
+    if (cached === 'system') {
+      data.gameNodeVersion = process.version;
+    } else if (cached && typeof cached === 'string' && !cached.startsWith('_')) {
+      // nvm dir — extract version from folder name (e.g. "v18.20.4" or "18.20.4")
+      const dirName = path.basename(cached);
+      data.gameNodeVersion = dirName.startsWith('v') ? dirName : 'v' + dirName;
+    }
+
     // Collect branch info for UI — no auto-checkout, user picks branch
     if (data.gameRepoExists) {
       try {
@@ -597,13 +607,15 @@ ipcMain.handle('clean-dist', async () => {
   if (!projectPath) return { error: 'No project open' };
   const distSoundFiles = path.join(projectPath, 'dist', 'soundFiles');
   const distSoundsJson = path.join(projectPath, 'dist', 'sounds.json');
+  const buildCache = path.join(projectPath, '.build-cache.json');
   let removed = 0;
   try {
     if (fs.existsSync(distSoundFiles)) {
-      const files = fs.readdirSync(distSoundFiles).filter(f => f.endsWith('.m4a'));
+      const files = fs.readdirSync(distSoundFiles).filter(f => f.endsWith('.m4a') || (f.startsWith('soundData_') && f.endsWith('.json')));
       for (const f of files) { fs.rmSync(path.join(distSoundFiles, f)); removed++; }
     }
     if (fs.existsSync(distSoundsJson)) { fs.rmSync(distSoundsJson); removed++; }
+    if (fs.existsSync(buildCache)) { fs.rmSync(buildCache); removed++; }
     return { success: true, removed };
   } catch (e) {
     return { error: e.message };
@@ -1042,25 +1054,76 @@ ipcMain.handle('configure-game', async (event, { gameRepoPath }) => {
 });
 
 // yarn install in game repo — needed once before first game launch
+// Uses findYarnJs() + nvm fallback like build-game, cleans NODE_OPTIONS
+function runYarnInstall(gameRepoPath, nodeDir) {
+  return new Promise((resolve) => {
+    const baseEnv = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    delete baseEnv.NODE_OPTIONS;
+    let cmd, args, env, useShell;
+    if (nodeDir) {
+      const nodeExe = path.join(nodeDir, isWin ? 'node.exe' : 'bin/node');
+      const yarnJs = findYarnJs();
+      if (!yarnJs) return resolve({ success: false, error: 'yarn not found — install yarn globally (npm i -g yarn)', output: '' });
+      cmd = nodeExe;
+      args = [yarnJs, 'install', '--network-timeout', '60000'];
+      env = { ...baseEnv, PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + baseEnv.PATH };
+      useShell = false;
+    } else {
+      cmd = 'yarn';
+      args = ['install', '--network-timeout', '60000'];
+      env = baseEnv;
+      useShell = isWin;
+    }
+    const child = spawn(cmd, args, { cwd: gameRepoPath, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
+    let output = '';
+    const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'yarn install timeout (5 min)', output }); }, 300000);
+    child.stdout.on('data', d => { output += d.toString(); });
+    child.stderr.on('data', d => { output += d.toString(); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ success: code === 0, output }); });
+    child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, error: e.message, output }); });
+  });
+}
+
 ipcMain.handle('yarn-install-game', async () => {
   if (!projectPath) return { error: 'No project open' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
-  return new Promise((resolve) => {
-    const env = getGameNodeEnv(gameRepoPath);
-    env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-    const child = exec('yarn install --network-timeout 60000', { cwd: gameRepoPath, timeout: 300000, maxBuffer: 5 * 1024 * 1024, env });
-    let output = '';
-    child.stdout?.on('data', d => { output += d; });
-    child.stderr?.on('data', d => { output += d; });
-    child.on('close', (code) => {
-      const project = code === 0 ? loadProject(projectPath) : null;
-      resolve({ success: code === 0, output, project });
+
+  // Use cached Node version if available
+  const cached = gameNodeCache[gameRepoPath];
+  if (cached && cached !== 'system' && !cached.startsWith('_')) {
+    const result = await runYarnInstall(gameRepoPath, cached);
+    if (result.success) return { ...result, project: loadProject(projectPath) };
+  }
+
+  // Try system Node
+  const result = await runYarnInstall(gameRepoPath, null);
+  if (result.success) {
+    if (!cached) gameNodeCache[gameRepoPath] = 'system';
+    return { ...result, project: loadProject(projectPath) };
+  }
+
+  // Check for Node compat errors — try older versions via nvm
+  const isCompatBug = /ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines|error:0308010C|callback.*already called/.test(result.output || '');
+  if (isCompatBug) {
+    const sysNodeMajor = getSystemNodeMajor();
+    const versions = findNvmNodeVersions();
+    const fallbacks = versions.filter(v => {
+      const major = parseInt(v.version.split('.')[0]);
+      return major >= 16 && major < sysNodeMajor;
     });
-    child.on('error', (e) => resolve({ success: false, output: output || e.message, error: e.message }));
-  });
+    for (const fb of fallbacks) {
+      const fbResult = await runYarnInstall(gameRepoPath, fb.dir);
+      if (fbResult.success) {
+        gameNodeCache[gameRepoPath] = fb.dir;
+        return { ...fbResult, output: `Used Node ${fb.version}\n` + fbResult.output, project: loadProject(projectPath), detectedNode: fb.version };
+      }
+    }
+  }
+
+  return { success: false, output: result.output, error: result.error || 'yarn install failed' };
 });
 
 // Game launch scripts — reads game repo package.json and returns launch-related scripts
@@ -1116,19 +1179,35 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
         return { error: 'playa not found in game node_modules — run yarn install in game repo' };
       }
       const args = scriptCmd.slice('playa '.length).split(/\s+/).filter(Boolean);
+      const playaEnv = getGameNodeEnv(gameRepoPath);
+      delete playaEnv.NODE_OPTIONS;
       child = spawn(playaBin, args, {
         cwd: gameRepoPath,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: isWin,
-        env: getGameNodeEnv(gameRepoPath)
+        env: playaEnv
       });
     } else {
-      child = spawn('yarn', [scriptName], {
-        cwd: gameRepoPath,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        shell: isWin,
-        env: getGameNodeEnv(gameRepoPath)
-      });
+      const gameEnv = getGameNodeEnv(gameRepoPath);
+      delete gameEnv.NODE_OPTIONS;
+      const yarnJs = findYarnJs();
+      if (yarnJs) {
+        const nodeDir = gameNodeCache[gameRepoPath] && gameNodeCache[gameRepoPath] !== 'system' ? gameNodeCache[gameRepoPath] : null;
+        const nodeExe = nodeDir ? path.join(nodeDir, isWin ? 'node.exe' : 'bin/node') : process.execPath;
+        child = spawn(nodeExe, [yarnJs, scriptName], {
+          cwd: gameRepoPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: false,
+          env: gameEnv
+        });
+      } else {
+        child = spawn('yarn', [scriptName], {
+          cwd: gameRepoPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: isWin,
+          env: gameEnv
+        });
+      }
     }
     gameProcess = child;
     child.stdout.on('data', d => send(d.toString()));
@@ -1158,6 +1237,14 @@ ipcMain.handle('pull-game-json', async () => {
     return { error: e.message };
   }
 });
+
+// Get actual system Node major version (not Electron's bundled one)
+function getSystemNodeMajor() {
+  try {
+    const sv = execFileSync('node', ['-v'], { timeout: 5000 }).toString().trim();
+    return parseInt(sv.replace('v', '').split('.')[0]);
+  } catch { return parseInt(process.versions.node.split('.')[0]); }
+}
 
 // Resolve Node binary for a game repo — checks .nvmrc, engines, nvm versions
 // Returns path to node exe or null (use system default)
@@ -1280,19 +1367,20 @@ ipcMain.handle('build-game', async () => {
   }
 
   // Try older Node versions via nvm — stream output for these attempts
+  const sysNodeMajor = getSystemNodeMajor();
   const versions = findNvmNodeVersions();
   const fallbacks = versions.filter(v => {
     const major = parseInt(v.version.split('.')[0]);
-    return major >= 16 && major < parseInt(process.versions.node.split('.')[0]);
+    return major >= 16 && major < sysNodeMajor;
   });
 
   let lastError = '';
   for (const fb of fallbacks) {
-    send(`Using Node ${fb.version} for this game...\n`);
+    send(`Trying Node ${fb.version}...\n`);
     const fbResult = await runBuildDev(gameRepoPath, fb.dir, send);
     if (fbResult.success) {
       gameNodeCache[gameRepoPath] = fb.dir;
-      return fbResult;
+      return { ...fbResult, detectedNode: fb.version };
     }
     lastError = fbResult.error || '';
   }
@@ -1360,42 +1448,42 @@ ipcMain.handle('kill-game', async () => {
   }
 });
 
-// Checkout a branch in game repo — stash, switch, pull, drop stash
+// Checkout a branch in game repo — fetch, switch, hard reset to origin
 ipcMain.handle('checkout-game-branch', async (event, branchName) => {
   if (!projectPath) return { error: 'No project open' };
   if (!branchName || typeof branchName !== 'string') return { error: 'Invalid branch name' };
+  if (!/^[a-zA-Z0-9/_.-]+$/.test(branchName)) return { error: 'Invalid branch name characters' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   try {
-    send(`Switching to ${branchName}...\n`);
-    // Fetch latest
+    send(`Fetching origin...\n`);
     try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
-    // Stash local changes
-    let stashed = false;
+    send(`Switching to ${branchName}...\n`);
+    // Force checkout — discards local changes (reset --hard follows anyway)
+    execFileSync('git', ['checkout', '-f', '--', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
+    // Hard reset to origin — guarantees local matches remote exactly
     try {
-      const stashOut = execFileSync('git', ['stash', '--include-untracked'], { cwd: gameRepoPath, timeout: 5000 }).toString();
-      stashed = !stashOut.includes('No local changes');
-    } catch {}
-    try {
-      // Checkout
-      execFileSync('git', ['checkout', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
-      // Pull
-      try { execFileSync('git', ['pull', 'origin', branchName], { cwd: gameRepoPath, timeout: 20000, stdio: 'ignore' }); } catch {}
-      // Drop stash — deploy will re-create files anyway
-      if (stashed) try { execFileSync('git', ['stash', 'drop'], { cwd: gameRepoPath, timeout: 5000, stdio: 'ignore' }); } catch {}
-      const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
-      send(`✔ On branch ${currentBranch}\n`);
-      return { success: true, branch: currentBranch, project: loadProject(projectPath) };
-    } catch (e) {
-      // Checkout failed — restore stash
-      if (stashed) try { execFileSync('git', ['stash', 'pop'], { cwd: gameRepoPath, timeout: 5000, stdio: 'ignore' }); } catch {}
-      return { error: `Failed to checkout ${branchName}: ${e.message}` };
+      execFileSync('git', ['reset', '--hard', `origin/${branchName}`], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' });
+      send(`✔ Reset to origin/${branchName}\n`);
+    } catch {
+      // Branch might not have remote tracking (local-only) — try pull as fallback
+      try {
+        const pullOut = execFileSync('git', ['pull', 'origin', branchName], { cwd: gameRepoPath, timeout: 30000 }).toString();
+        send(pullOut || `✔ Pulled ${branchName}\n`);
+      } catch (pullErr) {
+        send(`⚠ Pull failed: ${pullErr.message}\n`);
+      }
     }
+    // Clean untracked files left by branch switch
+    try { execFileSync('git', ['clean', '-fd'], { cwd: gameRepoPath, timeout: 5000, stdio: 'ignore' }); } catch {}
+    const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    send(`✔ On branch ${currentBranch}\n`);
+    return { success: true, branch: currentBranch, project: loadProject(projectPath) };
   } catch (e) {
-    return { error: e.message };
+    return { error: `Failed to checkout ${branchName}: ${e.message}` };
   }
 });
 
@@ -1942,19 +2030,40 @@ ipcMain.handle('clean-orphans', async () => {
 
 ipcMain.handle('npm-install', async () => {
   if (!projectPath) return { error: 'No project open' };
-  // Use yarn if yarn.lock exists, otherwise fall back to npm
   const hasYarnLock = fs.existsSync(path.join(projectPath, 'yarn.lock'));
-  const cmd = hasYarnLock ? 'yarn' : 'npm install --legacy-peer-deps';
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
+  const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+  delete env.NODE_OPTIONS;
+
+  let cmd, args, useShell;
+  if (hasYarnLock) {
+    const yarnJs = findYarnJs();
+    if (yarnJs) {
+      cmd = process.execPath;
+      args = [yarnJs, 'install', '--network-timeout', '60000'];
+      useShell = false;
+    } else {
+      cmd = 'yarn';
+      args = ['install', '--network-timeout', '60000'];
+      useShell = isWin;
+    }
+  } else {
+    cmd = 'npm';
+    args = ['install', '--legacy-peer-deps'];
+    useShell = isWin;
+  }
+
   return new Promise((resolve) => {
     let output = '';
-    const child = exec(cmd, { cwd: projectPath, timeout: 240000, maxBuffer: 5 * 1024 * 1024, env: { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' } });
-    child.stdout?.on('data', d => { const s = d.toString(); output += s; send(s); });
-    child.stderr?.on('data', d => { const s = d.toString(); output += s; send(s); });
+    const child = spawn(cmd, args, { cwd: projectPath, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
+    const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'Install timeout (4 min)', output }); }, 240000);
+    child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
+    child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.on('close', (code) => {
+      clearTimeout(timer);
       resolve({ success: code === 0, output, project: code === 0 ? loadProject(projectPath) : null });
     });
-    child.on('error', (e) => resolve({ success: false, output: output || e.message, error: e.message }));
+    child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, output: output || e.message, error: e.message }); });
   });
 });
 

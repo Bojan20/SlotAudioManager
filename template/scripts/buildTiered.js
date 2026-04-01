@@ -93,6 +93,13 @@ if (missingStandalone.length > 0) {
 const cache = loadCache();
 const newCache = {};
 
+// Hash sprite-config.json so tier membership changes invalidate cache
+const spriteConfigHash = fileHash('sprite-config.json') || 'none';
+const configChanged = cache._spriteConfigHash !== spriteConfigHash;
+if (configChanged && cache._spriteConfigHash) {
+    console.log('sprite-config.json changed — forcing full rebuild');
+}
+
 function tierCacheKey(sounds) {
     return sounds.map(s => {
         const p = sourceSndFiles + s + '.wav';
@@ -103,7 +110,8 @@ function tierCacheKey(sounds) {
 }
 
 function tierNeedsRebuild(tierName, sounds) {
-    const key = tierCacheKey(sounds);
+    const key = tierCacheKey(sounds); // Always compute — populates newCache for save
+    if (configChanged) return true;
     const outputPath = outDir + `${gameName}_${tierName}.m4a`;
     if (!fs.existsSync(outputPath)) return true;
     const cachedKey = sounds.map(s => cache[s]).join('|');
@@ -113,7 +121,8 @@ function tierNeedsRebuild(tierName, sounds) {
 function standaloneNeedsRebuild(soundName) {
     const p = sourceSndFiles + soundName + '.wav';
     const h = fileHash(p);
-    newCache[soundName] = h;
+    newCache[soundName] = h; // Always compute — populates newCache for save
+    if (configChanged) return true;
     const outputPath = outDir + `${gameName}_${soundName}.m4a`;
     if (!fs.existsSync(outputPath)) return true;
     return cache[soundName] !== h;
@@ -166,7 +175,7 @@ for (const soundName of existingStandalone) {
 
 if (buildQueue.length === 0) {
     console.log('\nAll outputs up to date — nothing to rebuild.');
-    saveCache({ ...cache, ...newCache });
+    saveCache({ ...cache, ...newCache, _spriteConfigHash: spriteConfigHash });
     process.exit(0);
 }
 
@@ -236,7 +245,7 @@ async function runAll() {
     const safeNewCache = Object.fromEntries(
         Object.entries(newCache).filter(([sound]) => !failedTierNames.has(sound))
     );
-    saveCache({ ...cache, ...safeNewCache });
+    saveCache({ ...cache, ...safeNewCache, _spriteConfigHash: spriteConfigHash });
 }
 
 runAll();

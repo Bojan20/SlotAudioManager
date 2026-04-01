@@ -92,6 +92,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
   const [cleaning, setCleaning] = useState(false);
   const [addModal, setAddModal] = useState(null); // null | { name, tags, overlap, saving }
   const [bulkAdd, setBulkAdd] = useState(null); // null | { tags, overlap, saving }
+  const [selectedSound, setSelectedSound] = useState(null); // sound name for usage panel
   const ctxRef = useRef(null);
   const sourceRef = useRef(null);
   const playStartRef = useRef(0);  // ctx.currentTime when playback started
@@ -108,7 +109,61 @@ export default function SoundsPage({ project, setProject, showToast }) {
     return set;
   }, [project?.soundsJson]);
 
-  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); }, [project?.path]);
+  // Build usage map: soundName → { sprites: [], commands: [], spriteLists: [] }
+  const usageMap = useMemo(() => {
+    const map = {};
+    const defs = project?.soundsJson?.soundDefinitions;
+    if (!defs) return map;
+    const sprites = defs.soundSprites || {};
+    const commands = defs.commands || {};
+    const lists = defs.spriteList || {};
+    // Index: spriteKey → soundName (via spriteId)
+    const spriteKeyToName = {};
+    for (const [key, sp] of Object.entries(sprites)) {
+      if (sp.spriteId) spriteKeyToName[key] = sp.spriteId;
+    }
+    // Commands: each step references spriteId or spriteListId
+    for (const [cmdName, steps] of Object.entries(commands)) {
+      if (!Array.isArray(steps)) continue;
+      for (const step of steps) {
+        // Direct sprite reference
+        if (step.spriteId) {
+          const name = spriteKeyToName[step.spriteId] || step.spriteId;
+          if (!map[name]) map[name] = { sprites: [], commands: [], spriteLists: [] };
+          if (!map[name].commands.includes(cmdName)) map[name].commands.push(cmdName);
+        }
+        // SpriteList reference — expand list items
+        if (step.spriteListId && lists[step.spriteListId]) {
+          const list = lists[step.spriteListId];
+          const items = Array.isArray(list) ? list : (list.items || []);
+          for (const itemId of items) {
+            const name = spriteKeyToName[itemId] || itemId;
+            if (!map[name]) map[name] = { sprites: [], commands: [], spriteLists: [] };
+            if (!map[name].commands.includes(cmdName)) map[name].commands.push(cmdName);
+          }
+        }
+      }
+    }
+    // SoundSprites: each sprite key references a sound by spriteId
+    for (const [key, sp] of Object.entries(sprites)) {
+      const name = sp.spriteId;
+      if (!name) continue;
+      if (!map[name]) map[name] = { sprites: [], commands: [], spriteLists: [] };
+      if (!map[name].sprites.includes(key)) map[name].sprites.push(key);
+    }
+    // SpriteLists: which lists reference this sound
+    for (const [listName, list] of Object.entries(lists)) {
+      const items = Array.isArray(list) ? list : (list.items || []);
+      for (const itemId of items) {
+        const name = spriteKeyToName[itemId] || itemId;
+        if (!map[name]) map[name] = { sprites: [], commands: [], spriteLists: [] };
+        if (!map[name].spriteLists.includes(listName)) map[name].spriteLists.push(listName);
+      }
+    }
+    return map;
+  }, [project?.soundsJson]);
+
+  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); setSelectedSound(null); }, [project?.path]);
   useEffect(() => () => stopAudio(), []);
 
   const stopAudio = () => {
@@ -565,7 +620,12 @@ export default function SoundsPage({ project, setProject, showToast }) {
                 )}
               </div>
 
-              <span className="text-sm font-mono text-text-primary whitespace-nowrap overflow-hidden text-ellipsis" style={{ maxWidth: '320px' }}>{s.name}</span>
+              <span
+                className={`text-sm font-mono whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer transition-colors ${selectedSound === s.name ? 'text-accent' : 'text-text-primary hover:text-accent'}`}
+                style={{ maxWidth: '320px' }}
+                onClick={() => setSelectedSound(selectedSound === s.name ? null : s.name)}
+                title="Click to see where this sound is used"
+              >{s.name}</span>
 
               {inJson
                 ? <span className="badge bg-green-dim text-green" title="This sound has a matching entry in soundSprites">in JSON</span>
@@ -657,6 +717,47 @@ export default function SoundsPage({ project, setProject, showToast }) {
                   </div>
                 </div>
               )}
+
+              {/* Usage panel */}
+              {selectedSound === s.name && (() => {
+                const usage = usageMap[s.name];
+                if (!usage) return (
+                  <div className="py-2 px-3 rounded-lg bg-bg-primary/40 border border-border/30" style={{ gridColumn: '1 / -1' }}>
+                    <span className="text-xs text-text-dim">Not referenced in sounds.json</span>
+                  </div>
+                );
+                return (
+                  <div className="py-2 px-3 rounded-lg bg-bg-primary/40 border border-border/30 space-y-1.5" style={{ gridColumn: '1 / -1' }}>
+                    {usage.sprites.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] text-text-dim uppercase tracking-wider shrink-0 pt-0.5 w-16">Sprites</span>
+                        <div className="flex flex-wrap gap-1">
+                          {usage.sprites.map(k => <span key={k} className="badge bg-cyan-dim text-cyan font-mono text-xs">{k}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {usage.commands.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] text-text-dim uppercase tracking-wider shrink-0 pt-0.5 w-16">Commands</span>
+                        <div className="flex flex-wrap gap-1">
+                          {usage.commands.map(k => <span key={k} className="badge bg-purple-dim text-purple font-mono text-xs">{k}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {usage.spriteLists.length > 0 && (
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] text-text-dim uppercase tracking-wider shrink-0 pt-0.5 w-16">Lists</span>
+                        <div className="flex flex-wrap gap-1">
+                          {usage.spriteLists.map(k => <span key={k} className="badge bg-green-dim text-green font-mono text-xs">{k}</span>)}
+                        </div>
+                      </div>
+                    )}
+                    {usage.sprites.length === 0 && usage.commands.length === 0 && usage.spriteLists.length === 0 && (
+                      <span className="text-xs text-text-dim">Defined in JSON but not used in any commands or lists</span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

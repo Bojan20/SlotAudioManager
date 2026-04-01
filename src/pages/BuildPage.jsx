@@ -194,6 +194,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               setRunning('game:install');
               const yi = await window.api.yarnInstallGame();
               if (stopped()) return;
+              if (yi?.detectedNode) showToast(`Game uses Node ${yi.detectedNode} (auto-detected)`, 'success');
               if (!yi?.success) {
                 setLog(prev => prev + `⚠ yarn install failed: ${yi?.error || 'unknown'}\n`);
               } else {
@@ -204,6 +205,10 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               setRunning('game:build');
               const build = await window.api.buildGame();
               if (stopped()) return;
+              if (build?.detectedNode) {
+                showToast(`Game uses Node ${build.detectedNode} (auto-detected)`, 'success');
+                try { if (reloadProject) { const rp = await reloadProject(); if (rp) setProject(rp); } } catch {}
+              }
               if (build?.error === 'No build-dev script in game package.json') {
                 setLog(prev => prev + 'No build-dev script, skipping...\n');
               } else if (!build?.success) {
@@ -278,6 +283,10 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         setLog('── yarn build-dev ──\n');
         const build = await window.api.buildGame();
         if (stopped()) return;
+        if (build?.detectedNode) {
+          showToast(`Game uses Node ${build.detectedNode} (auto-detected)`, 'success');
+          if (reloadProject) { const rp = await reloadProject(); if (rp) setProject(rp); }
+        }
         if (build?.error === 'No build-dev script in game package.json') {
           setLog(prev => prev + 'No build-dev script found, skipping build step...\n\n');
         } else if (!build?.success) {
@@ -443,6 +452,9 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               <span className="badge bg-purple-dim text-purple text-xs">Game</span>
               {gameRepoPath && (
                 <p className="text-xs font-mono text-text-dim truncate" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</p>
+              )}
+              {project?.gameNodeVersion && (
+                <span className="badge bg-green/10 text-green text-[10px]" title="Detected Node version for this game repo">Node {project.gameNodeVersion}</span>
               )}
               <button
                 onClick={() => { window.api.killGame(); setGameStarted(false); showToast('Port 8080 freed', 'success'); }}
