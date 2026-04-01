@@ -1504,6 +1504,7 @@ ipcMain.handle('scan-game-hooks', async () => {
   const files = walkTs(srcDir);
   // {commandName -> Set of relative file paths}
   const hookMap = {};
+  const directExecuteHooks = new Set(); // hooks found via direct soundManager.execute() only
   const dynamicCalls = []; // files with dynamic execute calls we can't resolve statically
   const validHookRe = /^on[A-Z][a-zA-Z0-9_]*$/;
 
@@ -1544,6 +1545,7 @@ ipcMain.handle('scan-game-hooks', async () => {
         if (validHookRe.test(name)) {
           if (!hookMap[name]) hookMap[name] = new Set();
           hookMap[name].add(rel);
+          directExecuteHooks.add(name);
         }
       }
     }
@@ -1569,12 +1571,25 @@ ipcMain.handle('scan-game-hooks', async () => {
       const name = m[1];
       if (!hookMap[name]) hookMap[name] = new Set();
       hookMap[name].add(rel);
+      directExecuteHooks.add(name);
     }
 
     // Dynamic calls — flag as unresolvable
     dynamicRe.lastIndex = 0;
     if (dynamicRe.test(stripped)) {
       dynamicCalls.push(rel);
+    }
+
+    // Pattern 3: any string literal that looks like a hook name — covers framework wrapper methods
+    // (showBonusPlaqueCommand, hideBonusPlaqueCommand, etc. that internally call soundManager.execute)
+    const hookStringRe = /["'`](on[A-Z][a-zA-Z0-9_]*)["'`]/g;
+    hookStringRe.lastIndex = 0;
+    while ((m = hookStringRe.exec(stripped)) !== null) {
+      const name = m[1];
+      if (validHookRe.test(name)) {
+        if (!hookMap[name]) hookMap[name] = new Set();
+        hookMap[name].add(rel);
+      }
     }
 
     // Exported/const hook definitions (cross-file resolution)
@@ -1687,6 +1702,17 @@ ipcMain.handle('scan-game-hooks', async () => {
       }
     }
   } catch {}
+
+  // Filter out prefix strings that aren't real hooks:
+  // A hook is a prefix if a longer hook starts with it (e.g. "onBonus" is prefix of "onBonusGameStart")
+  // AND the short name is NOT directly used in soundManager.execute() calls
+  const allHookNames = Object.keys(hookMap);
+  for (const name of allHookNames) {
+    if (directExecuteHooks.has(name)) continue; // directly executed — keep
+    if (commands[name]) continue; // already in sounds.json — keep (user defined it)
+    const isPrefix = allHookNames.some(other => other !== name && other.startsWith(name) && other.length > name.length);
+    if (isPrefix) delete hookMap[name];
+  }
 
   const hooks = Object.entries(hookMap).map(([name, filesSet]) => ({
     name,
