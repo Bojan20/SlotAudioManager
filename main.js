@@ -618,6 +618,7 @@ function runNpmScript(cwd, scriptName, nodeDir, send) {
 
 ipcMain.handle('run-script', async (event, scriptName) => {
   if (!projectPath) return { error: 'No project open' };
+  if (buildProcess) return { error: 'A build is already running' };
   if (!scriptName || typeof scriptName !== 'string') return { error: 'Invalid script name' };
   if (!/^[a-zA-Z0-9_-]+$/.test(scriptName)) return { error: 'Invalid script name' };
   const cwd = projectPath; // capture — projectPath can change if user opens another project mid-build
@@ -1128,7 +1129,9 @@ ipcMain.handle('configure-game', async (event, { gameRepoPath }) => {
     }
 
     // 4. Detect required Node version from game's webpack major version
-    const detected = detectGameNode(path.resolve(gameRepoPath));
+    const absGamePath = path.resolve(gameRepoPath);
+    delete gameNodeCache[absGamePath]; // force re-detection for newly linked repo
+    const detected = detectGameNode(absGamePath);
     if (detected?.msg) log.push(detected.msg);
 
     return { success: true, log, project: loadProject(projectPath) };
@@ -1334,6 +1337,7 @@ function getSystemNodeMajor() {
 // Detect required Node version from game repo's webpack version and cache + nvm use
 // Returns { version, dir, msg } or null
 function detectGameNode(gameRepoAbsPath) {
+  if (gameNodeCache[gameRepoAbsPath]) return null; // already detected
   const gamePkg = readJsonSafe(path.join(gameRepoAbsPath, 'package.json'));
   const allDeps = { ...gamePkg?.dependencies, ...gamePkg?.devDependencies };
   const wpMajor = parseInt((allDeps?.webpack || '').replace(/^[^0-9]*/, '').split('.')[0]);
@@ -1447,6 +1451,7 @@ function runBuildDev(gameRepoPath, nodeDir, send) {
 // Build game repo (yarn build-dev) — auto-detects compatible Node version
 ipcMain.handle('build-game', async () => {
   if (!projectPath) return { error: 'No project open' };
+  if (buildProcess) return { error: 'A build is already running' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
@@ -1598,6 +1603,8 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
     }
     // Clean untracked files left by branch switch
     try { execFileSync('git', ['clean', '-fd'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
+    // Invalidate cached Node version — new branch may have different webpack version
+    delete gameNodeCache[gameRepoPath];
     const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
     send(`✔ On branch ${currentBranch}\n`);
     return { success: true, branch: currentBranch, project: loadProject(projectPath) };
@@ -2149,7 +2156,8 @@ ipcMain.handle('clean-orphans', async () => {
 
 ipcMain.handle('npm-install', async () => {
   if (!projectPath) return { error: 'No project open' };
-  const hasYarnLock = fs.existsSync(path.join(projectPath, 'yarn.lock'));
+  const cwd = projectPath; // capture — projectPath can change if user opens another project mid-install
+  const hasYarnLock = fs.existsSync(path.join(cwd, 'yarn.lock'));
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
   delete env.NODE_OPTIONS;
@@ -2174,13 +2182,13 @@ ipcMain.handle('npm-install', async () => {
 
   return new Promise((resolve) => {
     let output = '';
-    const child = spawn(cmd, args, { cwd: projectPath, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
     const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'Install timeout (4 min)', output }); }, 240000);
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ success: code === 0, output, project: code === 0 ? loadProject(projectPath) : null });
+      resolve({ success: code === 0, output, project: code === 0 ? loadProject(cwd) : null });
     });
     child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, output: output || e.message, error: e.message }); });
   });
