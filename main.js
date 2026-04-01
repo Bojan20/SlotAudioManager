@@ -236,17 +236,55 @@ function loadProject(dirPath) {
   data.spriteConfig = readJsonSafe(path.join(dirPath, 'sprite-config.json'));
   data.soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
 
+  // Auto-fix: resolve misplaced references in commands
+  // spriteId pointing to a sprite list → move to spriteListId
+  // spriteListId pointing to a sound sprite → move to spriteId
+  // commandId pointing to non-command → check if it's a sprite or list
+  if (data.soundsJson?.soundDefinitions?.commands) {
+    const sprites = data.soundsJson.soundDefinitions.soundSprites || {};
+    const lists = data.soundsJson.soundDefinitions.spriteList || {};
+    const cmds = data.soundsJson.soundDefinitions.commands;
+    let fixed = false;
+    for (const steps of Object.values(cmds)) {
+      if (!Array.isArray(steps)) continue;
+      for (const s of steps) {
+        if (!s) continue;
+        // spriteId → actually a sprite list (only fix if no spriteListId already set)
+        if (s.spriteId && !s.spriteListId && !sprites[s.spriteId] && lists[s.spriteId]) {
+          s.spriteListId = s.spriteId;
+          delete s.spriteId;
+          fixed = true;
+        }
+        // spriteListId → actually a sound sprite (only fix if no spriteId already set)
+        if (s.spriteListId && !s.spriteId && !lists[s.spriteListId] && sprites[s.spriteListId]) {
+          s.spriteId = s.spriteListId;
+          delete s.spriteListId;
+          fixed = true;
+        }
+        // commandId → actually a sprite or list (only fix if target fields not set)
+        if (s.commandId && !cmds[s.commandId] && !s.spriteId && !s.spriteListId) {
+          if (sprites[s.commandId]) { s.spriteId = s.commandId; delete s.commandId; fixed = true; }
+          else if (lists[s.commandId]) { s.spriteListId = s.commandId; delete s.commandId; fixed = true; }
+        }
+      }
+    }
+    if (fixed) {
+      try { fs.writeFileSync(path.join(dirPath, 'sounds.json'), JSON.stringify(data.soundsJson, null, 2)); } catch {}
+    }
+  }
+
   // Ensure .gitattributes exists for consistent line endings
   const gitattrsPath = path.join(dirPath, '.gitattributes');
   if (!fs.existsSync(gitattrsPath)) {
     try { fs.writeFileSync(gitattrsPath, '* text=auto\n*.wav binary\n*.m4a binary\n*.mp3 binary\n*.ogg binary\n'); } catch {}
   }
 
-  // Auto-detect game repo if not configured — convention: {name}-audio → {name}-game in same parent
+  // Auto-detect game repo if not configured — convention: {name}-audio[-howler] → {name}-game in same parent
   if (!data.settings?.gameProjectPath) {
     const folderName = path.basename(dirPath);
-    if (folderName.endsWith('-audio')) {
-      const gameName = folderName.replace(/-audio$/, '-game');
+    const audioMatch = folderName.match(/^(.+)-audio(?:-\w+)?$/);
+    if (audioMatch) {
+      const gameName = audioMatch[1] + '-game';
       const gameCandidate = path.join(path.dirname(dirPath), gameName);
       if (fs.existsSync(gameCandidate) && fs.existsSync(path.join(gameCandidate, 'package.json'))) {
         const relPath = path.relative(dirPath, gameCandidate);
@@ -286,6 +324,8 @@ function loadProject(dirPath) {
     // Auto-checkout best branch: release/* > develop > stay on current (once per session)
     if (data.gameRepoExists && !gameNodeCache['_branch_' + abs]) {
       try {
+        // Fetch remote refs silently (non-blocking if no network)
+        try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: abs, timeout: 10000, stdio: 'ignore' }); } catch {}
         const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 5000 }).toString().trim();
         // Only auto-switch if on develop/master — don't switch from feature branches
         if (['develop', 'master', 'main'].includes(currentBranch)) {
@@ -404,6 +444,11 @@ ipcMain.handle('save-sprite-config', async (event, config) => {
 // Sanitize command steps — fix known type bugs before writing to disk
 function sanitizeCommandStep(step) {
   const s = { ...step };
+  // Fix: spriteId pointing to a sprite list (sl_ prefix) → move to spriteListId
+  if (s.spriteId && s.spriteId.startsWith('sl_') && !s.spriteListId) {
+    s.spriteListId = s.spriteId;
+    delete s.spriteId;
+  }
   // cancelDelay MUST be boolean true, not string "true" (SoundPlayer uses === true)
   if (s.cancelDelay !== undefined) s.cancelDelay = s.cancelDelay === true || s.cancelDelay === 'true';
   // loop: keep -1 for loop, remove if 0/false/undefined
@@ -428,9 +473,22 @@ ipcMain.handle('save-sounds-json', async (event, data) => {
   try {
     // Sanitize all command steps on every save
     if (data?.soundDefinitions?.commands) {
-      for (const [cmdName, steps] of Object.entries(data.soundDefinitions.commands)) {
+      const sprites = data.soundDefinitions.soundSprites || {};
+      const lists = data.soundDefinitions.spriteList || {};
+      const cmds = data.soundDefinitions.commands;
+      for (const [cmdName, steps] of Object.entries(cmds)) {
         if (Array.isArray(steps)) {
-          data.soundDefinitions.commands[cmdName] = steps.map(sanitizeCommandStep);
+          cmds[cmdName] = steps.map(s => {
+            s = sanitizeCommandStep(s);
+            // Resolve misplaced references using actual data (don't overwrite existing fields)
+            if (s.spriteId && !s.spriteListId && !sprites[s.spriteId] && lists[s.spriteId]) {
+              s.spriteListId = s.spriteId; delete s.spriteId;
+            }
+            if (s.spriteListId && !s.spriteId && !lists[s.spriteListId] && sprites[s.spriteListId]) {
+              s.spriteId = s.spriteListId; delete s.spriteListId;
+            }
+            return s;
+          });
         }
       }
     }
