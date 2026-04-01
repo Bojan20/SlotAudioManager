@@ -358,19 +358,7 @@ function loadProject(dirPath) {
     // Detect + cache Node version from game's webpack version (proactive, no build needed)
     const cached = gameNodeCache[abs];
     if (!cached && data.gameRepoExists) {
-      try {
-        const gamePkg = readJsonSafe(path.join(abs, 'package.json'));
-        const allDeps = { ...gamePkg?.dependencies, ...gamePkg?.devDependencies };
-        const wpMajor = parseInt((allDeps?.webpack || '').split('.')[0]);
-        if (wpMajor && wpMajor <= 4) {
-          const versions = findNvmNodeVersions();
-          const match = versions.find(v => parseInt(v.version.split('.')[0]) === 16);
-          if (match) {
-            gameNodeCache[abs] = match.dir;
-            nvmUse(match.version);
-          }
-        }
-      } catch {}
+      try { detectGameNode(abs); } catch {}
     }
 
     // Surface cached Node version for UI
@@ -620,7 +608,7 @@ function runNpmScript(cwd, scriptName, nodeDir, send) {
     const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
     buildProcess = child;
     let output = '';
-    const timer = setTimeout(() => { child.kill(); send('\n[TIMEOUT — build killed after 5 minutes]\n'); resolve({ success: false, error: 'Timeout', output }); }, 300000);
+    const timer = setTimeout(() => { child.kill(); buildProcess = null; send('\n[TIMEOUT — build killed after 5 minutes]\n'); resolve({ success: false, error: 'Timeout', output }); }, 300000);
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.on('error', (e) => { clearTimeout(timer); buildProcess = null; resolve({ success: false, error: e.message, output }); });
@@ -647,7 +635,7 @@ ipcMain.handle('run-script', async (event, scriptName) => {
   // Try system Node first
   const result = await runNpmScript(cwd, scriptName, null, send);
   if (result.success) {
-    if (!cached) gameNodeCache[cwd] = 'system';
+    gameNodeCache[cwd] = 'system';
     return result;
   }
 
@@ -1140,23 +1128,8 @@ ipcMain.handle('configure-game', async (event, { gameRepoPath }) => {
     }
 
     // 4. Detect required Node version from game's webpack major version
-    const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
-    const allDeps = { ...gamePkg?.dependencies, ...gamePkg?.devDependencies };
-    const wpVer = parseInt((allDeps?.webpack || '').split('.')[0]);
-    if (wpVer && wpVer <= 4) {
-      // webpack 4 needs Node 16 — find it in nvm and switch
-      const versions = findNvmNodeVersions();
-      const node16 = versions.find(v => parseInt(v.version.split('.')[0]) === 16);
-      if (node16) {
-        nvmUse(node16.version);
-        gameNodeCache[path.resolve(gameRepoPath)] = node16.dir;
-        log.push(`Detected webpack ${wpVer} → switched to Node v${node16.version}`);
-      } else {
-        log.push(`⚠ Detected webpack ${wpVer} — needs Node 16, but not found in nvm. Run: nvm install 16`);
-      }
-    } else if (wpVer && wpVer >= 5) {
-      log.push(`Detected webpack ${wpVer} → system Node OK`);
-    }
+    const detected = detectGameNode(path.resolve(gameRepoPath));
+    if (detected?.msg) log.push(detected.msg);
 
     return { success: true, log, project: loadProject(projectPath) };
   } catch (e) {
@@ -1358,6 +1331,25 @@ function getSystemNodeMajor() {
   } catch { return 99; } // Can't detect system Node — try all nvm versions
 }
 
+// Detect required Node version from game repo's webpack version and cache + nvm use
+// Returns { version, dir, msg } or null
+function detectGameNode(gameRepoAbsPath) {
+  const gamePkg = readJsonSafe(path.join(gameRepoAbsPath, 'package.json'));
+  const allDeps = { ...gamePkg?.dependencies, ...gamePkg?.devDependencies };
+  const wpMajor = parseInt((allDeps?.webpack || '').replace(/^[^0-9]*/, '').split('.')[0]);
+  if (!wpMajor) return null;
+  if (wpMajor >= 5) return { msg: `webpack ${wpMajor} → system Node OK` };
+  // webpack 4 or older — needs Node 16
+  const versions = findNvmNodeVersions();
+  const match = versions.find(v => parseInt(v.version.split('.')[0]) === 16);
+  if (match) {
+    gameNodeCache[gameRepoAbsPath] = match.dir;
+    nvmUse(match.version);
+    return { version: match.version, dir: match.dir, msg: `webpack ${wpMajor} → Node v${match.version}` };
+  }
+  return { msg: `⚠ webpack ${wpMajor} needs Node 16 — not found in nvm. Run: nvm install 16` };
+}
+
 // Switch system Node via nvm use — so user can also build manually outside the app
 function nvmUse(version) {
   if (!version) return;
@@ -1444,7 +1436,7 @@ function runBuildDev(gameRepoPath, nodeDir, send) {
     });
     buildProcess = child;
     let output = '';
-    const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'build-dev timeout (5 min)', output }); }, 300000);
+    const timer = setTimeout(() => { child.kill(); buildProcess = null; resolve({ success: false, error: 'build-dev timeout (5 min)', output }); }, 300000);
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0, output }); });
@@ -1511,7 +1503,7 @@ ipcMain.handle('build-game', async () => {
     lastError = fbResult.error || '';
   }
 
-  const tried = [process.version, ...fallbacks.map(f => f.version)].join(', ');
+  const tried = [`v${sysNodeMajor} (system)`, ...fallbacks.map(f => f.version)].join(', ');
   return { success: false, error: fallbacks.length === 0 ? 'build-dev failed — no compatible Node found via nvm' : `build-dev failed with Node ${tried}${lastError ? ': ' + lastError : ''}` };
 });
 
@@ -1586,7 +1578,8 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   try {
     send(`Fetching origin...\n`);
-    try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
+    try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); }
+    catch { send(`⚠ Fetch failed (offline?) — using cached refs\n`); }
     send(`Switching to ${branchName}...\n`);
     // Force checkout — discards local changes (reset --hard follows anyway)
     execFileSync('git', ['checkout', '-f', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
@@ -1604,7 +1597,7 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
       }
     }
     // Clean untracked files left by branch switch
-    try { execFileSync('git', ['clean', '-fd'], { cwd: gameRepoPath, timeout: 5000, stdio: 'ignore' }); } catch {}
+    try { execFileSync('git', ['clean', '-fd'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
     const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
     send(`✔ On branch ${currentBranch}\n`);
     return { success: true, branch: currentBranch, project: loadProject(projectPath) };
