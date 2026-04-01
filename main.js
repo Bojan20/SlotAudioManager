@@ -1189,20 +1189,47 @@ function getGameNodeEnv(gameRepoPath) {
   return { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
 }
 
+// Find yarn.js entry point — works across nvm versions
+function findYarnJs() {
+  const candidates = [
+    // npm global
+    path.join(process.env.APPDATA || '', 'npm', 'node_modules', 'yarn', 'bin', 'yarn.js'),
+    // Current nvm node's global
+    path.join(path.dirname(process.execPath), 'node_modules', 'yarn', 'bin', 'yarn.js'),
+  ];
+  // Also check all nvm dirs
+  const nvmHome = process.env.NVM_HOME || process.env.NVM_DIR;
+  if (nvmHome) {
+    try {
+      for (const d of fs.readdirSync(nvmHome)) {
+        candidates.push(path.join(nvmHome, d, 'node_modules', 'yarn', 'bin', 'yarn.js'));
+      }
+    } catch {}
+  }
+  return candidates.find(p => { try { return fs.existsSync(p); } catch { return false; } }) || null;
+}
+
 function runBuildDev(gameRepoPath, nodeDir, send) {
   return new Promise((resolve) => {
-    // --openssl-legacy-provider only for Node 17+ (OpenSSL 3.0); Node 16 doesn't recognize it
-    const nodeMajor = nodeDir
-      ? parseInt((path.basename(nodeDir).match(/^v?(\d+)/) || [])[1] || '0')
-      : parseInt(process.versions.node);
-    const existingNodeOpts = process.env.NODE_OPTIONS || '';
-    const sslFlag = nodeMajor >= 17 ? '--openssl-legacy-provider ' : '';
-    const baseEnv = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_OPTIONS: `${sslFlag}${existingNodeOpts}`.trim() || undefined };
-    const env = nodeDir
-      ? { ...baseEnv, PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + process.env.PATH }
-      : baseEnv;
-    const child = spawn('yarn', ['build-dev'], {
-      cwd: gameRepoPath, stdio: ['ignore', 'pipe', 'pipe'], shell: isWin, env
+    const baseEnv = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    delete baseEnv.NODE_OPTIONS;
+    let cmd, args, env;
+    if (nodeDir) {
+      // Use specific Node version: run node directly from nvm dir, execute yarn.js via it
+      // This avoids yarn.cmd shim issues in nvm dirs that don't have yarn installed
+      const nodeExe = path.join(nodeDir, isWin ? 'node.exe' : 'bin/node');
+      const yarnJs = findYarnJs();
+      if (!yarnJs) { return resolve({ success: false, error: 'yarn not found', output: '' }); }
+      cmd = nodeExe;
+      args = [yarnJs, 'build-dev'];
+      env = { ...baseEnv, PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + baseEnv.PATH };
+    } else {
+      cmd = 'yarn';
+      args = ['build-dev'];
+      env = baseEnv;
+    }
+    const child = spawn(cmd, args, {
+      cwd: gameRepoPath, stdio: ['ignore', 'pipe', 'pipe'], shell: !nodeDir && isWin, env
     });
     buildProcess = child;
     let output = '';
