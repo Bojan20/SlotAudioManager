@@ -571,36 +571,96 @@ ipcMain.handle('save-settings', async (event, data) => {
   }
 });
 
+// Run npm script in audio repo — with Node version fallback via nvm
+function runNpmScript(cwd, scriptName, nodeDir, send) {
+  return new Promise((resolve) => {
+    const baseEnv = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+    delete baseEnv.NODE_OPTIONS;
+    let cmd, args, env, useShell;
+    if (nodeDir) {
+      const nodeExe = path.join(nodeDir, isWin ? 'node.exe' : 'bin/node');
+      // Find npm-cli.js for this node version
+      const npmCli = path.join(nodeDir, isWin ? '' : 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+      if (!fs.existsSync(npmCli)) {
+        // Fallback: use global npm with this node's PATH prepended
+        cmd = isWin ? 'npm.cmd' : 'npm';
+        args = ['run', scriptName];
+        env = { ...baseEnv, PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + baseEnv.PATH };
+        useShell = isWin;
+      } else {
+        cmd = nodeExe;
+        args = [npmCli, 'run', scriptName];
+        env = { ...baseEnv, PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + baseEnv.PATH };
+        useShell = false;
+      }
+    } else {
+      cmd = 'npm';
+      args = ['run', scriptName];
+      env = baseEnv;
+      useShell = true;
+    }
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
+    buildProcess = child;
+    let output = '';
+    const timer = setTimeout(() => { child.kill(); send('\n[TIMEOUT — build killed after 5 minutes]\n'); resolve({ success: false, error: 'Timeout', output }); }, 300000);
+    child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
+    child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
+    child.on('error', (e) => { clearTimeout(timer); buildProcess = null; resolve({ success: false, error: e.message, output }); });
+    child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0, output }); });
+  });
+}
+
 ipcMain.handle('run-script', async (event, scriptName) => {
   if (!projectPath) return { error: 'No project open' };
   if (!scriptName || typeof scriptName !== 'string') return { error: 'Invalid script name' };
   if (!/^[a-zA-Z0-9_-]+$/.test(scriptName)) return { error: 'Invalid script name' };
-  return new Promise((resolve) => {
-    const child = spawn('npm', ['run', scriptName], { cwd: projectPath, shell: true });
-    buildProcess = child;
-    const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
-    const timer = setTimeout(() => { child.kill(); send('\n[TIMEOUT — build killed after 5 minutes]\n'); resolve({ success: false, error: 'Timeout' }); }, 300000);
-    child.stdout.on('data', d => send(d.toString()));
-    child.stderr.on('data', d => send(d.toString()));
-    child.on('error', (e) => { clearTimeout(timer); buildProcess = null; send(`ERROR: ${e.message}\n`); resolve({ success: false, error: e.message }); });
-    child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0 }); });
+  const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
+
+  // If cached Node version for this audio repo — use it directly
+  const cached = gameNodeCache[projectPath];
+  if (cached && cached !== 'system' && !cached.startsWith('_')) {
+    return runNpmScript(projectPath, scriptName, cached, send);
+  }
+
+  // Try system Node first
+  const result = await runNpmScript(projectPath, scriptName, null, send);
+  if (result.success) {
+    if (!cached) gameNodeCache[projectPath] = 'system';
+    return result;
+  }
+
+  // Check for Node compat errors — try older versions
+  const isCompatBug = /ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines|error:0308010C|callback.*already called/.test(result.output || '');
+  if (!isCompatBug) return result;
+
+  const sysNodeMajor = getSystemNodeMajor();
+  const versions = findNvmNodeVersions();
+  const fallbacks = versions.filter(v => {
+    const major = parseInt(v.version.split('.')[0]);
+    return major >= 16 && major < sysNodeMajor;
   });
+
+  for (const fb of fallbacks) {
+    send(`\nRetrying with Node ${fb.version}...\n`);
+    const fbResult = await runNpmScript(projectPath, scriptName, fb.dir, send);
+    if (fbResult.success) {
+      gameNodeCache[projectPath] = fb.dir;
+      return fbResult;
+    }
+  }
+
+  return { success: false, error: fallbacks.length === 0 ? 'Build failed — no compatible Node found via nvm' : 'Build failed with all Node versions' };
 });
 
 ipcMain.handle('run-deploy', async (event, scriptName) => {
   if (!projectPath) return { error: 'No project open' };
   const name = scriptName || 'deploy';
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) return { error: 'Invalid script name' };
-  return new Promise((resolve) => {
-    const child = spawn('npm', ['run', name], { cwd: projectPath, shell: true });
-    buildProcess = child;
-    const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
-    const timer = setTimeout(() => { child.kill(); send('\n[TIMEOUT — deploy killed after 2 minutes]\n'); resolve({ success: false, error: 'Timeout' }); }, 120000);
-    child.stdout.on('data', d => send(d.toString()));
-    child.stderr.on('data', d => send(d.toString()));
-    child.on('error', (e) => { clearTimeout(timer); buildProcess = null; send(`ERROR: ${e.message}\n`); resolve({ success: false, error: e.message }); });
-    child.on('close', (code) => { clearTimeout(timer); buildProcess = null; resolve({ success: code === 0 }); });
-  });
+  const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
+  // Use cached Node version if available (same audio repo as run-script)
+  const cached = gameNodeCache[projectPath];
+  const nodeDir = (cached && cached !== 'system' && !cached.startsWith('_')) ? cached : null;
+  return runNpmScript(projectPath, name, nodeDir, send);
 });
 
 ipcMain.handle('clean-dist', async () => {
