@@ -236,35 +236,69 @@ function loadProject(dirPath) {
   data.spriteConfig = readJsonSafe(path.join(dirPath, 'sprite-config.json'));
   data.soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
 
-  // Auto-fix: resolve misplaced references in commands
-  // spriteId pointing to a sprite list → move to spriteListId
-  // spriteListId pointing to a sound sprite → move to spriteId
-  // commandId pointing to non-command → check if it's a sprite or list
+  // Auto-fix: resolve misplaced and broken references in commands
   if (data.soundsJson?.soundDefinitions?.commands) {
     const sprites = data.soundsJson.soundDefinitions.soundSprites || {};
     const lists = data.soundsJson.soundDefinitions.spriteList || {};
     const cmds = data.soundsJson.soundDefinitions.commands;
+    const spriteKeys = Object.keys(sprites);
+    const listKeys = Object.keys(lists);
+
+    // Fuzzy match: find closest sprite/list by Levenshtein distance (max 3 edits)
+    const levenshtein = (a, b) => {
+      const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i]);
+      for (let j = 1; j <= n; j++) d[0][j] = j;
+      for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+        d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] !== b[j-1] ? 1 : 0));
+      return d[m][n];
+    };
+    const findNearest = (id, pool) => {
+      let best = null, bestDist = 3; // max 2 edits
+      const idLow = id.toLowerCase();
+      for (const k of pool) { const d = levenshtein(idLow, k.toLowerCase()); if (d < bestDist) { best = k; bestDist = d; } }
+      // Only accept if match is very close AND id length is similar (avoids short→long false positives)
+      if (best && Math.abs(id.length - best.length) > 3) return null;
+      return best;
+    };
+
     let fixed = false;
     for (const steps of Object.values(cmds)) {
       if (!Array.isArray(steps)) continue;
       for (const s of steps) {
         if (!s) continue;
-        // spriteId → actually a sprite list (only fix if no spriteListId already set)
+
+        // Layer 1: spriteId → actually a sprite list
         if (s.spriteId && !s.spriteListId && !sprites[s.spriteId] && lists[s.spriteId]) {
-          s.spriteListId = s.spriteId;
-          delete s.spriteId;
-          fixed = true;
+          s.spriteListId = s.spriteId; delete s.spriteId; fixed = true;
         }
-        // spriteListId → actually a sound sprite (only fix if no spriteId already set)
+        // Layer 1: spriteListId → actually a sound sprite
         if (s.spriteListId && !s.spriteId && !lists[s.spriteListId] && sprites[s.spriteListId]) {
-          s.spriteId = s.spriteListId;
-          delete s.spriteListId;
-          fixed = true;
+          s.spriteId = s.spriteListId; delete s.spriteListId; fixed = true;
         }
-        // commandId → actually a sprite or list (only fix if target fields not set)
+        // Layer 1: commandId → actually a sprite or list
         if (s.commandId && !cmds[s.commandId] && !s.spriteId && !s.spriteListId) {
           if (sprites[s.commandId]) { s.spriteId = s.commandId; delete s.commandId; fixed = true; }
           else if (lists[s.commandId]) { s.spriteListId = s.commandId; delete s.commandId; fixed = true; }
+        }
+
+        // Layer 2: prefix normalization — sl_ ref not in lists, try as s_ sprite or vice versa
+        if (s.spriteListId && !s.spriteId && !lists[s.spriteListId]) {
+          const asSprite = s.spriteListId.replace(/^sl_/, 's_');
+          if (sprites[asSprite]) { s.spriteId = asSprite; delete s.spriteListId; fixed = true; }
+        }
+        if (s.spriteId && !s.spriteListId && !sprites[s.spriteId]) {
+          const asList = s.spriteId.replace(/^s_/, 'sl_');
+          if (lists[asList]) { s.spriteListId = asList; delete s.spriteId; fixed = true; }
+        }
+
+        // Layer 3: fuzzy match — fix typos (max 3 character difference)
+        if (s.spriteId && !sprites[s.spriteId] && !s.spriteListId) {
+          const match = findNearest(s.spriteId, spriteKeys);
+          if (match) { s.spriteId = match; fixed = true; }
+        }
+        if (s.spriteListId && !lists[s.spriteListId] && !s.spriteId) {
+          const match = findNearest(s.spriteListId, listKeys);
+          if (match) { s.spriteListId = match; fixed = true; }
         }
       }
     }
