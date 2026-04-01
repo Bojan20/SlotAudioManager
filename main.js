@@ -355,14 +355,31 @@ function loadProject(dirPath) {
     data.deployTarget = path.join(abs, 'assets', 'default', 'default', 'default', 'sounds');
     data.deployTargetExists = fs.existsSync(data.deployTarget);
 
-    // Surface cached Node version for game repo
+    // Detect + cache Node version from game's webpack version (proactive, no build needed)
     const cached = gameNodeCache[abs];
-    if (cached === 'system') {
+    if (!cached && data.gameRepoExists) {
+      try {
+        const gamePkg = readJsonSafe(path.join(abs, 'package.json'));
+        const allDeps = { ...gamePkg?.dependencies, ...gamePkg?.devDependencies };
+        const wpMajor = parseInt((allDeps?.webpack || '').split('.')[0]);
+        if (wpMajor && wpMajor <= 4) {
+          const versions = findNvmNodeVersions();
+          const match = versions.find(v => parseInt(v.version.split('.')[0]) === 16);
+          if (match) {
+            gameNodeCache[abs] = match.dir;
+            nvmUse(match.version);
+          }
+        }
+      } catch {}
+    }
+
+    // Surface cached Node version for UI
+    const cachedNow = gameNodeCache[abs];
+    if (cachedNow === 'system') {
       try { data.gameNodeVersion = execFileSync('node', ['-v'], { timeout: 3000 }).toString().trim(); }
       catch { data.gameNodeVersion = process.version; }
-    } else if (cached && typeof cached === 'string' && !cached.startsWith('_')) {
-      // nvm dir — extract version from folder name (e.g. "v18.20.4" or "18.20.4")
-      const dirName = path.basename(cached);
+    } else if (cachedNow && typeof cachedNow === 'string' && !cachedNow.startsWith('_')) {
+      const dirName = path.basename(cachedNow);
       data.gameNodeVersion = dirName.startsWith('v') ? dirName : 'v' + dirName;
     }
 
@@ -1120,6 +1137,25 @@ ipcMain.handle('configure-game', async (event, { gameRepoPath }) => {
       }
     } else {
       log.push(`Warning: Game repo assets/ folder not found — deploy may fail`);
+    }
+
+    // 4. Detect required Node version from game's webpack major version
+    const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
+    const allDeps = { ...gamePkg?.dependencies, ...gamePkg?.devDependencies };
+    const wpVer = parseInt((allDeps?.webpack || '').split('.')[0]);
+    if (wpVer && wpVer <= 4) {
+      // webpack 4 needs Node 16 — find it in nvm and switch
+      const versions = findNvmNodeVersions();
+      const node16 = versions.find(v => parseInt(v.version.split('.')[0]) === 16);
+      if (node16) {
+        nvmUse(node16.version);
+        gameNodeCache[path.resolve(gameRepoPath)] = node16.dir;
+        log.push(`Detected webpack ${wpVer} → switched to Node v${node16.version}`);
+      } else {
+        log.push(`⚠ Detected webpack ${wpVer} — needs Node 16, but not found in nvm. Run: nvm install 16`);
+      }
+    } else if (wpVer && wpVer >= 5) {
+      log.push(`Detected webpack ${wpVer} → system Node OK`);
     }
 
     return { success: true, log, project: loadProject(projectPath) };
