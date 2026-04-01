@@ -224,6 +224,8 @@ ipcMain.handle('open-project', async () => {
   if (result.canceled || !result.filePaths.length) return null;
   projectPath = result.filePaths[0];
   undoStack.length = 0; redoStack.length = 0;
+  // Clear branch cache so auto-checkout runs for new project
+  Object.keys(gameNodeCache).filter(k => k.startsWith('_branch_')).forEach(k => delete gameNodeCache[k]);
   return loadProject(projectPath);
 });
 
@@ -280,6 +282,38 @@ function loadProject(dirPath) {
     data.gameNodeModulesExists = fs.existsSync(path.join(abs, 'node_modules'));
     data.deployTarget = path.join(abs, 'assets', 'default', 'default', 'default', 'sounds');
     data.deployTargetExists = fs.existsSync(data.deployTarget);
+
+    // Auto-checkout best branch: release/* > develop > stay on current (once per session)
+    if (data.gameRepoExists && !gameNodeCache['_branch_' + abs]) {
+      try {
+        const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 5000 }).toString().trim();
+        // Only auto-switch if on develop/master — don't switch from feature branches
+        if (['develop', 'master', 'main'].includes(currentBranch)) {
+          const branches = execFileSync('git', ['branch', '-r'], { cwd: abs, timeout: 5000 }).toString();
+          const allReleases = [...branches.matchAll(/origin\/(release\/[^\s]+)/g)].map(m => m[1]).sort();
+          const releaseMatch = allReleases.length > 0 ? [null, allReleases[allReleases.length - 1]] : null;
+          if (releaseMatch) {
+            const releaseBranch = releaseMatch[1];
+            try {
+              // Stash local changes (deploy artifacts) before switching
+              try { execFileSync('git', ['stash', '--include-untracked'], { cwd: abs, timeout: 5000, stdio: 'ignore' }); } catch {}
+              execFileSync('git', ['checkout', releaseBranch], { cwd: abs, timeout: 10000, stdio: 'ignore' });
+              execFileSync('git', ['pull', 'origin', releaseBranch], { cwd: abs, timeout: 15000, stdio: 'ignore' });
+              // Drop stash — deploy will re-create files anyway
+              try { execFileSync('git', ['stash', 'drop'], { cwd: abs, timeout: 5000, stdio: 'ignore' }); } catch {}
+              data.gameRepoBranch = releaseBranch;
+            } catch { data.gameRepoBranch = currentBranch; }
+          } else {
+            data.gameRepoBranch = currentBranch;
+          }
+        } else {
+          data.gameRepoBranch = currentBranch;
+        }
+        gameNodeCache['_branch_' + abs] = data.gameRepoBranch;
+      } catch { data.gameRepoBranch = ''; }
+    } else if (data.gameRepoExists) {
+      data.gameRepoBranch = gameNodeCache['_branch_' + abs] || '';
+    }
   }
 
   // Detect available npm scripts
@@ -1709,7 +1743,11 @@ ipcMain.handle('clean-orphans', async () => {
     soundsJson.soundDefinitions.spriteList = cleanedSpriteLists;
     soundsJson.soundDefinitions.commands = cleanedCommands;
 
-    fs.writeFileSync(path.join(projectPath, 'sounds.json'), JSON.stringify(soundsJson, null, 2));
+    const filePath = path.join(projectPath, 'sounds.json');
+    const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
+    const next = JSON.stringify(soundsJson, null, 2);
+    fs.writeFileSync(filePath, next);
+    if (prev !== null) pushUndo(filePath, prev, next);
 
     return {
       success: true,
