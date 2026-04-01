@@ -444,15 +444,13 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               {gameRepoPath && (
                 <p className="text-xs font-mono text-text-dim truncate" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</p>
               )}
-              {(running?.startsWith('game:') || gameStarted) && (
-                <button
-                  onClick={() => { abortRef.current = true; window.api.stopAll(); setRunning(null); setGameStarted(false); showToast('Process killed', 'success'); }}
-                  className="btn-ghost text-danger border-danger/30 text-xs py-1 px-2.5"
-                  title="Kill running game process and free port 8080"
-                >
-                  Kill
-                </button>
-              )}
+              <button
+                onClick={() => { window.api.killGame(); setGameStarted(false); showToast('Port 8080 freed', 'success'); }}
+                className="btn-ghost text-xs py-1 px-2.5 text-text-dim hover:text-danger hover:border-danger/30"
+                title="Kill game server and free port 8080 — for manual launch from CMD"
+              >
+                Free Port
+              </button>
               <button
                 onClick={loadGameScripts}
                 disabled={loadingGameScripts || running !== null}
@@ -462,6 +460,43 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 {loadingGameScripts ? '...' : 'Refresh'}
               </button>
             </div>
+
+            {/* Branch selector */}
+            {deployTarget && project?.gameRepoBranches?.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="section-label shrink-0">Branch</span>
+                <select
+                  value={project?.gameRepoBranch || ''}
+                  onChange={async (e) => {
+                    const branch = e.target.value;
+                    if (!branch || branch === project?.gameRepoBranch) return;
+                    setRunning('checkout');
+                    setLog('');
+                    try {
+                      const r = await window.api.checkoutGameBranch(branch);
+                      if (r?.success && r.project) {
+                        setProject(r.project);
+                        loadGameScripts();
+                        showToast(`Switched to ${r.branch}`, 'success');
+                      } else {
+                        showToast(r?.error || 'Checkout failed', 'error');
+                      }
+                    } catch (err) { showToast('Checkout failed', 'error'); }
+                    setRunning(null);
+                  }}
+                  disabled={running !== null}
+                  className="input-base text-sm font-mono py-1 px-2 flex-1"
+                  title="Select game repo branch — deploy and build-dev will use this branch"
+                >
+                  {project.gameRepoBranch && !project.gameRepoBranches.includes(project.gameRepoBranch) && (
+                    <option value={project.gameRepoBranch}>{project.gameRepoBranch} (local)</option>
+                  )}
+                  {project.gameRepoBranches.map(b => (
+                    <option key={b} value={b}>{b}{b === project?.gameRepoBranch ? ' (current)' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {gameScriptsError && <p className="text-xs text-danger font-mono">{gameScriptsError}</p>}
             {gameNodeModulesMissing && (

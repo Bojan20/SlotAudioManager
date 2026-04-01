@@ -224,8 +224,8 @@ ipcMain.handle('open-project', async () => {
   if (result.canceled || !result.filePaths.length) return null;
   projectPath = result.filePaths[0];
   undoStack.length = 0; redoStack.length = 0;
-  // Clear branch cache so auto-checkout runs for new project
-  Object.keys(gameNodeCache).filter(k => k.startsWith('_branch_')).forEach(k => delete gameNodeCache[k]);
+  // Clear caches for new project
+  Object.keys(gameNodeCache).filter(k => k.startsWith('_')).forEach(k => delete gameNodeCache[k]);
   return loadProject(projectPath);
 });
 
@@ -355,38 +355,26 @@ function loadProject(dirPath) {
     data.deployTarget = path.join(abs, 'assets', 'default', 'default', 'default', 'sounds');
     data.deployTargetExists = fs.existsSync(data.deployTarget);
 
-    // Auto-checkout best branch: release/* > develop > stay on current (once per session)
-    if (data.gameRepoExists && !gameNodeCache['_branch_' + abs]) {
+    // Collect branch info for UI — no auto-checkout, user picks branch
+    if (data.gameRepoExists) {
       try {
-        // Fetch remote refs silently (non-blocking if no network)
-        try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: abs, timeout: 10000, stdio: 'ignore' }); } catch {}
-        const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 5000 }).toString().trim();
-        // Only auto-switch if on develop/master — don't switch from feature branches
-        if (['develop', 'master', 'main'].includes(currentBranch)) {
-          const branches = execFileSync('git', ['branch', '-r'], { cwd: abs, timeout: 5000 }).toString();
-          const allReleases = [...branches.matchAll(/origin\/(release\/[^\s]+)/g)].map(m => m[1]).sort();
-          const releaseMatch = allReleases.length > 0 ? [null, allReleases[allReleases.length - 1]] : null;
-          if (releaseMatch) {
-            const releaseBranch = releaseMatch[1];
-            try {
-              // Stash local changes (deploy artifacts) before switching
-              try { execFileSync('git', ['stash', '--include-untracked'], { cwd: abs, timeout: 5000, stdio: 'ignore' }); } catch {}
-              execFileSync('git', ['checkout', releaseBranch], { cwd: abs, timeout: 10000, stdio: 'ignore' });
-              execFileSync('git', ['pull', 'origin', releaseBranch], { cwd: abs, timeout: 15000, stdio: 'ignore' });
-              // Drop stash — deploy will re-create files anyway
-              try { execFileSync('git', ['stash', 'drop'], { cwd: abs, timeout: 5000, stdio: 'ignore' }); } catch {}
-              data.gameRepoBranch = releaseBranch;
-            } catch { data.gameRepoBranch = currentBranch; }
-          } else {
-            data.gameRepoBranch = currentBranch;
-          }
-        } else {
-          data.gameRepoBranch = currentBranch;
+        // Fetch silently so branch list is fresh — once per session per repo
+        if (!gameNodeCache['_fetched_' + abs]) {
+          try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: abs, timeout: 10000, stdio: 'ignore' }); } catch {}
+          gameNodeCache['_fetched_' + abs] = true;
         }
-        gameNodeCache['_branch_' + abs] = data.gameRepoBranch;
-      } catch { data.gameRepoBranch = ''; }
-    } else if (data.gameRepoExists) {
-      data.gameRepoBranch = gameNodeCache['_branch_' + abs] || '';
+        data.gameRepoBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 5000 }).toString().trim();
+        const remoteBranches = execFileSync('git', ['branch', '-r'], { cwd: abs, timeout: 5000 }).toString();
+        data.gameRepoBranches = [...remoteBranches.matchAll(/origin\/([^\s]+)/g)]
+          .map(m => m[1])
+          .filter(b => b !== 'HEAD' && !b.startsWith('HEAD '))
+          .sort((a, b) => {
+            // release first, then develop, then rest
+            const ra = a.startsWith('release/') ? 0 : a === 'develop' ? 1 : 2;
+            const rb = b.startsWith('release/') ? 0 : b === 'develop' ? 1 : 2;
+            return ra !== rb ? ra - rb : a.localeCompare(b);
+          });
+      } catch { data.gameRepoBranch = ''; data.gameRepoBranches = []; }
     }
   }
 
@@ -1203,9 +1191,16 @@ function getGameNodeEnv(gameRepoPath) {
 
 function runBuildDev(gameRepoPath, nodeDir, send) {
   return new Promise((resolve) => {
+    // --openssl-legacy-provider only for Node 17+ (OpenSSL 3.0); Node 16 doesn't recognize it
+    const nodeMajor = nodeDir
+      ? parseInt((path.basename(nodeDir).match(/^v?(\d+)/) || [])[1] || '0')
+      : parseInt(process.versions.node);
+    const existingNodeOpts = process.env.NODE_OPTIONS || '';
+    const sslFlag = nodeMajor >= 17 ? '--openssl-legacy-provider ' : '';
+    const baseEnv = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', NODE_OPTIONS: `${sslFlag}${existingNodeOpts}`.trim() || undefined };
     const env = nodeDir
-      ? { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0', PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + process.env.PATH }
-      : { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
+      ? { ...baseEnv, PATH: (isWin ? nodeDir : path.join(nodeDir, 'bin')) + path.delimiter + process.env.PATH }
+      : baseEnv;
     const child = spawn('yarn', ['build-dev'], {
       cwd: gameRepoPath, stdio: ['ignore', 'pipe', 'pipe'], shell: isWin, env
     });
@@ -1251,7 +1246,7 @@ ipcMain.handle('build-game', async () => {
   }
 
   // Check if failure is the known Node 22 + old webpack bug
-  const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED/.test(result.output || '');
+  const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines::unsupported|error:0308010C/.test(result.output || '');
   if (!isNodeCompatBug) {
     for (const line of (result.output || '').split('\n')) send(line + '\n');
     return result;
@@ -1333,6 +1328,45 @@ ipcMain.handle('kill-game', async () => {
     }
     await killPort(8080);
     return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+// Checkout a branch in game repo — stash, switch, pull, drop stash
+ipcMain.handle('checkout-game-branch', async (event, branchName) => {
+  if (!projectPath) return { error: 'No project open' };
+  if (!branchName || typeof branchName !== 'string') return { error: 'Invalid branch name' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
+  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
+  const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
+  try {
+    send(`Switching to ${branchName}...\n`);
+    // Fetch latest
+    try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
+    // Stash local changes
+    let stashed = false;
+    try {
+      const stashOut = execFileSync('git', ['stash', '--include-untracked'], { cwd: gameRepoPath, timeout: 5000 }).toString();
+      stashed = !stashOut.includes('No local changes');
+    } catch {}
+    try {
+      // Checkout
+      execFileSync('git', ['checkout', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
+      // Pull
+      try { execFileSync('git', ['pull', 'origin', branchName], { cwd: gameRepoPath, timeout: 20000, stdio: 'ignore' }); } catch {}
+      // Drop stash — deploy will re-create files anyway
+      if (stashed) try { execFileSync('git', ['stash', 'drop'], { cwd: gameRepoPath, timeout: 5000, stdio: 'ignore' }); } catch {}
+      const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+      send(`✔ On branch ${currentBranch}\n`);
+      return { success: true, branch: currentBranch, project: loadProject(projectPath) };
+    } catch (e) {
+      // Checkout failed — restore stash
+      if (stashed) try { execFileSync('git', ['stash', 'pop'], { cwd: gameRepoPath, timeout: 5000, stdio: 'ignore' }); } catch {}
+      return { error: `Failed to checkout ${branchName}: ${e.message}` };
+    }
   } catch (e) {
     return { error: e.message };
   }

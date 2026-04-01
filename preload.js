@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
   openGameWindow: (url) => ipcRenderer.invoke('open-game-window', url),
   waitForPort: (opts) => ipcRenderer.invoke('wait-for-port', opts),
   gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
+  checkoutGameBranch: (branch) => ipcRenderer.invoke('checkout-game-branch', branch),
   // Pool measurement
   measurePool: (opts) => ipcRenderer.invoke('measure-pool', opts),
   // Orphan analysis
