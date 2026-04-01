@@ -650,6 +650,8 @@ ipcMain.handle('run-script', async (event, scriptName) => {
     const fbResult = await runNpmScript(cwd, scriptName, fb.dir, send);
     if (fbResult.success) {
       gameNodeCache[cwd] = fb.dir;
+      nvmUse(fb.version);
+      send(`\n✔ Switched system Node to v${fb.version} (nvm use)\n`);
       return fbResult;
     }
   }
@@ -1191,7 +1193,8 @@ ipcMain.handle('yarn-install-game', async () => {
       const fbResult = await runYarnInstall(gameRepoPath, fb.dir);
       if (fbResult.success) {
         gameNodeCache[gameRepoPath] = fb.dir;
-        return { ...fbResult, output: `Used Node ${fb.version}\n` + fbResult.output, project: loadProject(projectPath), detectedNode: fb.version };
+        nvmUse(fb.version);
+        return { ...fbResult, output: `Used Node ${fb.version} (nvm use applied)\n` + fbResult.output, project: loadProject(projectPath), detectedNode: fb.version };
       }
     }
   }
@@ -1317,6 +1320,18 @@ function getSystemNodeMajor() {
     const sv = execFileSync('node', ['-v'], { timeout: 5000 }).toString().trim();
     return parseInt(sv.replace('v', '').split('.')[0]);
   } catch { return 99; } // Can't detect system Node — try all nvm versions
+}
+
+// Switch system Node via nvm use — so user can also build manually outside the app
+function nvmUse(version) {
+  if (!version) return;
+  const nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
+  if (!nvmExe || !fs.existsSync(nvmExe)) return;
+  // version is like "18.20.4" or "16.20.2"
+  const ver = version.replace(/^v/, '');
+  try {
+    execFileSync(nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' });
+  } catch {} // fails if no admin — non-blocking, app still works via direct node.exe path
 }
 
 // Resolve Node binary for a game repo — checks .nvmrc, engines, nvm versions
@@ -1453,6 +1468,8 @@ ipcMain.handle('build-game', async () => {
     const fbResult = await runBuildDev(gameRepoPath, fb.dir, send);
     if (fbResult.success) {
       gameNodeCache[gameRepoPath] = fb.dir;
+      nvmUse(fb.version);
+      send(`\n✔ Switched system Node to v${fb.version} (nvm use)\n`);
       return { ...fbResult, detectedNode: fb.version };
     }
     lastError = fbResult.error || '';
