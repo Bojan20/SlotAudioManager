@@ -545,7 +545,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
   };
 
   const handlePasteSteps = async (targetCmd) => {
-    if (!clipboard || saving || !targetCmd) return;
+    if (!clipboard?.actions?.length || saving || !targetCmd) return;
     const j = structuredClone(project.soundsJson);
     const existing = j.soundDefinitions.commands[targetCmd] || [];
     j.soundDefinitions.commands[targetCmd] = [...existing, ...structuredClone(clipboard.actions)];
@@ -1236,7 +1236,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     >
                       + Add Step
                     </button>
-                    {clipboard && clipboard.name !== name && (
+                    {clipboard?.actions?.length > 0 && clipboard.name !== name && (
                       <button
                         onClick={() => handlePasteSteps(name)}
                         disabled={saving}

@@ -358,7 +358,8 @@ function loadProject(dirPath) {
     // Surface cached Node version for game repo
     const cached = gameNodeCache[abs];
     if (cached === 'system') {
-      data.gameNodeVersion = process.version;
+      try { data.gameNodeVersion = execFileSync('node', ['-v'], { timeout: 3000 }).toString().trim(); }
+      catch { data.gameNodeVersion = process.version; }
     } else if (cached && typeof cached === 'string' && !cached.startsWith('_')) {
       // nvm dir — extract version from folder name (e.g. "v18.20.4" or "18.20.4")
       const dirName = path.basename(cached);
@@ -614,24 +615,28 @@ ipcMain.handle('run-script', async (event, scriptName) => {
   if (!projectPath) return { error: 'No project open' };
   if (!scriptName || typeof scriptName !== 'string') return { error: 'Invalid script name' };
   if (!/^[a-zA-Z0-9_-]+$/.test(scriptName)) return { error: 'Invalid script name' };
+  const cwd = projectPath; // capture — projectPath can change if user opens another project mid-build
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
 
-  // If cached Node version for this audio repo — use it directly
-  const cached = gameNodeCache[projectPath];
+  // If cached Node version — verify node.exe still exists, then use
+  const cached = gameNodeCache[cwd];
   if (cached && cached !== 'system' && !cached.startsWith('_')) {
-    return runNpmScript(projectPath, scriptName, cached, send);
+    if (fs.existsSync(path.join(cached, isWin ? 'node.exe' : 'bin/node'))) {
+      return runNpmScript(cwd, scriptName, cached, send);
+    }
+    delete gameNodeCache[cwd]; // stale cache — Node was uninstalled
   }
 
   // Try system Node first
-  const result = await runNpmScript(projectPath, scriptName, null, send);
+  const result = await runNpmScript(cwd, scriptName, null, send);
   if (result.success) {
-    if (!cached) gameNodeCache[projectPath] = 'system';
+    if (!cached) gameNodeCache[cwd] = 'system';
     return result;
   }
 
   // Check for Node compat errors — try older versions
   const isCompatBug = /ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines|error:0308010C|callback.*already called/.test(result.output || '');
-  if (!isCompatBug) return result;
+  if (!isCompatBug) return { ...result, error: result.error || 'Script failed' };
 
   const sysNodeMajor = getSystemNodeMajor();
   const versions = findNvmNodeVersions();
@@ -642,9 +647,9 @@ ipcMain.handle('run-script', async (event, scriptName) => {
 
   for (const fb of fallbacks) {
     send(`\nRetrying with Node ${fb.version}...\n`);
-    const fbResult = await runNpmScript(projectPath, scriptName, fb.dir, send);
+    const fbResult = await runNpmScript(cwd, scriptName, fb.dir, send);
     if (fbResult.success) {
-      gameNodeCache[projectPath] = fb.dir;
+      gameNodeCache[cwd] = fb.dir;
       return fbResult;
     }
   }
@@ -656,11 +661,19 @@ ipcMain.handle('run-deploy', async (event, scriptName) => {
   if (!projectPath) return { error: 'No project open' };
   const name = scriptName || 'deploy';
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) return { error: 'Invalid script name' };
+  const cwd = projectPath;
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
-  // Use cached Node version if available (same audio repo as run-script)
-  const cached = gameNodeCache[projectPath];
-  const nodeDir = (cached && cached !== 'system' && !cached.startsWith('_')) ? cached : null;
-  return runNpmScript(projectPath, name, nodeDir, send);
+  // Use cached Node version if available — verify it still exists
+  const cached = gameNodeCache[cwd];
+  let nodeDir = null;
+  if (cached && cached !== 'system' && !cached.startsWith('_')) {
+    if (fs.existsSync(path.join(cached, isWin ? 'node.exe' : 'bin/node'))) {
+      nodeDir = cached;
+    } else {
+      delete gameNodeCache[cwd];
+    }
+  }
+  return runNpmScript(cwd, name, nodeDir, send);
 });
 
 ipcMain.handle('clean-dist', async () => {
@@ -749,7 +762,7 @@ ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranc
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   if (!commitMsg?.trim()) return { error: 'Commit message is required' };
   if (!branchName?.trim()) return { error: 'Branch name is required' };
-  if (!/^[a-zA-Z0-9/_.-]+$/.test(branchName)) return { error: 'Invalid branch name characters' };
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/.test(branchName)) return { error: 'Invalid branch name characters' };
   if (!targetBranch || !/^[a-zA-Z0-9/_.-]+$/.test(targetBranch)) return { error: 'Invalid target branch' };
   try {
     const opts = { cwd: gameRepoPath, timeout: 30000 };
@@ -1303,7 +1316,7 @@ function getSystemNodeMajor() {
   try {
     const sv = execFileSync('node', ['-v'], { timeout: 5000 }).toString().trim();
     return parseInt(sv.replace('v', '').split('.')[0]);
-  } catch { return parseInt(process.versions.node.split('.')[0]); }
+  } catch { return 99; } // Can't detect system Node — try all nvm versions
 }
 
 // Resolve Node binary for a game repo — checks .nvmrc, engines, nvm versions
@@ -1423,7 +1436,7 @@ ipcMain.handle('build-game', async () => {
   const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines::unsupported|error:0308010C/.test(result.output || '');
   if (!isNodeCompatBug) {
     for (const line of (result.output || '').split('\n')) send(line + '\n');
-    return result;
+    return { ...result, error: result.error || 'build-dev failed' };
   }
 
   // Try older Node versions via nvm — stream output for these attempts
@@ -1512,7 +1525,7 @@ ipcMain.handle('kill-game', async () => {
 ipcMain.handle('checkout-game-branch', async (event, branchName) => {
   if (!projectPath) return { error: 'No project open' };
   if (!branchName || typeof branchName !== 'string') return { error: 'Invalid branch name' };
-  if (!/^[a-zA-Z0-9/_.-]+$/.test(branchName)) return { error: 'Invalid branch name characters' };
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/.test(branchName)) return { error: 'Invalid branch name characters' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
@@ -1523,7 +1536,7 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
     try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
     send(`Switching to ${branchName}...\n`);
     // Force checkout — discards local changes (reset --hard follows anyway)
-    execFileSync('git', ['checkout', '-f', '--', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
+    execFileSync('git', ['checkout', '-f', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
     // Hard reset to origin — guarantees local matches remote exactly
     try {
       execFileSync('git', ['reset', '--hard', `origin/${branchName}`], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' });
