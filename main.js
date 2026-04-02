@@ -540,6 +540,25 @@ ipcMain.handle('save-sounds-json', async (event, data) => {
         }
       }
     }
+    // Sort soundSprites alphabetically
+    if (data?.soundDefinitions?.soundSprites) {
+      const sorted = {};
+      for (const k of Object.keys(data.soundDefinitions.soundSprites).sort()) {
+        sorted[k] = data.soundDefinitions.soundSprites[k];
+      }
+      data.soundDefinitions.soundSprites = sorted;
+    }
+    // Sort commands: regular first, then onVO*, then onUi* at the end
+    if (data?.soundDefinitions?.commands) {
+      const entries = Object.entries(data.soundDefinitions.commands);
+      const regular = [], vo = [], ui = [];
+      for (const [k, v] of entries) {
+        if (/^onUi/i.test(k)) ui.push([k, v]);
+        else if (/^onVo/i.test(k)) vo.push([k, v]);
+        else regular.push([k, v]);
+      }
+      data.soundDefinitions.commands = Object.fromEntries([...regular, ...vo, ...ui]);
+    }
     const filePath = path.join(projectPath, 'sounds.json');
     const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
     const next = JSON.stringify(data, null, 2);

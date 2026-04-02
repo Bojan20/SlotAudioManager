@@ -317,13 +317,23 @@ async function buildFinalJSON() {
         if (removedListEntries) console.log(`  Removed ${removedListEntries} broken spriteList entry/entries`);
     }
 
+    // Sort commands: regular first, then onVO*, then onUi* at the end
+    const sortedCommands = {};
+    const cmdRegular = [], cmdVo = [], cmdUi = [];
+    for (const [k, v] of Object.entries(cleanedCommands)) {
+        if (/^onUi/i.test(k)) cmdUi.push([k, v]);
+        else if (/^onVo/i.test(k)) cmdVo.push([k, v]);
+        else cmdRegular.push([k, v]);
+    }
+    for (const [k, v] of [...cmdRegular, ...cmdVo, ...cmdUi]) sortedCommands[k] = v;
+
     // Build final JSON
     const finalJson = {
         soundManifest: manifestEntries,
         soundDefinitions: {
             soundSprites: sortedSoundSprites,
             spriteList: cleanedSpriteLists,
-            commands: cleanedCommands
+            commands: sortedCommands
         }
     };
 
