@@ -18,27 +18,32 @@ const JSONtemplate = audioSettings.get('JSONtemplate');
 const JSONtarget = audioSettings.get('JSONtarget');
 const fileType = "json";
 
-const audioFileCount = fs.readdirSync("././dist/soundFiles/").length/2;
-console.log(" File Count =>  "+audioFileCount);
+// Count only sprite soundData files (soundData1.json, soundData2.json, ...) — NOT standalone ones
+const distFiles = fs.readdirSync("././dist/soundFiles/");
+const spriteDataFiles = distFiles.filter(f => /^soundData\d+\.json$/.test(f)).sort();
+const standaloneDataFiles = distFiles.filter(f => /^soundData_.+\.json$/.test(f));
+const audioFileCount = spriteDataFiles.length;
+console.log(" Sprite chunks: " + audioFileCount + ", Standalone: " + standaloneDataFiles.length);
 
 if (audioProcess.process === "audioSprite") {
     let sndFilesData;
-    if(audioFileCount !== undefined && audioFileCount > 0) {
+    if(audioFileCount > 0) {
         sndFilesData = [];
         sndDataEntries = [];
         sndSpriteEntries = [];
         for(let i=0; i<audioFileCount; i++) {
-            console.log(" path - "+ "dist/soundFiles/soundData"+(i+1) +".json");
-            sndFilesData[i] = JSON.parse(fs.readFileSync("dist/soundFiles/soundData"+(i+1) +".json"));
+            const dataFile = "dist/soundFiles/soundData"+(i+1) +".json";
+            console.log(" path - "+ dataFile);
+            sndFilesData[i] = JSON.parse(fs.readFileSync(dataFile));
             sndDataEntries[i] = new Map(Object.entries(sndFilesData[i] || {}));
             sndSpriteEntries[i] = sndDataEntries[i].get("sprite");
-            console.log(" sndSpriteEntries => " + sndSpriteEntries[i]);
-    
         }
     } else {
-        const sndData = JSON.parse(fs.readFileSync("dist/soundFiles/soundData.json"));
-        sndDataEntries = new Map(Object.entries(sndData || {}));
-        sndSpriteEntries = sndDataEntries.get("sprite");
+        try {
+            const sndData = JSON.parse(fs.readFileSync("dist/soundFiles/soundData.json"));
+            sndDataEntries = new Map(Object.entries(sndData || {}));
+            sndSpriteEntries = sndDataEntries.get("sprite");
+        } catch {}
     }
 
 } else if (audioProcess.process === "audio") {
@@ -247,8 +252,34 @@ function processSpriteList(element) {
     });
 }
 
-async function processSourceSprites() {    
-    fs.readdirSync(SourceSoundDirectory).forEach(async element => {       
+async function processSourceSprites() {
+    fs.readdirSync(SourceSoundDirectory).forEach(async element => {
+        // Skip standalone sounds — they have their own M4A, no sprite timing
+        const baseName = element.replace('.wav', '');
+        if (standaloneSounds.has(baseName)) {
+            console.log("Skipping standalone: " + baseName);
+            // Add standalone sprite entry with full duration from soundData
+            const sdFile = "dist/soundFiles/soundData_" + baseName + ".json";
+            if (fs.existsSync(sdFile)) {
+                try {
+                    const sd = JSON.parse(fs.readFileSync(sdFile, 'utf8'));
+                    const sprite = sd.sprite || {};
+                    const spriteKey = Object.keys(sprite)[0];
+                    if (spriteKey) {
+                        const entryName = "s_" + baseName;
+                        myNewSoundSprites[entryName] = {
+                            soundId: baseName,
+                            spriteId: baseName,
+                            startTime: sprite[spriteKey][0] || 0,
+                            duration: sprite[spriteKey][1] || 0,
+                            tags: originalSprites[entryName]?.tags || ["Music"],
+                            overlap: originalSprites[entryName]?.overlap ?? false,
+                        };
+                    }
+                } catch (e) { console.log("  Warning: could not read " + sdFile); }
+            }
+            return;
+        }
         if (element.endsWith("_SL.wav")) {
             processSpriteList(element);
         } else if (element.endsWith(".wav")) {

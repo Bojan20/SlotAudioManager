@@ -153,32 +153,38 @@ if (fs.existsSync(distGameSoundsBase)) {
     console.log("Game dist/ not found at " + distGameSoundsBase + ", skipping dist copy");
 }
 
-// Patch playa-core SoundLoader to use html5:true for SubLoader audio (lazy music streaming)
+// Patch playa-core SoundLoader to use html5:true ONLY for standalone music (not sprites)
 // SubLoader path uses createHowlInstance(srcRef) with a real URL — html5:true makes Howler
 // stream via HTML5 Audio instead of decoding into Web Audio API memory (~100-200MB savings)
+// IMPORTANT: html5:true breaks sprite playback (HTML5 Audio can't seek sub-second offsets),
+// so we ONLY enable it for standalone sounds (id does not contain "_sprite" or "_audioSprite")
 const soundLoaderPath = path.join(gameProjectPath, "node_modules", "playa-core", "dist", "sound", "SoundLoader.js");
 if (fs.existsSync(soundLoaderPath)) {
     let src = fs.readFileSync(soundLoaderPath, "utf8");
     if (!src.includes("__STREAM_PATCH__")) {
-        // Patch createHowlInstance to add html5:true — SubLoader audio will stream
+        const origSrc = src;
+        // 1. Add id parameter to createHowlInstance signature
         src = src.replace(
             /createHowlInstance\(srcRef\)\s*\{/,
-            `createHowlInstance(srcRef) { /* __STREAM_PATCH__ */`
+            `createHowlInstance(srcRef, __soundId__) { /* __STREAM_PATCH__ */`
         );
-        src = src.replace(
-            /createHowlInstance\(srcRef\)\s*\{\s*\/\*\s*__STREAM_PATCH__\s*\*\//,
-            `createHowlInstance(srcRef) {
-        /* __STREAM_PATCH__ html5 streaming for SubLoader music */
-        var __useHtml5__ = true; /* SubLoader audio = lazy/deferred = safe to stream */`
-        );
-        // Add html5 flag to the Howl constructor call inside createHowlInstance
-        // Original: return new Howl({ src: this.clearCache(srcRef), format: ..., preload: true, autoplay: true, sprite: ... });
+        // 2. Add html5 flag — true ONLY for standalone (non-sprite) sounds
         src = src.replace(
             /(createHowlInstance[\s\S]*?return new Howl\(\{)/,
-            '$1\n            html5: __useHtml5__,'
+            '$1\n            html5: __soundId__ ? __soundId__.indexOf("_sprite") === -1 && __soundId__.indexOf("_audioSprite") === -1 : false,'
         );
-        fs.writeFileSync(soundLoaderPath, src);
-        console.log("Patched SoundLoader.js — SubLoader audio will stream via html5");
+        // 3. Pass id through from loadSubLoaderAudio call site
+        src = src.replace(
+            /this\.createHowlInstance\(srcRef\)/,
+            'this.createHowlInstance(srcRef, id)'
+        );
+        // Verify patch integrity — all 3 replacements must succeed
+        if (src.includes("__STREAM_PATCH__") && src.includes("__soundId__") && src.includes("html5:")) {
+            fs.writeFileSync(soundLoaderPath, src);
+            console.log("Patched SoundLoader.js — standalone music streams via html5, sprites use Web Audio");
+        } else {
+            console.log("WARNING: SoundLoader patch incomplete — playa-core format may have changed. Skipping.");
+        }
     } else {
         console.log("SoundLoader.js already patched for streaming");
     }
