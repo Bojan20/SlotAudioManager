@@ -120,6 +120,11 @@ function formatJson(input) {
         .replace(/"soundSprites":/g, '\n"soundSprites":\n')
 }
 
+// Read sprite-config for standalone sounds + loadType
+const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
+const standaloneSounds = new Set(spriteConfig?.standalone?.sounds || []);
+const standaloneSubLoaderId = spriteConfig?.standalone?.subLoaderId || null;
+
 function processSourceManifest() {
     console.log("creating manifest");
     let sourceDir;
@@ -147,6 +152,11 @@ function processSourceManifest() {
             src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
             entry.id = id;
             entry.src = src;
+            // Standalone music with loadType for lazy SubLoader
+            if (standaloneSounds.has(id) && standaloneSubLoaderId) {
+                entry.loadType = standaloneSubLoaderId;
+                console.log("  [SubLoader " + standaloneSubLoaderId + "] " + id + " — standalone lazy");
+            }
             myNewSoundManifest.push(entry);
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else {
