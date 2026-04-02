@@ -88,17 +88,13 @@ for (const dataFile of soundDataFiles) {
     const tierConfig = spriteConfig.sprites[tierName];
     const subLoaderId = tierConfig?.subLoaderId;
     const isStandaloneTier = standaloneSounds.includes(tierName);
-    // Standalone can also have subLoaderId (e.g. "Z" for lazy streaming music)
-    const standaloneSubLoaderId = isStandaloneTier ? spriteConfig.standalone?.subLoaderId : null;
-
     const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
     if (subLoaderId && !isStandaloneTier) {
         manifestEntry.loadType = subLoaderId;
         const unloadable = tierConfig?.unloadable === true;
         if (unloadable) manifestEntry.unloadable = true;
         console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
-    } else if (standaloneSubLoaderId) {
-        manifestEntry.loadType = standaloneSubLoaderId;
+    } else if (false) { // Standalone loadType Z disabled — requires playa-core streaming support
         console.log(`  [SubLoader "${standaloneSubLoaderId}"] ${soundId} — standalone lazy`);
     }
     manifestEntries.push(manifestEntry);

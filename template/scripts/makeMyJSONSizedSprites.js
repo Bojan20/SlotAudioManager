@@ -158,10 +158,10 @@ function processSourceManifest() {
             entry.id = id;
             entry.src = src;
             // Standalone music with loadType for lazy SubLoader
-            if (standaloneSounds.has(id) && standaloneSubLoaderId) {
-                entry.loadType = standaloneSubLoaderId;
-                console.log("  [SubLoader " + standaloneSubLoaderId + "] " + id + " — standalone lazy");
-            }
+            // Standalone loadType Z disabled — requires playa-core streaming support
+            // if (standaloneSounds.has(id) && standaloneSubLoaderId) {
+            //     entry.loadType = standaloneSubLoaderId;
+            // }
             myNewSoundManifest.push(entry);
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else {
