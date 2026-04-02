@@ -841,6 +841,37 @@ ipcMain.handle('game-git-create-pr', async (event, { branchName, targetBranch, t
   }
 });
 
+// Find the Jenkins build version on a target branch after PR merge
+// Jenkins creates a version commit ~1 min after merge: "v1.0.0-rc.10" or "v0.0.1-dev.42"
+ipcMain.handle('get-game-build-version', async (event, { targetBranch }) => {
+  if (!projectPath) return { error: 'No project open' };
+  if (!targetBranch) return { error: 'Target branch required' };
+  const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+  if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
+  const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+  if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
+  try {
+    // Fetch latest from origin — silent, proceed with cached data if offline
+    try { execFileSync('git', ['fetch', 'origin', targetBranch], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
+    // Read last 5 commits on the target branch — find Jenkins version commit
+    const log = execFileSync('git', ['log', `origin/${targetBranch}`, '--oneline', '-5'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    const lines = log.split('\n');
+    // Jenkins version commits match: "v{semver}-{rc|dev}.{N}" or "v{semver}-{branchName}"
+    // The post-merge increment is: v1.0.0-rc.N (release) or v0.0.1-dev.N (develop)
+    const versionLine = lines.find(l => /^[a-f0-9]+ v\d+\.\d+\.\d+-(rc|dev)\.\d+$/.test(l));
+    if (versionLine) {
+      const parts = versionLine.split(' ');
+      const sha = parts[0];
+      const version = parts.slice(1).join(' ');
+      return { success: true, version, sha, log };
+    }
+    // No version commit found yet — Jenkins may not have run
+    return { success: false, pending: true, log, message: 'Build version not found yet — Jenkins may still be running (~1 min after merge)' };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
 ipcMain.handle('import-sounds', async () => {
   if (!projectPath) return { error: 'No project open' };
   const result = await dialog.showOpenDialog(mainWindow, {

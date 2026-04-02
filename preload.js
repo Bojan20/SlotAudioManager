@@ -53,4 +53,5 @@ contextBridge.exposeInMainWorld('api', {
   gameGitStatus: () => ipcRenderer.invoke('game-git-status'),
   gameGitCreateBranchCommitPush: (opts) => ipcRenderer.invoke('game-git-create-branch-commit-push', opts),
   gameGitCreatePr: (opts) => ipcRenderer.invoke('game-git-create-pr', opts),
+  getGameBuildVersion: (opts) => ipcRenderer.invoke('get-game-build-version', opts),
 });

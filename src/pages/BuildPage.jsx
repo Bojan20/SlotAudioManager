@@ -17,6 +17,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [gameGitTarget, setGameGitTarget] = useState('');
   const [gameGitPushing, setGameGitPushing] = useState(false);
   const [gameGitPrUrl, setGameGitPrUrl] = useState('');
+  const [buildVersion, setBuildVersion] = useState(null); // { version, sha } or null
+  const [buildChecking, setBuildChecking] = useState(false);
   const logRef = useRef(null);
   const abortRef = useRef(false);
 
@@ -45,7 +47,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   useEffect(() => {
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
-    setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl('');
+    setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
     if (project) { loadGameScripts(); }
   }, [project?.path]);
 
@@ -114,6 +116,28 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       }
     } catch (e) { showToast(e.message, 'error'); }
     setGameGitPushing(false);
+  };
+
+  const checkBuildVersion = async (retries = 0) => {
+    if (!gameGitTarget) return;
+    setBuildChecking(true);
+    try {
+      const r = await window.api.getGameBuildVersion({ targetBranch: gameGitTarget });
+      if (r?.success) {
+        setBuildVersion({ version: r.version, sha: r.sha });
+        showToast(`Build: ${r.version}`, 'success');
+      } else if (r?.pending && retries < 5) {
+        // Jenkins hasn't tagged yet — auto-retry in 15s (up to 5 times = ~75s)
+        showToast(`Build not ready, checking again in 15s... (${retries + 1}/5)`, 'info');
+        setTimeout(() => checkBuildVersion(retries + 1), 15000);
+        return; // don't clear buildChecking — still polling
+      } else if (r?.pending) {
+        showToast('Build version not found after 5 attempts — check Jenkins manually', 'error');
+      } else if (r?.error) {
+        showToast(r.error, 'error');
+      }
+    } catch (e) { showToast(e.message, 'error'); }
+    setBuildChecking(false);
   };
 
   const loadGameScripts = async () => {
@@ -609,6 +633,35 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                       </button>
                     )}
                   </div>
+                  {/* Build version — after PR merge */}
+                  {gameGitPrUrl && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {buildVersion ? (
+                        <div className="flex items-center gap-2">
+                          <span className="badge bg-green-dim text-green font-mono">{buildVersion.version}</span>
+                          <span className="text-xs text-text-dim font-mono">{buildVersion.sha}</span>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(buildVersion.version); showToast('Copied', 'success'); }}
+                            className="text-xs text-text-dim hover:text-accent transition-colors"
+                            title="Copy build version to clipboard"
+                          >Copy</button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => checkBuildVersion(0)}
+                          disabled={buildChecking}
+                          className="btn-ghost text-xs py-1 px-3 flex items-center gap-1.5"
+                          title="Fetch the Jenkins build version from the target branch after PR merge"
+                        >
+                          {buildChecking ? (
+                            <><span className="anim-pulse-dot">●</span> Checking build...</>
+                          ) : (
+                            'Check Build Version'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
                   <details className="text-xs">
                     <summary className="text-text-dim cursor-pointer hover:text-text-secondary">
                       {gameGit.files.length} file{gameGit.files.length !== 1 ? 's' : ''} changed
