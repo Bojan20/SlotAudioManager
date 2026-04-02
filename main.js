@@ -352,18 +352,6 @@ function loadProject(dirPath) {
     }
   }
 
-  // Auto-configure IGT GitHub credential — prevents account picker popup
-  // Sets GCM to use IGT account for igtinteractive repos (one-time per repo)
-  try {
-    const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dirPath, timeout: 3000 }).toString().trim();
-    if (remoteUrl.includes('igtinteractive')) {
-      const currentUser = (() => { try { return execFileSync('git', ['config', 'credential.username'], { cwd: dirPath, timeout: 3000 }).toString().trim(); } catch { return ''; } })();
-      if (!currentUser) {
-        try { execFileSync('git', ['config', 'credential.username', 'IgtBojan'], { cwd: dirPath, timeout: 3000 }); } catch {}
-      }
-    }
-  } catch {}
-
   // Resolve gameProjectPath to absolute for UI display
   if (data.settings?.gameProjectPath) {
     const abs = path.resolve(dirPath, data.settings.gameProjectPath);
@@ -372,17 +360,6 @@ function loadProject(dirPath) {
     data.gameNodeModulesExists = fs.existsSync(path.join(abs, 'node_modules'));
     data.deployTarget = path.join(abs, 'assets', 'default', 'default', 'default', 'sounds');
     data.deployTargetExists = fs.existsSync(data.deployTarget);
-
-    // Auto-configure IGT credential for game repo too
-    if (data.gameRepoExists) {
-      try {
-        const gameRemote = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: abs, timeout: 3000 }).toString().trim();
-        if (gameRemote.includes('igtinteractive')) {
-          const gu = (() => { try { return execFileSync('git', ['config', 'credential.username'], { cwd: abs, timeout: 3000 }).toString().trim(); } catch { return ''; } })();
-          if (!gu) { try { execFileSync('git', ['config', 'credential.username', 'IgtBojan'], { cwd: abs, timeout: 3000 }); } catch {} }
-        }
-      } catch {}
-    }
 
     // Detect + cache Node version from game's webpack version (proactive, no build needed)
     const cached = gameNodeCache[abs];
