@@ -146,6 +146,8 @@ app.on('before-quit', () => {
       try { execSync("lsof -ti:8080 | xargs kill -9", { stdio: 'ignore' }); } catch {}
     }
   } catch {}
+  // Restore system Node to the version that was active when app started
+  nvmRestore();
 });
 
 // Safe JSON reader
@@ -1348,22 +1350,27 @@ function detectGameNode(gameRepoAbsPath) {
   const match = versions.find(v => parseInt(v.version.split('.')[0]) === 16);
   if (match) {
     gameNodeCache[gameRepoAbsPath] = match.dir;
-    nvmUse(match.version);
-    return { version: match.version, dir: match.dir, msg: `webpack ${wpMajor} → Node v${match.version}` };
+    return { version: match.version, dir: match.dir, msg: `webpack ${wpMajor} → uses Node v${match.version} for builds` };
   }
   return { msg: `⚠ webpack ${wpMajor} needs Node 16 — not found in nvm. Run: nvm install 16` };
 }
 
-// Switch system Node via nvm use — so user can also build manually outside the app
+// Save the system Node version at app startup — restored on quit
+let _originalNodeVersion = null;
+try { _originalNodeVersion = execFileSync('node', ['-v'], { timeout: 3000 }).toString().trim().replace(/^v/, ''); } catch {}
+
 function nvmUse(version) {
   if (!version) return;
   const nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
   if (!nvmExe || !fs.existsSync(nvmExe)) return;
-  // version is like "18.20.4" or "16.20.2"
   const ver = version.replace(/^v/, '');
-  try {
-    execFileSync(nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' });
-  } catch {} // fails if no admin — non-blocking, app still works via direct node.exe path
+  if (ver === _originalNodeVersion) return; // already on this version
+  try { execFileSync(nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' }); } catch {}
+}
+
+function nvmRestore() {
+  if (!_originalNodeVersion) return;
+  nvmUse(_originalNodeVersion);
 }
 
 // Resolve Node binary for a game repo — checks .nvmrc, engines, nvm versions
