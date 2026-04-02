@@ -242,6 +242,9 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   const [measuredRAM, setMeasuredRAM] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
+  const isStandalone = tierName === 'standalone';
+  const isDeferred = !!tierCfg?.subLoaderId;
+
   // Reset measurement when sounds or encoding change
   const enc = isStandalone
     ? config?.encoding?.music || { bitrate: 128, channels: 2, samplerate: 44100 }
@@ -253,8 +256,6 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   const displayKB = measuredKB ?? (sizeInfo.isActual ? sizeInfo.kb : null);
   const over = maxKB > 0 && displayKB && displayKB > maxKB;
   const pct = maxKB > 0 && displayKB ? Math.min(100, (displayKB / maxKB) * 100) : 0;
-  const isStandalone = tierName === 'standalone';
-  const isDeferred = !!tierCfg?.subLoaderId;
 
   const handleMeasure = async () => {
     if (sounds.length === 0) return;
