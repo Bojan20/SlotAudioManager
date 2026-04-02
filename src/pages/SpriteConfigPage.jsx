@@ -239,11 +239,16 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   const [expanded, setExpanded] = useState(true);
   const [measuring, setMeasuring] = useState(false);
   const [measuredKB, setMeasuredKB] = useState(null);
+  const [measuredRAM, setMeasuredRAM] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
-  // Reset measurement when sounds change (join detects swaps of same count)
+  // Reset measurement when sounds or encoding change
+  const enc = isStandalone
+    ? config?.encoding?.music || { bitrate: 128, channels: 2, samplerate: 44100 }
+    : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
+  const encKey = `${enc.bitrate}-${enc.channels}-${enc.samplerate}-${enc.keepOriginal}`;
   const soundsKey = sounds.join(',');
-  useEffect(() => { setMeasuredKB(null); }, [soundsKey]);
+  useEffect(() => { setMeasuredKB(null); setMeasuredRAM(null); }, [soundsKey, encKey]);
 
   const displayKB = measuredKB ?? (sizeInfo.isActual ? sizeInfo.kb : null);
   const over = maxKB > 0 && displayKB && displayKB > maxKB;
@@ -255,12 +260,12 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
     if (sounds.length === 0) return;
     setMeasuring(true);
     try {
-      const enc = isStandalone
-        ? config?.encoding?.music || { bitrate: 128, channels: 2, samplerate: 44100 }
-        : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
       const r = await window.api.measurePool({ tierName, sounds, encoding: enc, isStandalone });
       if (r?.error) { showToast?.('Measure failed: ' + r.error, 'error'); }
-      else if (r?.sizeKB !== undefined) setMeasuredKB(r.sizeKB);
+      else if (r?.sizeKB !== undefined) {
+        setMeasuredKB(r.sizeKB);
+        setMeasuredRAM(r.ramMB ?? null);
+      }
     } catch (e) { showToast?.('Measure failed: ' + (e.message || 'unknown'), 'error'); }
     setMeasuring(false);
   };
@@ -288,6 +293,11 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
         {displayKB ? (
           <span className={`text-sm font-mono tabular-nums font-semibold ${over ? 'text-danger' : theme.accent}`}>
             {fmtSize(displayKB)}
+          </span>
+        ) : null}
+        {measuredRAM ? (
+          <span className="text-xs font-mono tabular-nums text-orange" title="Estimated decoded RAM when Web Audio API loads this audio">
+            ~{measuredRAM} MB RAM
           </span>
         ) : null}
         <button

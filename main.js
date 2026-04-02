@@ -2378,7 +2378,25 @@ as(ff, ${JSON.stringify(files.map(f => f.replace(/\\/g, '/')))}, opts, 0, (err) 
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
       if (code !== 0) return resolve({ error: stderr.trim() || 'Measure failed' });
       const kb = parseInt(stdout.trim(), 10);
-      resolve({ sizeKB: isNaN(kb) ? 0 : kb, sounds: files.length });
+      // Estimate decoded RAM: sum WAV durations × samplerate × channels × 4 bytes (Float32)
+      const sr = e.keepOriginal ? 44100 : (e.samplerate || 44100);
+      const ch = e.keepOriginal ? 2 : (e.channels || 2);
+      let totalSamples = 0;
+      for (const f of files) {
+        try {
+          const buf = fs.readFileSync(f);
+          const wavCh = buf.readUInt16LE(22);
+          const wavSr = buf.readUInt32LE(24);
+          const wavBits = buf.readUInt16LE(34);
+          const dataStart = buf.indexOf(Buffer.from('data')) + 8;
+          const dataSize = buf.readUInt32LE(dataStart - 4);
+          const wavSamples = dataSize / (wavCh * (wavBits / 8));
+          // Resample: output duration = wavSamples / wavSr, output samples = duration * sr
+          totalSamples += (wavSamples / wavSr) * sr;
+        } catch {}
+      }
+      const ramMB = Math.round((totalSamples * ch * 4) / 1024 / 1024 * 10) / 10;
+      resolve({ sizeKB: isNaN(kb) ? 0 : kb, sounds: files.length, ramMB });
     });
     child.on('error', (e) => {
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
