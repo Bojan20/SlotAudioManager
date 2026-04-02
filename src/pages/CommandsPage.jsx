@@ -221,8 +221,8 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
         </div>
       )}
 
-      {/* Row 3: checkboxes */}
-      {!isExecute && !isResetSpriteList && (
+      {/* Row 3: checkboxes — only if at least one checkbox would be visible */}
+      {!isExecute && !isResetSpriteList && (isPlay || isStop || isFade || (state.spriteId && soundSprites[state.spriteId])) && (
         <div className="flex items-center gap-4">
           {isPlay && (
             <label className="flex items-center gap-2 cursor-pointer">
@@ -560,6 +560,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (!validateStep(newCmd)) return;
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[hookName] = [buildStep(newCmd)];
+    applySpriteOverlap(j, newCmd);
     const ok = await saveJson(j, `Command "${hookName}" added`);
     if (ok) { setNewCmd(null); setExpanded(hookName); }
   };
