@@ -222,7 +222,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
       )}
 
       {/* Row 3: checkboxes */}
-      {!isExecute && !isResetSpriteList && (isPlay || isStop || isFade) && (
+      {!isExecute && !isResetSpriteList && (
         <div className="flex items-center gap-4">
           {isPlay && (
             <label className="flex items-center gap-2 cursor-pointer">
@@ -246,6 +246,17 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">cancelDelay</span>
             </label>
           )}
+          {state.spriteId && soundSprites[state.spriteId] && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={state.spriteOverlap ?? soundSprites[state.spriteId]?.overlap ?? false}
+                onChange={e => setState(m => ({ ...m, spriteOverlap: e.target.checked }))}
+                className="w-4 h-4 accent-accent"
+              />
+              <span className="text-xs text-text-secondary">overlap <span className="text-text-dim">(sprite)</span></span>
+            </label>
+          )}
         </div>
       )}
     </div>
@@ -261,7 +272,7 @@ function emptyStep(overrides = {}) {
   };
 }
 
-function stepFromAction(action) {
+function stepFromAction(action, soundSprites) {
   return {
     command: action.command || 'Play',
     commandId: action.commandId || '',
@@ -275,6 +286,7 @@ function stepFromAction(action) {
     duration: action.duration ?? '',
     cancelDelay: action.cancelDelay === 'true' || action.cancelDelay === true,
     rate: action.rate ?? '',
+    spriteOverlap: soundSprites?.[action.spriteId]?.overlap ?? false,
   };
 }
 
@@ -552,6 +564,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (ok) { setNewCmd(null); setExpanded(hookName); }
   };
 
+  // Write spriteOverlap back to soundSprites (overlap lives on the sprite, not the command step)
+  const applySpriteOverlap = (j, formState) => {
+    if (formState.spriteOverlap !== undefined && formState.spriteId && j.soundDefinitions?.soundSprites?.[formState.spriteId]) {
+      j.soundDefinitions.soundSprites[formState.spriteId].overlap = formState.spriteOverlap;
+    }
+  };
+
   const handleSaveAddStep = async () => {
     if (!validateStep(addStep)) return;
     const j = structuredClone(project.soundsJson);
@@ -559,6 +578,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
       ...(j.soundDefinitions.commands[addStep.cmdName] || []),
       buildStep(addStep),
     ];
+    applySpriteOverlap(j, addStep);
     const ok = await saveJson(j, 'Step dodan');
     if (ok) setAddStep(null);
   };
@@ -567,6 +587,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (!validateStep(editStep)) return;
     const j = structuredClone(project.soundsJson);
     j.soundDefinitions.commands[editStep.cmdName][editStep.stepIdx] = buildStep(editStep);
+    applySpriteOverlap(j, editStep);
     const ok = await saveJson(j, 'Step saved');
     if (ok) { setEditStep(null); setEditListInline(null); }
   };
@@ -1119,6 +1140,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                           {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
                           {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
                           {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
+                          {action.spriteId && soundSprites[action.spriteId]?.overlap && <span className="text-purple text-xs">overlap</span>}
 
                           <div className={`flex items-center gap-2 transition-opacity shrink-0 ${listEditActive ? 'opacity-100' : 'opacity-0 group-hover/step:opacity-100'}`}>
                             {action.spriteListId && spriteLists[action.spriteListId] && (
@@ -1143,7 +1165,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                               </button>
                             )}
                             <button
-                              onClick={() => { setEditListInline(null); setEditStep({ cmdName: name, stepIdx: idx, ...stepFromAction(action) }); }}
+                              onClick={() => { setEditListInline(null); setEditStep({ cmdName: name, stepIdx: idx, ...stepFromAction(action, soundSprites) }); }}
                               disabled={saving}
                               className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] text-text-dim hover:text-accent hover:bg-accent/10 transition-colors"
                               title="Edit step"
