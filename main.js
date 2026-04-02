@@ -1023,7 +1023,11 @@ ipcMain.handle('init-from-template', async (event, { skipConfigs = false } = {})
         const dest = path.join(projectPath, f);
         const src = path.join(tplPath, f);
         if (fs.existsSync(src)) {
-          fs.copyFileSync(src, dest);
+          // Parse and re-format with 2-space indent (template may have compact format)
+          try {
+            const parsed = JSON.parse(fs.readFileSync(src, 'utf8'));
+            fs.writeFileSync(dest, JSON.stringify(parsed, null, 2));
+          } catch { fs.copyFileSync(src, dest); } // fallback to raw copy if parse fails
           log.push(`Overwritten ${f} from template`);
         }
       }
@@ -1361,7 +1365,10 @@ ipcMain.handle('pull-game-json', async () => {
   if (!fs.existsSync(gameSoundsJson)) return { error: `sounds.json not found in game repo:\n${gameSoundsJson}` };
   try {
     const dest = path.join(projectPath, settings.JSONtemplate || 'sounds.json');
-    fs.copyFileSync(gameSoundsJson, dest);
+    // Read, parse, re-format with 2-space indent (game repo has compact IGT format)
+    const raw = fs.readFileSync(gameSoundsJson, 'utf8');
+    const parsed = JSON.parse(raw);
+    fs.writeFileSync(dest, JSON.stringify(parsed, null, 2));
     return { success: true, source: gameSoundsJson, project: loadProject(projectPath) };
   } catch (e) {
     return { error: e.message };
