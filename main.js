@@ -1026,9 +1026,10 @@ ipcMain.handle('init-from-template', async (event, { skipConfigs = false } = {})
       'deploy': 'node scripts/copyAudio.js',
     };
     for (const [k, v] of Object.entries(appScripts)) {
-      if (!projPkg.scripts[k]) {
+      if (projPkg.scripts[k] !== v) {
+        const action = projPkg.scripts[k] ? 'Overwritten' : 'Added';
         projPkg.scripts[k] = v;
-        log.push(`Added script: ${k}`);
+        log.push(`${action} script: ${k}`);
       }
     }
     fs.writeFileSync(projPkgPath, JSON.stringify(projPkg, null, 2));
