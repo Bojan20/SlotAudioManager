@@ -13,6 +13,10 @@ protocol.registerSchemesAsPrivileged([{
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
 
+// Suppress Git Credential Manager GUI prompts during background fetches.
+// Forces cached credential — no account picker popup.
+const gitSilentEnv = { ...process.env, GCM_INTERACTIVE: 'never', GIT_TERMINAL_PROMPT: '0' };
+
 let mainWindow;
 let projectPath = null;
 let gameProcess = null; // currently running game process (for kill support)
@@ -348,6 +352,18 @@ function loadProject(dirPath) {
     }
   }
 
+  // Auto-configure IGT GitHub credential — prevents account picker popup
+  // Sets GCM to use IGT account for igtinteractive repos (one-time per repo)
+  try {
+    const remoteUrl = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dirPath, timeout: 3000 }).toString().trim();
+    if (remoteUrl.includes('igtinteractive')) {
+      const currentUser = (() => { try { return execFileSync('git', ['config', 'credential.username'], { cwd: dirPath, timeout: 3000 }).toString().trim(); } catch { return ''; } })();
+      if (!currentUser) {
+        try { execFileSync('git', ['config', 'credential.username', 'IgtBojan'], { cwd: dirPath, timeout: 3000 }); } catch {}
+      }
+    }
+  } catch {}
+
   // Resolve gameProjectPath to absolute for UI display
   if (data.settings?.gameProjectPath) {
     const abs = path.resolve(dirPath, data.settings.gameProjectPath);
@@ -356,6 +372,17 @@ function loadProject(dirPath) {
     data.gameNodeModulesExists = fs.existsSync(path.join(abs, 'node_modules'));
     data.deployTarget = path.join(abs, 'assets', 'default', 'default', 'default', 'sounds');
     data.deployTargetExists = fs.existsSync(data.deployTarget);
+
+    // Auto-configure IGT credential for game repo too
+    if (data.gameRepoExists) {
+      try {
+        const gameRemote = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: abs, timeout: 3000 }).toString().trim();
+        if (gameRemote.includes('igtinteractive')) {
+          const gu = (() => { try { return execFileSync('git', ['config', 'credential.username'], { cwd: abs, timeout: 3000 }).toString().trim(); } catch { return ''; } })();
+          if (!gu) { try { execFileSync('git', ['config', 'credential.username', 'IgtBojan'], { cwd: abs, timeout: 3000 }); } catch {} }
+        }
+      } catch {}
+    }
 
     // Detect + cache Node version from game's webpack version (proactive, no build needed)
     const cached = gameNodeCache[abs];
@@ -378,7 +405,7 @@ function loadProject(dirPath) {
       try {
         // Fetch silently so branch list is fresh — once per session per repo
         if (!gameNodeCache['_fetched_' + abs]) {
-          try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: abs, timeout: 10000, stdio: 'ignore' }); } catch {}
+          try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: abs, timeout: 10000, stdio: 'ignore', env: gitSilentEnv }); } catch {}
           gameNodeCache['_fetched_' + abs] = true;
         }
         data.gameRepoBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 5000 }).toString().trim();
@@ -730,7 +757,7 @@ ipcMain.handle('git-commit-push', async (event, message) => {
     execFileSync('git', ['add', '-A'], opts);
     execFileSync('git', ['commit', '-m', message.trim()], opts);
     execFileSync('git', ['push'], { cwd: projectPath, timeout: 60000 });
-    try { execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 15000 }); } catch {}
+    try { execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 15000, env: gitSilentEnv }); } catch {}
     return { success: true };
   } catch (e) {
     return { error: e.message };
@@ -777,7 +804,7 @@ ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranc
   try {
     const opts = { cwd: gameRepoPath, timeout: 30000 };
     // Fetch latest
-    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000 }); } catch {}
+    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
     // Stash any local changes before switching branches
     try { execFileSync('git', ['stash', '--include-untracked'], opts); } catch {}
     // Checkout target branch and pull latest
@@ -804,7 +831,7 @@ ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranc
     execFileSync('git', ['add', '-A'], opts);
     execFileSync('git', ['commit', '-m', commitMsg.trim()], opts);
     execFileSync('git', ['push', '-u', 'origin', branchName], { cwd: gameRepoPath, timeout: 60000 });
-    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000 }); } catch {}
+    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
     return { success: true, branch: branchName };
   } catch (e) {
     return { error: e.message };
@@ -1589,7 +1616,7 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   try {
     send(`Fetching origin...\n`);
-    try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); }
+    try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore', env: gitSilentEnv }); }
     catch { send(`⚠ Fetch failed (offline?) — using cached refs\n`); }
     send(`Switching to ${branchName}...\n`);
     // Force checkout — discards local changes (reset --hard follows anyway)
