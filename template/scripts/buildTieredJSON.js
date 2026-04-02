@@ -288,6 +288,14 @@ async function buildFinalJSON() {
             if (step.spriteId && !validSpriteKeys.has(step.spriteId)) { removedSteps++; return false; }
             if (step.soundId && !validSoundIds.has(step.soundId)) { removedSteps++; return false; }
             return true;
+        }).map(step => {
+            const s = { ...step };
+            // Normalize boolean fields — SoundPlayer uses === true, string "true" breaks playback
+            if (s.cancelDelay === 'true') s.cancelDelay = true;
+            else if (s.cancelDelay !== true) delete s.cancelDelay;
+            if (s.overlap === 'true') s.overlap = true;
+            else if (s.overlap !== true) delete s.overlap;
+            return s;
         });
         cleanedCommands[cmdName] = clean;
     }
