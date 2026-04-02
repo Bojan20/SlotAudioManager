@@ -1395,20 +1395,41 @@ function detectGameNode(gameRepoAbsPath) {
   return { msg: `⚠ webpack ${wpMajor} needs Node 16 — not found in nvm. Run: nvm install 16` };
 }
 
-// Save the system Node version at app startup — restored on quit
+// Persistent nvm restore — survives crashes, force kills, dev restarts
+// Saves original Node version to disk file BEFORE switching.
+// On next app start, if file exists → restore and delete it.
+const _nvmRestoreFile = path.join(app.getPath('userData'), '.nvm-restore');
+const _nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
+
+// RESTORE on startup — if previous session crashed without restoring
+if (_nvmExe && fs.existsSync(_nvmExe) && fs.existsSync(_nvmRestoreFile)) {
+  try {
+    const ver = fs.readFileSync(_nvmRestoreFile, 'utf8').trim();
+    if (ver) {
+      execFileSync(_nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' });
+      fs.rmSync(_nvmRestoreFile, { force: true });
+    }
+  } catch {}
+}
+
 let _originalNodeVersion = null;
 try { _originalNodeVersion = execFileSync('node', ['-v'], { timeout: 3000 }).toString().trim().replace(/^v/, ''); } catch {}
 
 function nvmUse(version) {
-  if (!version) return;
-  const nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
-  if (!nvmExe || !fs.existsSync(nvmExe)) return;
-  try { execFileSync(nvmExe, ['use', version.replace(/^v/, '')], { timeout: 10000, stdio: 'ignore' }); } catch {}
+  if (!version || !_nvmExe || !fs.existsSync(_nvmExe)) return;
+  const ver = version.replace(/^v/, '');
+  if (ver === _originalNodeVersion) return; // already on this version
+  // Save original to disk BEFORE switching — so any crash can recover
+  if (_originalNodeVersion && !fs.existsSync(_nvmRestoreFile)) {
+    try { fs.writeFileSync(_nvmRestoreFile, _originalNodeVersion); } catch {}
+  }
+  try { execFileSync(_nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' }); } catch {}
 }
 
 function nvmRestore() {
-  if (!_originalNodeVersion) return;
-  nvmUse(_originalNodeVersion);
+  if (!_originalNodeVersion || !_nvmExe) return;
+  try { execFileSync(_nvmExe, ['use', _originalNodeVersion], { timeout: 10000, stdio: 'ignore' }); } catch {}
+  try { fs.rmSync(_nvmRestoreFile, { force: true }); } catch {}
 }
 
 // Resolve Node binary for a game repo — checks .nvmrc, engines, nvm versions
