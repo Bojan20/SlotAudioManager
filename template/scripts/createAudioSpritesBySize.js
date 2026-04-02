@@ -1,6 +1,5 @@
 const audiosprite = require('./customAudioSprite');
 const fs = require('fs');
-const path = require('path');
 const pathToFFmpeg = require('ffmpeg-static');
 
 console.log("pathToFFmpeg ->", pathToFFmpeg);
@@ -106,11 +105,6 @@ if (musicFiles.length > 0) {
             console.log(`  ✔ ${name}.m4a complete`);
         });
     }
-}
-
-function getFileSizeInMegaBytes(filename) {
-    const stats = fs.statSync(filename);
-    return stats.size / (1024 * 1024);
 }
 
 function createAudioSprite(audioFiles, fileNumber, opts) {
