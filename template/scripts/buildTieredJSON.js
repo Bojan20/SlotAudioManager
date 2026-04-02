@@ -85,10 +85,11 @@ for (const dataFile of soundDataFiles) {
     const soundId = m4aFile.replace('.m4a', '');
 
     // Build manifest entry — add loadType (SubLoader ID) if tier has subLoaderId defined
-    // Standalone sounds (music) never get loadType — they're always part of main load
     const tierConfig = spriteConfig.sprites[tierName];
     const subLoaderId = tierConfig?.subLoaderId;
     const isStandaloneTier = standaloneSounds.includes(tierName);
+    // Standalone can also have subLoaderId (e.g. "Z" for lazy streaming music)
+    const standaloneSubLoaderId = isStandaloneTier ? spriteConfig.standalone?.subLoaderId : null;
 
     const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
     if (subLoaderId && !isStandaloneTier) {
@@ -96,6 +97,9 @@ for (const dataFile of soundDataFiles) {
         const unloadable = tierConfig?.unloadable === true;
         if (unloadable) manifestEntry.unloadable = true;
         console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
+    } else if (standaloneSubLoaderId) {
+        manifestEntry.loadType = standaloneSubLoaderId;
+        console.log(`  [SubLoader "${standaloneSubLoaderId}"] ${soundId} — standalone lazy`);
     }
     manifestEntries.push(manifestEntry);
 
