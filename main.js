@@ -756,7 +756,7 @@ ipcMain.handle('git-commit-push', async (event, message) => {
     const opts = { cwd: projectPath, timeout: 30000 };
     execFileSync('git', ['add', '-A'], opts);
     execFileSync('git', ['commit', '-m', message.trim()], opts);
-    execFileSync('git', ['push'], { cwd: projectPath, timeout: 60000, env: gitSilentEnv });
+    execFileSync('git', ['push'], { cwd: projectPath, timeout: 60000 });
     try { execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 15000, env: gitSilentEnv }); } catch {}
     return { success: true };
   } catch (e) {
@@ -809,7 +809,7 @@ ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranc
     try { execFileSync('git', ['stash', '--include-untracked'], opts); } catch {}
     // Checkout target branch and pull latest
     execFileSync('git', ['checkout', targetBranch], opts);
-    try { execFileSync('git', ['pull', 'origin', targetBranch], { cwd: gameRepoPath, timeout: 30000, env: gitSilentEnv }); } catch {}
+    try { execFileSync('git', ['pull', 'origin', targetBranch], { cwd: gameRepoPath, timeout: 30000 }); } catch {}
     // Create new branch or switch to existing
     try {
       execFileSync('git', ['checkout', '-b', branchName], opts);
@@ -830,7 +830,7 @@ ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranc
     // Stage, commit, push
     execFileSync('git', ['add', '-A'], opts);
     execFileSync('git', ['commit', '-m', commitMsg.trim()], opts);
-    execFileSync('git', ['push', '-u', 'origin', branchName], { cwd: gameRepoPath, timeout: 60000, env: gitSilentEnv });
+    execFileSync('git', ['push', '-u', 'origin', branchName], { cwd: gameRepoPath, timeout: 60000 });
     try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
     return { success: true, branch: branchName };
   } catch (e) {
@@ -1687,7 +1687,7 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
     } catch {
       // Branch might not have remote tracking (local-only) — try pull as fallback
       try {
-        const pullOut = execFileSync('git', ['pull', 'origin', branchName], { cwd: gameRepoPath, timeout: 30000, env: gitSilentEnv }).toString();
+        const pullOut = execFileSync('git', ['pull', 'origin', branchName], { cwd: gameRepoPath, timeout: 30000 }).toString();
         send(pullOut || `✔ Pulled ${branchName}\n`);
       } catch (pullErr) {
         send(`⚠ Pull failed: ${pullErr.message}\n`);
@@ -1719,7 +1719,7 @@ ipcMain.handle('git-pull-game', async () => {
   try {
     const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
     send(`Pulling ${branch}...\n`);
-    const child = spawn('git', ['pull', 'origin', branch], { cwd: gameRepoPath, shell: false, env: gitSilentEnv });
+    const child = spawn('git', ['pull', 'origin', branch], { cwd: gameRepoPath, shell: false });
     let output = '';
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
