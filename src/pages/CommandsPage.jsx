@@ -399,6 +399,19 @@ export default function CommandsPage({ project, setProject, showToast }) {
     [allSpriteIds, referencedSprites]
   );
 
+  // Sprite lists not referenced by any command
+  const referencedLists = useMemo(() => {
+    const refs = new Set();
+    for (const actions of Object.values(commands)) {
+      for (const a of actions) { if (a.spriteListId) refs.add(a.spriteListId); }
+    }
+    return refs;
+  }, [commands]);
+  const unusedLists = useMemo(() =>
+    Object.keys(spriteLists).filter(id => !referencedLists.has(id)),
+    [spriteLists, referencedLists]
+  );
+
   const cmdNames = useMemo(() =>
     Object.keys(commands).filter(n => n.toLowerCase().includes(filter.toLowerCase())).sort(),
     [commands, filter]
@@ -885,12 +898,34 @@ export default function CommandsPage({ project, setProject, showToast }) {
         </div>
       </div>
 
-      {viewTab === 'commands' && unmapped.length > 0 && (
-        <div className="card p-3 border border-orange/30 flex items-center gap-3 shrink-0">
-          <span className="badge bg-orange-dim text-orange text-xs shrink-0" title="Sprites defined in soundSprites but not referenced by any command">Unmapped</span>
-          <p className="text-xs text-text-dim flex-1">
-            {unmapped.length} sound{unmapped.length !== 1 ? 's' : ''} in soundSprites with no command referencing them
-          </p>
+      {viewTab === 'commands' && (unmapped.length > 0 || unusedLists.length > 0) && (
+        <div className="card p-3 border border-orange/30 shrink-0 space-y-2">
+          {unmapped.length > 0 && (
+            <details>
+              <summary className="flex items-center gap-3 cursor-pointer">
+                <span className="badge bg-orange-dim text-orange text-xs shrink-0">Unused Sprites</span>
+                <p className="text-xs text-text-dim flex-1">
+                  {unmapped.length} sprite{unmapped.length !== 1 ? 's' : ''} not referenced by any command
+                </p>
+              </summary>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {unmapped.map(id => <span key={id} className="badge bg-orange-dim text-orange font-mono text-xs">{id}</span>)}
+              </div>
+            </details>
+          )}
+          {unusedLists.length > 0 && (
+            <details>
+              <summary className="flex items-center gap-3 cursor-pointer">
+                <span className="badge bg-purple-dim text-purple text-xs shrink-0">Unused Lists</span>
+                <p className="text-xs text-text-dim flex-1">
+                  {unusedLists.length} spriteList{unusedLists.length !== 1 ? 's' : ''} not referenced by any command
+                </p>
+              </summary>
+              <div className="flex flex-wrap gap-1 mt-2">
+                {unusedLists.map(id => <span key={id} className="badge bg-purple-dim text-purple font-mono text-xs">{id}</span>)}
+              </div>
+            </details>
+          )}
         </div>
       )}
 
@@ -939,6 +974,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   <span className="badge bg-purple-dim text-purple text-xs shrink-0" title={`Playback type: ${listType}`}>{listType}</span>
                   {overlap && <span className="text-xs text-text-dim" title="Sounds can overlap when played">overlap</span>}
                   <span className="text-xs text-text-dim shrink-0">{items.length}</span>
+                  {!referencedLists.has(name) && <span className="badge bg-orange-dim text-orange text-xs shrink-0" title="This sprite list is not referenced by any command">unused</span>}
                 </div>
 
                 {expanded === name && (
