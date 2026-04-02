@@ -246,15 +246,6 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">cancelDelay</span>
             </label>
           )}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={state.overlap}
-              onChange={e => setState(m => ({ ...m, overlap: e.target.checked }))}
-              className="w-4 h-4 accent-accent"
-            />
-            <span className="text-xs text-text-secondary">Overlap</span>
-          </label>
         </div>
       )}
     </div>
@@ -264,7 +255,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
 function emptyStep(overrides = {}) {
   return {
     command: 'Play', commandId: '', spriteId: '', spriteListId: '',
-    targetType: 'sprite', volume: 1, delay: '', loop: false, overlap: false,
+    targetType: 'sprite', volume: 1, delay: '', loop: false,
     pan: '', duration: '', cancelDelay: false, rate: '',
     ...overrides,
   };
@@ -283,7 +274,6 @@ function stepFromAction(action) {
     pan: action.pan ?? '',
     duration: action.duration ?? '',
     cancelDelay: action.cancelDelay === 'true' || action.cancelDelay === true,
-    overlap: action.overlap === 'true' || action.overlap === true,
     rate: action.rate ?? '',
   };
 }
@@ -518,7 +508,6 @@ export default function CommandsPage({ project, setProject, showToast }) {
     }
     if (s.command === 'Play' && s.loop) step.loop = -1;
     if ((s.command === 'Play' || s.command === 'Stop' || s.command === 'Fade') && s.cancelDelay) step.cancelDelay = true;
-    if (s.overlap) step.overlap = true;
 
     return step;
   };
@@ -1130,7 +1119,6 @@ export default function CommandsPage({ project, setProject, showToast }) {
                           {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
                           {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
                           {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
-                          {(action.overlap === true || action.overlap === 'true') && <span className="text-purple text-xs">overlap</span>}
 
                           <div className={`flex items-center gap-2 transition-opacity shrink-0 ${listEditActive ? 'opacity-100' : 'opacity-0 group-hover/step:opacity-100'}`}>
                             {action.spriteListId && spriteLists[action.spriteListId] && (

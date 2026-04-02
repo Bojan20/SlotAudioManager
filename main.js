@@ -496,9 +496,9 @@ function sanitizeCommandStep(step) {
   // cancelDelay MUST be boolean true, not string "true" (SoundPlayer uses === true)
   if (s.cancelDelay === 'true' || s.cancelDelay === true) s.cancelDelay = true;
   else delete s.cancelDelay; // false/undefined/"false" → remove entirely (default is no cancel)
-  // overlap MUST be boolean true, not string "true" (SoundPlayer uses === true)
-  if (s.overlap === 'true' || s.overlap === true) s.overlap = true;
-  else delete s.overlap; // false/undefined/"false" → remove entirely (default is no overlap)
+  // overlap does NOT belong in command steps — it's a soundSprite property only
+  // playa-core reads overlap from soundSprites[spriteId].overlap, never from command steps
+  delete s.overlap;
   // loop: keep -1 for loop, remove if 0/false/undefined
   if (s.loop === false || s.loop === 0 || s.loop === undefined) delete s.loop;
   // numeric fields: enforce correct types (guard against strings from old JSON)
