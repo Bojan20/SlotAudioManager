@@ -1364,9 +1364,7 @@ function nvmUse(version) {
   if (!version) return;
   const nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
   if (!nvmExe || !fs.existsSync(nvmExe)) return;
-  const ver = version.replace(/^v/, '');
-  if (ver === _originalNodeVersion) return; // already on this version
-  try { execFileSync(nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' }); } catch {}
+  try { execFileSync(nvmExe, ['use', version.replace(/^v/, '')], { timeout: 10000, stdio: 'ignore' }); } catch {}
 }
 
 function nvmRestore() {
