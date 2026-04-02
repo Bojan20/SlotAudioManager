@@ -648,6 +648,13 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                           <option value={1}>Mono</option>
                           <option value={2}>Stereo</option>
                         </select>
+                        <span className="text-sm text-text-dim ml-2">Sample Rate:</span>
+                        <select value={enc.samplerate || 44100} onChange={(e) => update(() => { enc.samplerate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
+                          <option value={22050}>22050 Hz</option>
+                          <option value={32000}>32000 Hz</option>
+                          <option value={44100}>44100 Hz</option>
+                          <option value={48000}>48000 Hz</option>
+                        </select>
                       </>
                     )}
                   </div>
