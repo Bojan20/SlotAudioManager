@@ -222,7 +222,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
       )}
 
       {/* Row 3: checkboxes */}
-      {!isExecute && !isResetSpriteList && (
+      {!isExecute && !isResetSpriteList && (isPlay || isStop || isFade) && (
         <div className="flex items-center gap-4">
           {isPlay && (
             <label className="flex items-center gap-2 cursor-pointer">
