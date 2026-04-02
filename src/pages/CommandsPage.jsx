@@ -222,7 +222,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
       )}
 
       {/* Row 3: checkboxes — only if at least one checkbox would be visible */}
-      {!isExecute && !isResetSpriteList && (isPlay || isStop || isFade || (state.spriteId && soundSprites[state.spriteId])) && (
+      {!isExecute && !isResetSpriteList && (isPlay || isStop || (state.spriteId && soundSprites[state.spriteId])) && (
         <div className="flex items-center gap-4">
           {isPlay && (
             <label className="flex items-center gap-2 cursor-pointer">
@@ -235,8 +235,8 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">Loop</span>
             </label>
           )}
-          {(isPlay || isStop || isFade) && (
-            <label className="flex items-center gap-2 cursor-pointer">
+          {(isPlay || isStop) && (
+            <label className="flex items-center gap-2 cursor-pointer" title={isPlay ? 'If sound is not yet playing, cancel and don\'t play (use with delay)' : 'Cancel any pending delayed play for this sprite'}>
               <input
                 type="checkbox"
                 checked={state.cancelDelay}
@@ -245,6 +245,9 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               />
               <span className="text-xs text-text-secondary">cancelDelay</span>
             </label>
+          )}
+          {isPlay && state.cancelDelay && (
+            <span className="text-[10px] text-orange">⚠ Will NOT play if sound isn't already playing</span>
           )}
           {state.spriteId && soundSprites[state.spriteId] && (
             <label className="flex items-center gap-2 cursor-pointer">
@@ -519,7 +522,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
       if (!isNaN(r)) step.rate = r;
     }
     if (s.command === 'Play' && s.loop) step.loop = -1;
-    if ((s.command === 'Play' || s.command === 'Stop' || s.command === 'Fade') && s.cancelDelay) step.cancelDelay = true;
+    if ((s.command === 'Play' || s.command === 'Stop') && s.cancelDelay) step.cancelDelay = true;
 
     return step;
   };
