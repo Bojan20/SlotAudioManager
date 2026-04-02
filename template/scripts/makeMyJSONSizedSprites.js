@@ -157,7 +157,7 @@ function processSourceManifest() {
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else if (element.endsWith(".m4a")) {
             let id = element.substring(0, element.length - 4);
-            // Streaming music: add to manifest with loadType "Z" so framework never auto-loads
+            // Streaming music: add to manifest with loadType "S" — SubLoader created but never triggered
             const baseName = _gameName && id.startsWith(_gameName + '_') ? id.slice(_gameName.length + 1) : id;
             const isStreaming = streamingSounds.has(baseName) || streamingSounds.has(id);
             let src = [];
@@ -166,7 +166,7 @@ function processSourceManifest() {
             entry.id = id;
             entry.src = src;
             if (isStreaming) {
-                entry.loadType = "Z";
+                entry.loadType = "S";
                 console.log("Streaming manifest entry: " + id + " (loadType Z — HTML5 Audio)");
             } else {
                 console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);

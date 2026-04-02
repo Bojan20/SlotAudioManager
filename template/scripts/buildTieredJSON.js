@@ -92,10 +92,10 @@ for (const dataFile of soundDataFiles) {
     const isStandaloneTier = standaloneSounds.includes(tierName);
     const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
     if (isStreamingTier) {
-        // Streaming: manifest entry with loadType "Z" so framework never auto-loads it
-        // (nobody calls startSubLoader("Z") — BGMStreamingInit loads via HTML5 Audio instead)
-        manifestEntry.loadType = "Z";
-        console.log(`  [Streaming] ${soundId} — loadType "Z" (HTML5 Audio, never Web Audio loaded)`);
+        // Streaming: manifest entry with loadType "S" — framework creates SubLoader but nobody
+        // triggers it, so audio is never fetched/decoded via Web Audio. BGMStreamingInit loads via HTML5.
+        manifestEntry.loadType = "S";
+        console.log(`  [Streaming] ${soundId} — loadType "S" (HTML5 Audio, SubLoader never triggered)`);
     } else if (subLoaderId && !isStandaloneTier) {
         manifestEntry.loadType = subLoaderId;
         const unloadable = tierConfig?.unloadable === true;
