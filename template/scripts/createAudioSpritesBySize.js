@@ -15,29 +15,36 @@ const outDir = '././dist/soundFiles/';
 fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 
-// Read sprite-config for encoding and standalone
+// Read sprite-config for encoding, standalone, and streaming
 const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
 const sfxEnc = spriteConfig?.encoding?.sfx || {};
 const musicEnc = spriteConfig?.encoding?.music || {};
 const standaloneSounds = new Set(spriteConfig?.standalone?.sounds || []);
+const streamingSounds = new Set(spriteConfig?.streaming?.sounds || []);
 
-// Separate files: standalone music vs sprite SFX
+// Separate files: standalone music / streaming music / sprite SFX
 const allFiles = fs.readdirSync(sourceSndFiles).filter(f => f.endsWith('.wav')).sort();
 const spriteFiles = [];
 const musicFiles = [];
+const streamingFiles = [];
 
 for (const f of allFiles) {
     const name = f.replace('.wav', '');
-    if (standaloneSounds.has(name)) {
+    if (streamingSounds.has(name)) {
+        streamingFiles.push(f);
+    } else if (standaloneSounds.has(name)) {
         musicFiles.push(f);
     } else {
         spriteFiles.push(f);
     }
 }
 
-if (standaloneSounds.size > 0) {
+const totalStandalone = musicFiles.length + streamingFiles.length;
+if (totalStandalone > 0) {
     console.log(`\nSprite: ${spriteFiles.length} sounds (${sfxEnc.channels === 1 ? 'mono' : 'stereo'} ${sfxEnc.bitrate || 64}kbps ${sfxEnc.samplerate || 44100}Hz)`);
-    console.log(`Standalone: ${musicFiles.length} sounds (${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEnc.bitrate || 128}kbps ${musicEnc.samplerate || 44100}Hz)\n`);
+    if (musicFiles.length > 0) console.log(`Standalone: ${musicFiles.length} sounds (${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEnc.bitrate || 128}kbps ${musicEnc.samplerate || 44100}Hz)`);
+    if (streamingFiles.length > 0) console.log(`Streaming: ${streamingFiles.length} sounds (${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEnc.bitrate || 128}kbps ${musicEnc.samplerate || 44100}Hz) — HTML5 Audio, excluded from manifest`);
+    console.log('');
 } else {
     console.log(`\nAll ${spriteFiles.length} sounds in sprites (${sfxEnc.channels === 1 ? 'mono' : 'stereo'} ${sfxEnc.bitrate || 64}kbps ${sfxEnc.samplerate || 44100}Hz)\n`);
 }
@@ -85,7 +92,7 @@ for (let i = 0; i < audioArrays.length; i++) {
     createAudioSprite(audioArrays[i], i + 1, opts);
 }
 
-// === STANDALONE MUSIC — individual M4A files ===
+// === STANDALONE MUSIC — individual M4A files (included in manifest) ===
 if (musicFiles.length > 0) {
     console.log('\n── Building standalone music ──');
     const musicOpts = {
@@ -103,6 +110,29 @@ if (musicFiles.length > 0) {
             if (err) return console.error(err);
             fs.writeFileSync(outDir + "soundData_" + name + ".json", JSON.stringify(obj, null, 2));
             console.log(`  ✔ ${name}.m4a complete`);
+        });
+    }
+}
+
+// === STREAMING MUSIC — individual M4A files (EXCLUDED from manifest, loaded via HTML5 Audio) ===
+if (streamingFiles.length > 0) {
+    console.log('\n── Building streaming music (HTML5 Audio — not in manifest) ──');
+    const streamOpts = {
+        format: 'howler2',
+        export: 'm4a',
+        bitrate: musicEnc.bitrate || 128,
+        channels: musicEnc.channels || 2,
+        samplerate: musicEnc.samplerate || 44100,
+        logger: { debug: () => {}, info: console.log, log: console.log }
+    };
+    for (const f of streamingFiles) {
+        const name = f.replace('.wav', '');
+        console.log(`  🎵 ${name} → ${outDir}${name}.m4a (streaming)`);
+        audiosprite(pathToFFmpeg, [sourceSndFiles + f], { ...streamOpts, output: outDir + name }, undefined, function(err, obj) {
+            if (err) return console.error(err);
+            // Write soundData so sprite definitions are created in sounds.json (commands need them)
+            fs.writeFileSync(outDir + "soundData_" + name + ".json", JSON.stringify(obj, null, 2));
+            console.log(`  ✔ ${name}.m4a complete (streaming — sprite defs kept, manifest excluded)`);
         });
     }
 }

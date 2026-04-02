@@ -52,8 +52,12 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
   };
   const PATTERNS = [
     // ── STANDALONE: only base game music that loops from first frame ──
-    { tier: 'standalone', re: /^BaseGameMusicLoop/i },
-    { tier: 'standalone', re: /^AmbBg$/i },
+    { tier: 'streaming', re: /^BaseGameMusicLoop/i },
+    { tier: 'streaming', re: /^AmbBg$/i },
+
+    // Catch-all: any remaining music loops → streaming
+    { tier: 'streaming', re: /Music(?:Loop)?$/i },
+    { tier: 'streaming', re: /MusicLoop/i },
 
     // ── LOADING: minimum for first spin ──
     // UI controls
@@ -80,19 +84,19 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
     { tier: 'loading', re: /^OptionsRoll$/i },
 
     // ── BONUS: all bonus content + bonus music + transitions ──
-    // Bonus music (NOT standalone — loads with bonus pool)
-    { tier: 'bonus', re: /^BonusGameMusic/i },
-    { tier: 'bonus', re: /^BonusIntroLoop/i },
-    { tier: 'bonus', re: /^FreeSpinMusic/i },
-    { tier: 'bonus', re: /^FreeSpinsMusic/i },
-    { tier: 'bonus', re: /^PickerMusicLoop/i },
-    { tier: 'bonus', re: /^MultiplierMusicLoop/i },
-    { tier: 'bonus', re: /^RespinIntroLoop/i },
-    { tier: 'bonus', re: /^RespinLoop/i },
-    { tier: 'bonus', re: /^WheelBonusMusicLoop/i },
-    { tier: 'bonus', re: /^JumanjiMusicLoop/i },
-    { tier: 'bonus', re: /^FreeSpinsIntroLoop/i },
-    { tier: 'bonus', re: /^BaseToBonusMusic$/i },
+    // Bonus music → streaming (HTML5 Audio, not decoded into RAM)
+    { tier: 'streaming', re: /^BonusGameMusic/i },
+    { tier: 'streaming', re: /^BonusIntroLoop/i },
+    { tier: 'streaming', re: /^FreeSpinMusic/i },
+    { tier: 'streaming', re: /^FreeSpinsMusic/i },
+    { tier: 'streaming', re: /^PickerMusicLoop/i },
+    { tier: 'streaming', re: /^MultiplierMusicLoop/i },
+    { tier: 'streaming', re: /^RespinIntroLoop/i },
+    { tier: 'streaming', re: /^RespinLoop/i },
+    { tier: 'streaming', re: /^WheelBonusMusicLoop/i },
+    { tier: 'streaming', re: /^JumanjiMusicLoop/i },
+    { tier: 'streaming', re: /^FreeSpinsIntroLoop/i },
+    { tier: 'streaming', re: /^BaseToBonusMusic$/i },
     // Bonus gameplay
     { tier: 'bonus', re: /^Bonus/i },
     { tier: 'bonus', re: /^Picker/i },
@@ -207,10 +211,10 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
   const fallback = resolveTier('main') ?? tierKeys[tierKeys.length - 1] ?? null;
   return unassigned.map(s => {
     const tags = soundsJson?.soundDefinitions?.soundSprites?.[`s_${s.name}`]?.tags ?? [];
-    if (musicTags?.some(mt => tags.includes(mt))) return { name: s.name, tier: 'standalone' };
+    if (musicTags?.some(mt => tags.includes(mt))) return { name: s.name, tier: 'streaming' };
     for (const { tier, re } of PATTERNS) {
       if (!re.test(s.name)) continue;
-      if (tier === 'standalone') return { name: s.name, tier: 'standalone' };
+      if (tier === 'streaming' || tier === 'standalone') return { name: s.name, tier: 'streaming' };
       const resolved = resolveTier(tier);
       if (resolved) return { name: s.name, tier: resolved };
     }
@@ -224,10 +228,12 @@ const POOL_THEME = {
   deferred:  { accent: 'text-sky-400',     accentBg: 'bg-sky-400',     border: 'border-sky-500/30',     headerBg: 'bg-sky-500/8',     badge: 'bg-sky-500/15 text-sky-400',     glow: 'shadow-sky-500/5',     label: 'DEFERRED',  dot: 'bg-sky-400' },
   lazy:      { accent: 'text-amber-400',   accentBg: 'bg-amber-400',   border: 'border-amber-500/30',   headerBg: 'bg-amber-500/8',   badge: 'bg-amber-500/15 text-amber-400', glow: 'shadow-amber-500/5',   label: 'LAZY',      dot: 'bg-amber-400' },
   standalone:{ accent: 'text-violet-400',  accentBg: 'bg-violet-400',  border: 'border-violet-500/30',  headerBg: 'bg-violet-500/8',  badge: 'bg-violet-500/15 text-violet-400',glow: 'shadow-violet-500/5', label: 'MUSIC',     dot: 'bg-violet-400' },
+  streaming: { accent: 'text-rose-400',    accentBg: 'bg-rose-400',    border: 'border-rose-500/30',    headerBg: 'bg-rose-500/8',    badge: 'bg-rose-500/15 text-rose-400',    glow: 'shadow-rose-500/5',   label: 'STREAMING', dot: 'bg-rose-400' },
 };
 
 function getTheme(tierCfg, tierName) {
   if (tierName === 'standalone') return POOL_THEME.standalone;
+  if (tierName === 'streaming') return POOL_THEME.streaming;
   if (tierCfg?.subLoaderId === 'Z') return POOL_THEME.lazy;
   if (tierCfg?.subLoaderId) return POOL_THEME.deferred;
   return POOL_THEME.immediate;
@@ -242,7 +248,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
   const [measuredRAM, setMeasuredRAM] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
-  const isStandalone = tierName === 'standalone';
+  const isStandalone = tierName === 'standalone' || tierName === 'streaming';
   const isDeferred = !!tierCfg?.subLoaderId;
 
   // Reset measurement when sounds or encoding change
@@ -405,6 +411,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
     const assigned = new Set([
       ...Object.values(config.sprites || {}).flatMap(t => t.sounds || []),
       ...(config.standalone?.sounds || []),
+      ...(config.streaming?.sounds || []),
     ]);
     return project.sounds.filter(s => !assigned.has(s.name));
   }, [config, project?.sounds]);
@@ -426,7 +433,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
     for (const fname of [`${gameName}_${tierName}.m4a`, `${tierName}.m4a`]) {
       if (distSizes[fname]) return { kb: distSizes[fname], isActual: true };
     }
-    if (tierName === 'standalone' && sounds.length > 0) {
+    if ((tierName === 'standalone' || tierName === 'streaming') && sounds.length > 0) {
       let total = 0, foundCount = 0;
       for (const s of sounds) {
         for (const f of [`${gameName}_${s}.m4a`, `${s}.m4a`]) { if (distSizes[f]) { total += distSizes[f]; foundCount++; break; } }
@@ -446,7 +453,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
     );
   }
 
-  const tierOptions = [...Object.keys(config.sprites || {}), 'standalone'];
+  const tierOptions = [...Object.keys(config.sprites || {}), 'standalone', 'streaming'];
   const update = (fn) => { fn(); setConfig(structuredClone(config)); setDirty(true); };
 
   const handleMove = (soundName, fromTier, toTier) => {
@@ -454,13 +461,18 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
     update(() => {
       // Remove from source (skip if dragged from unassigned)
       if (fromTier === '__unassigned__') { /* nothing to remove */ }
-      else if (fromTier === 'standalone') {
+      else if (fromTier === 'streaming') {
+        if (config.streaming) config.streaming.sounds = (config.streaming.sounds || []).filter(s => s !== soundName);
+      } else if (fromTier === 'standalone') {
         if (config.standalone) config.standalone.sounds = (config.standalone.sounds || []).filter(s => s !== soundName);
       } else if (config.sprites[fromTier]) {
         config.sprites[fromTier].sounds = (config.sprites[fromTier].sounds || []).filter(s => s !== soundName);
       }
       // Add to target
-      if (toTier === 'standalone') {
+      if (toTier === 'streaming') {
+        if (!config.streaming) config.streaming = { sounds: [] };
+        if (!config.streaming.sounds.includes(soundName)) config.streaming.sounds.push(soundName);
+      } else if (toTier === 'standalone') {
         if (!config.standalone) config.standalone = { sounds: [] };
         if (!config.standalone.sounds.includes(soundName)) config.standalone.sounds.push(soundName);
       } else if (config.sprites[toTier]) {
@@ -473,7 +485,10 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const handleAssign = (soundName, tierKey) => {
     if (!tierKey) return;
     update(() => {
-      if (tierKey === 'standalone') {
+      if (tierKey === 'streaming') {
+        if (!config.streaming) config.streaming = { sounds: [] };
+        if (!config.streaming.sounds.includes(soundName)) config.streaming.sounds.push(soundName);
+      } else if (tierKey === 'standalone') {
         if (!config.standalone) config.standalone = { sounds: [] };
         if (!config.standalone.sounds.includes(soundName)) config.standalone.sounds.push(soundName);
       } else if (config.sprites[tierKey]) {
@@ -521,6 +536,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
       update(() => {
         for (const tier of Object.values(config.sprites || {})) tier.sounds = [];
         if (config.standalone) config.standalone.sounds = [];
+        if (config.streaming) config.streaming.sounds = [];
       });
     }
     preview.forEach(({ name, tier }) => handleAssign(name, tier));
@@ -534,6 +550,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const deferredOnly = Object.entries(config.sprites || {}).filter(([, tc]) => tc.subLoaderId && tc.subLoaderId !== 'Z');
   const lazyTiers = Object.entries(config.sprites || {}).filter(([, tc]) => tc.subLoaderId === 'Z');
   const standaloneSounds = config.standalone?.sounds || [];
+  const streamingSoundsArr = config.streaming?.sounds || [];
 
   return (
     <div className="anim-fade-up h-full flex flex-col">
@@ -599,6 +616,18 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
           {(standaloneSounds.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
             <div className="flex-1">
               <PoolCard key={'standalone_' + configKey} tierName="standalone" tierCfg={{}} sounds={standaloneSounds} theme={POOL_THEME.standalone} maxKB={0} sizeInfo={poolSizeInfo('standalone', standaloneSounds)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
+            </div>
+          )}
+
+          {/* Streaming — HTML5 Audio, excluded from manifest */}
+          {(streamingSoundsArr.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
+            <div className="flex-1">
+              <div className="flex items-center gap-3 px-1 pt-1 mb-3">
+                <div className="h-px flex-1 bg-gradient-to-r from-rose-500/30 to-transparent" />
+                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-rose-400/60" title="Music loaded via HTML5 Audio — streams from disk, ~3 MB RAM instead of ~40 MB. Excluded from soundManifest. Auto-generates BGMStreaming.ts for game developer.">Streaming (HTML5 Audio)</span>
+                <div className="h-px flex-1 bg-gradient-to-l from-rose-500/30 to-transparent" />
+              </div>
+              <PoolCard key={'streaming_' + configKey} tierName="streaming" tierCfg={{}} sounds={streamingSoundsArr} theme={POOL_THEME.streaming} maxKB={0} sizeInfo={poolSizeInfo('streaming', streamingSoundsArr)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
             </div>
           )}
 
@@ -698,7 +727,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                 <div key={item.name} className="flex items-center gap-2 bg-bg-primary/30 rounded-lg px-3 py-1.5">
                   <span className="font-mono text-xs text-text-primary flex-1 truncate">{item.name}</span>
                   <select value={item.tier || ''} onChange={e => setPreview(prev => prev.map((p, j) => j === i ? { ...p, tier: e.target.value } : p))} className="input-base text-xs !py-1 !px-2 !w-32 !rounded-lg">
-                    {tierOptions.map(t => <option key={t} value={t}>{t === 'standalone' ? 'Standalone' : t}</option>)}
+                    {tierOptions.map(t => <option key={t} value={t}>{t === 'standalone' ? 'Standalone' : t === 'streaming' ? 'Streaming' : t}</option>)}
                   </select>
                 </div>
               ))}

@@ -125,10 +125,15 @@ function formatJson(input) {
         .replace(/"soundSprites":/g, '\n"soundSprites":\n')
 }
 
-// Read sprite-config for standalone sounds + loadType
+// Read sprite-config for standalone sounds, streaming sounds, and loadType
 const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
 const standaloneSounds = new Set(spriteConfig?.standalone?.sounds || []);
+const streamingSounds = new Set(spriteConfig?.streaming?.sounds || []);
 const standaloneSubLoaderId = spriteConfig?.standalone?.subLoaderId || null;
+
+// gameName for stripping prefix from M4A filenames (e.g. "myGame_BaseMusic" → "BaseMusic")
+const _gameProjectPath = audioSettings.get('gameProjectPath') || '';
+const _gameName = _gameProjectPath.split(/[/\\]/).pop() || '';
 
 function processSourceManifest() {
     console.log("creating manifest");
@@ -152,18 +157,21 @@ function processSourceManifest() {
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else if (element.endsWith(".m4a")) {
             let id = element.substring(0, element.length - 4);
+            // Streaming music: add to manifest with loadType "Z" so framework never auto-loads
+            const baseName = _gameName && id.startsWith(_gameName + '_') ? id.slice(_gameName.length + 1) : id;
+            const isStreaming = streamingSounds.has(baseName) || streamingSounds.has(id);
             let src = [];
             let entry = {};
             src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
             entry.id = id;
             entry.src = src;
-            // Standalone music with loadType for lazy SubLoader
-            // Standalone loadType Z disabled — requires playa-core streaming support
-            // if (standaloneSounds.has(id) && standaloneSubLoaderId) {
-            //     entry.loadType = standaloneSubLoaderId;
-            // }
+            if (isStreaming) {
+                entry.loadType = "Z";
+                console.log("Streaming manifest entry: " + id + " (loadType Z — HTML5 Audio)");
+            } else {
+                console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
+            }
             myNewSoundManifest.push(entry);
-            console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else {
             console.log("problem with file " + element + " not ending with .wav");
         }
@@ -254,8 +262,32 @@ function processSpriteList(element) {
 
 async function processSourceSprites() {
     fs.readdirSync(SourceSoundDirectory).forEach(async element => {
-        // Skip standalone sounds — they have their own M4A, no sprite timing
+        // Skip standalone and streaming sounds — they have their own M4A, no sprite timing
         const baseName = element.replace('.wav', '');
+        if (streamingSounds.has(baseName)) {
+            console.log("Processing streaming sprite: " + baseName + " (HTML5 Audio — sprite defs kept, manifest excluded)");
+            // Add streaming sprite entry with full duration from soundData (same as standalone)
+            const sdFileStr = "dist/soundFiles/soundData_" + baseName + ".json";
+            if (fs.existsSync(sdFileStr)) {
+                try {
+                    const sd = JSON.parse(fs.readFileSync(sdFileStr, 'utf8'));
+                    const sprite = sd.sprite || {};
+                    const spriteKey = Object.keys(sprite)[0];
+                    if (spriteKey) {
+                        const entryName = "s_" + baseName;
+                        myNewSoundSprites[entryName] = {
+                            soundId: baseName,
+                            spriteId: baseName,
+                            startTime: sprite[spriteKey][0] || 0,
+                            duration: sprite[spriteKey][1] || 0,
+                            tags: originalSprites[entryName]?.tags || ["Music"],
+                            overlap: originalSprites[entryName]?.overlap ?? false,
+                        };
+                    }
+                } catch (e) { console.log("  Warning: could not read " + sdFileStr); }
+            }
+            return;
+        }
         if (standaloneSounds.has(baseName)) {
             console.log("Skipping standalone: " + baseName);
             // Add standalone sprite entry with full duration from soundData

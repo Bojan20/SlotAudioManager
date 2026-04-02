@@ -58,6 +58,7 @@ const allWavFiles = fs.readdirSync(sourceSndFiles)
 console.log(`Found ${allWavFiles.length} WAV files in source directory`);
 
 const standaloneSounds = spriteConfig.standalone.sounds || [];
+const streamingSounds = spriteConfig.streaming?.sounds || [];
 const spriteGroups = spriteConfig.sprites;
 const encoding = spriteConfig.encoding;
 
@@ -65,6 +66,7 @@ const encoding = spriteConfig.encoding;
 const assignedSounds = new Set();
 for (const tierConfig of Object.values(spriteGroups)) tierConfig.sounds.forEach(s => assignedSounds.add(s));
 standaloneSounds.forEach(s => assignedSounds.add(s));
+streamingSounds.forEach(s => assignedSounds.add(s));
 
 // Auto-add unassigned to last tier
 const unassigned = allWavFiles.filter(f => !assignedSounds.has(f));
@@ -87,6 +89,10 @@ for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
 const missingStandalone = standaloneSounds.filter(s => !allWavFiles.includes(s));
 if (missingStandalone.length > 0) {
     console.log(`NOTE: Standalone references ${missingStandalone.length} missing WAV files (skipped)`);
+}
+const missingStreaming = streamingSounds.filter(s => !allWavFiles.includes(s));
+if (missingStreaming.length > 0) {
+    console.log(`NOTE: Streaming references ${missingStreaming.length} missing WAV files (skipped)`);
 }
 
 // ── Incremental check ─────────────────────────────────────────────────────────
@@ -124,6 +130,16 @@ function standaloneNeedsRebuild(soundName) {
     newCache[soundName] = h; // Always compute — populates newCache for save
     if (configChanged) return true;
     const outputPath = outDir + `${gameName}_${soundName}.m4a`;
+    if (!fs.existsSync(outputPath)) return true;
+    return cache[soundName] !== h;
+}
+
+function streamingNeedsRebuild(soundName) {
+    const p = sourceSndFiles + soundName + '.wav';
+    const h = fileHash(p);
+    newCache[soundName] = h;
+    if (configChanged) return true;
+    const outputPath = outDir + `${soundName}.m4a`; // No gameName prefix for streaming
     if (!fs.existsSync(outputPath)) return true;
     return cache[soundName] !== h;
 }
@@ -173,6 +189,24 @@ for (const soundName of existingStandalone) {
     });
 }
 
+// Streaming music — builds M4A like standalone but excluded from manifest
+const existingStreaming = streamingSounds.filter(s => allWavFiles.includes(s));
+if (existingStreaming.length > 0) {
+    console.log(`\nStreaming: ${existingStreaming.length} music files (HTML5 Audio — excluded from manifest)`);
+}
+for (const soundName of existingStreaming) {
+    if (!streamingNeedsRebuild(soundName)) {
+        console.log(`[SKIP] Streaming '${soundName}' — no changes detected`);
+        continue;
+    }
+    buildQueue.push({
+        type: 'streaming',
+        name: soundName,
+        files: [sourceSndFiles + soundName + '.wav'],
+        outputName: soundName
+    });
+}
+
 if (buildQueue.length === 0) {
     console.log('\nAll outputs up to date — nothing to rebuild.');
     saveCache({ ...cache, ...newCache, _spriteConfigHash: spriteConfigHash });
@@ -185,11 +219,12 @@ console.log("=".repeat(50));
 // ── Parallel build ────────────────────────────────────────────────────────────
 function buildOne(build, index, total) {
     return new Promise((resolve) => {
-        const isStandalone = build.type === 'standalone';
+        const isStandalone = build.type === 'standalone' || build.type === 'streaming';
         const enc = isStandalone ? encoding.music : encoding.sfx;
         const gap = isStandalone ? 0 : spriteConfig.spriteGap;
+        const typeLabel = build.type === 'streaming' ? 'Streaming' : build.type === 'standalone' ? 'Standalone' : 'Sprite';
 
-        console.log(`\n[${index + 1}/${total}] ${isStandalone ? 'Standalone' : 'Sprite'}: ${build.name} (${build.files.length} file(s), ${enc.bitrate}kbps)`);
+        console.log(`\n[${index + 1}/${total}] ${typeLabel}: ${build.name} (${build.files.length} file(s), ${enc.bitrate}kbps)`);
 
         const opts = {
             output: outDir + build.outputName,
@@ -211,6 +246,7 @@ function buildOne(build, index, total) {
                 return resolve(false);
             }
 
+            // Write soundData for all types (streaming needs it for sprite definitions in sounds.json)
             fs.writeFileSync(outDir + "soundData_" + build.name + ".json", JSON.stringify(obj, null, 2));
 
             if (!isStandalone) {

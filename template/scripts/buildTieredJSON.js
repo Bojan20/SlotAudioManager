@@ -59,6 +59,7 @@ if (soundDataFiles.length === 0) {
 const spriteDataMap = {};
 const manifestEntries = [];
 const standaloneSounds = spriteConfig.standalone?.sounds || [];
+const streamingSounds = new Set(spriteConfig.streaming?.sounds || []);
 
 for (const dataFile of soundDataFiles) {
     const tierName = dataFile.replace('soundData_', '').replace('.json', '');
@@ -84,18 +85,22 @@ for (const dataFile of soundDataFiles) {
 
     const soundId = m4aFile.replace('.m4a', '');
 
-    // Build manifest entry — add loadType (SubLoader ID) if tier has subLoaderId defined
+    // Build manifest entry
+    const isStreamingTier = streamingSounds.has(tierName);
     const tierConfig = spriteConfig.sprites[tierName];
     const subLoaderId = tierConfig?.subLoaderId;
     const isStandaloneTier = standaloneSounds.includes(tierName);
     const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
-    if (subLoaderId && !isStandaloneTier) {
+    if (isStreamingTier) {
+        // Streaming: manifest entry with loadType "Z" so framework never auto-loads it
+        // (nobody calls startSubLoader("Z") — BGMStreamingInit loads via HTML5 Audio instead)
+        manifestEntry.loadType = "Z";
+        console.log(`  [Streaming] ${soundId} — loadType "Z" (HTML5 Audio, never Web Audio loaded)`);
+    } else if (subLoaderId && !isStandaloneTier) {
         manifestEntry.loadType = subLoaderId;
         const unloadable = tierConfig?.unloadable === true;
         if (unloadable) manifestEntry.unloadable = true;
         console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
-    } else if (false) { // Standalone loadType Z disabled — requires playa-core streaming support
-        console.log(`  [SubLoader "${standaloneSubLoaderId}"] ${soundId} — standalone lazy`);
     }
     manifestEntries.push(manifestEntry);
 
@@ -163,9 +168,9 @@ for (const file of normalFiles) {
         duration: spriteData.duration
     };
 
-    // Preserve tags from template; standalone sounds get Music tag, everything else gets SFX tag
-    const isStandaloneSound = standaloneSounds.includes(soundName);
-    newEntry.tags = origEntry.tags || (isStandaloneSound ? spriteConfig.musicTags || ["Music"] : spriteConfig.sfxTags || ["SoundEffects"]);
+    // Preserve tags from template; standalone/streaming sounds get Music tag, everything else gets SFX tag
+    const isMusicSound = standaloneSounds.includes(soundName) || streamingSounds.has(soundName);
+    newEntry.tags = origEntry.tags || (isMusicSound ? spriteConfig.musicTags || ["Music"] : spriteConfig.sfxTags || ["SoundEffects"]);
 
     // Preserve overlap from template
     if (origEntry.overlap !== undefined) {

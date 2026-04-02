@@ -76,6 +76,23 @@ function copySoundsToGame(srcPath) {
     }
 }
 
+// Copy BGMStreamingInit.ts to game project if it exists
+function copyBGMModule() {
+    const bgmSrc = path.join(".", "dist", "BGMStreamingInit.ts");
+    if (!fs.existsSync(bgmSrc)) return;
+
+    const utilsDest = path.join(gameProjectPath, "src", "ts", "utils");
+    if (!fs.existsSync(path.join(gameProjectPath, "src", "ts"))) {
+        console.log("Game src/ts/ not found — skipping BGMStreamingInit.ts copy (copy manually)");
+        return;
+    }
+    if (!fs.existsSync(utilsDest)) fs.mkdirSync(utilsDest, { recursive: true });
+
+    const destFile = path.join(utilsDest, "BGMStreamingInit.ts");
+    fs.copyFileSync(bgmSrc, destFile);
+    console.log("BGMStreamingInit.ts → " + destFile);
+}
+
 console.log("audio files:");
 console.log(gameProjectPath);
 
@@ -87,6 +104,7 @@ if (!fs.existsSync(path.join(gameProjectPath, "assets"))) {
     }
     copySoundConfigToGame(distFolder);
     copySoundsToGame(distSoundFolder);
+    copyBGMModule();
 }
 
 // Also copy to game's dist/ folder so local playa launch (no VPN) picks up our audio.
