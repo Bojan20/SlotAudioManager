@@ -85,32 +85,44 @@ for (const dataFile of soundDataFiles) {
 
     const soundId = m4aFile.replace('.m4a', '');
 
-    // Build manifest entry
+    // Build manifest entry — streaming sounds are EXCLUDED (loaded via HTML5 Audio by BGMStreamingInit)
     const isStreamingTier = streamingSounds.has(tierName);
     const tierConfig = spriteConfig.sprites[tierName];
     const subLoaderId = tierConfig?.subLoaderId;
     const isStandaloneTier = standaloneSounds.includes(tierName);
-    const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
     if (isStreamingTier) {
-        // Streaming: manifest entry with loadType "S" — framework creates SubLoader but nobody
-        // triggers it, so audio is never fetched/decoded via Web Audio. BGMStreamingInit loads via HTML5.
-        manifestEntry.loadType = "S";
-        console.log(`  [Streaming] ${soundId} — loadType "S" (HTML5 Audio, SubLoader never triggered)`);
-    } else if (subLoaderId && !isStandaloneTier) {
-        manifestEntry.loadType = subLoaderId;
-        const unloadable = tierConfig?.unloadable === true;
-        if (unloadable) manifestEntry.unloadable = true;
-        console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
+        console.log(`  [Streaming] ${soundId} — excluded from manifest (HTML5 Audio)`);
+    } else {
+        const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
+        if (subLoaderId && !isStandaloneTier) {
+            manifestEntry.loadType = subLoaderId;
+            const unloadable = tierConfig?.unloadable === true;
+            if (unloadable) manifestEntry.unloadable = true;
+            console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
+        }
+        manifestEntries.push(manifestEntry);
     }
-    manifestEntries.push(manifestEntry);
 
-    // Map each sound in this sprite
+    // Map each sound in this sprite — streaming sprites get soundId of the FIRST non-streaming
+    // manifest entry so setSounds() doesn't crash (it looks up manifest by soundId).
+    // BGMStreamingInit replaces the stale sprite with the real HTML5 Howl at runtime.
     for (const [spriteName, spriteInfo] of Object.entries(spriteMap)) {
         spriteDataMap[spriteName] = {
-            soundId: soundId,
+            soundId: isStreamingTier ? '__streaming_placeholder__' : soundId,
             startTime: spriteInfo[0],
             duration: spriteInfo[1]
         };
+    }
+}
+
+// Replace streaming placeholder soundIds with the first real manifest entry's soundId
+// so setSounds() can find a valid manifest entry (won't crash on undefined.src)
+const firstManifestId = manifestEntries.length > 0 ? manifestEntries[0].id : null;
+if (firstManifestId) {
+    for (const [key, val] of Object.entries(spriteDataMap)) {
+        if (val.soundId === '__streaming_placeholder__') {
+            spriteDataMap[key].soundId = firstManifestId;
+        }
     }
 }
 

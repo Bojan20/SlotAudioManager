@@ -157,21 +157,20 @@ function processSourceManifest() {
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else if (element.endsWith(".m4a")) {
             let id = element.substring(0, element.length - 4);
-            // Streaming music: add to manifest with loadType "S" — SubLoader created but never triggered
+            // Streaming music: EXCLUDED from manifest (loaded via HTML5 Audio by BGMStreamingInit)
             const baseName = _gameName && id.startsWith(_gameName + '_') ? id.slice(_gameName.length + 1) : id;
             const isStreaming = streamingSounds.has(baseName) || streamingSounds.has(id);
-            let src = [];
-            let entry = {};
-            src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
-            entry.id = id;
-            entry.src = src;
             if (isStreaming) {
-                entry.loadType = "S";
-                console.log("Streaming manifest entry: " + id + " (loadType Z — HTML5 Audio)");
+                console.log("Streaming excluded from manifest: " + id + " (HTML5 Audio)");
             } else {
+                let src = [];
+                let entry = {};
+                src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
+                entry.id = id;
+                entry.src = src;
                 console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
+                myNewSoundManifest.push(entry);
             }
-            myNewSoundManifest.push(entry);
         } else {
             console.log("problem with file " + element + " not ending with .wav");
         }
@@ -266,7 +265,8 @@ async function processSourceSprites() {
         const baseName = element.replace('.wav', '');
         if (streamingSounds.has(baseName)) {
             console.log("Processing streaming sprite: " + baseName + " (HTML5 Audio — sprite defs kept, manifest excluded)");
-            // Add streaming sprite entry with full duration from soundData (same as standalone)
+            // Add streaming sprite entry with full duration from soundData
+            // soundId points to first non-streaming manifest entry so setSounds() doesn't crash
             const sdFileStr = "dist/soundFiles/soundData_" + baseName + ".json";
             if (fs.existsSync(sdFileStr)) {
                 try {
@@ -275,8 +275,9 @@ async function processSourceSprites() {
                     const spriteKey = Object.keys(sprite)[0];
                     if (spriteKey) {
                         const entryName = "s_" + baseName;
+                        const fallbackSoundId = myNewSoundManifest.length > 0 ? myNewSoundManifest[0].id : baseName;
                         myNewSoundSprites[entryName] = {
-                            soundId: baseName,
+                            soundId: fallbackSoundId,
                             spriteId: baseName,
                             startTime: sprite[spriteKey][0] || 0,
                             duration: sprite[spriteKey][1] || 0,

@@ -53,30 +53,16 @@ const output = `/**
 import { soundManager } from "playa-core";
 import { Howl } from "howler";
 
-const STREAMING_IDS: string[] = [
-${tracks.map(t => `    "${t.soundId}"`).join(',\n')}
+const TRACKS: [string, string][] = [
+${tracks.map(t => `    ["${t.soundId}", "sounds/soundFiles/${t.file}"]`).join(',\n')}
 ];
 
-// Wait for player to be ready (sounds.json loaded, sprites created), then inject HTML5 Howls
+// Wait for player to be ready (setSounds done), then inject HTML5 Howls
 (function inject() {
     const player = soundManager.player as any;
-    if (!player || !player._soundManifestData) { setTimeout(inject, 100); return; }
+    if (!player || !player._soundSprites) { setTimeout(inject, 100); return; }
 
-    // Read actual URLs from the manifest that framework already resolved (handles webpack hashes)
-    const manifest = player._soundManifestData.soundManifest || [];
-    const soundUrl = player._soundUrl || {};
-
-    const toLoad = STREAMING_IDS.map(id => {
-        const entry = manifest.find((e: any) => e.id === id);
-        if (!entry) return null;
-        // Resolve URL same way framework does — check _soundUrl map first, fallback to raw src
-        const rawSrc = entry.src.find((s: string) => s.endsWith(".m4a")) || entry.src[0];
-        const resolvedUrl = soundUrl[rawSrc] || rawSrc;
-        return { id, src: resolvedUrl };
-    }).filter(Boolean) as Array<{ id: string; src: string }>;
-
-    let loadedCount = 0;
-    toLoad.forEach(({ id, src }) => {
+    TRACKS.forEach(([id, src]) => {
         const spriteId = "s_" + id;
         const h = new Howl({
             src: [src],
@@ -85,18 +71,22 @@ ${tracks.map(t => `    "${t.soundId}"`).join(',\n')}
             sprite: { [spriteId]: [0, 600000] }
         });
         h.once("load", () => {
-            const realDuration = Math.round(h.duration() * 1000);
-            if (realDuration > 0) (h as any)._sprite[spriteId] = [0, realDuration];
+            const dur = Math.round(h.duration() * 1000);
+            if (dur > 0) (h as any)._sprite[spriteId] = [0, dur];
 
+            // Register howl so addHowl guard passes
             player._howlInstances[src] = h;
+
+            // Clean stale sprite from tags (setSounds created it with wrong howl)
             const stale = player._soundSprites.get(spriteId);
             if (stale) {
                 player._tags?.forEach((tag: any) => {
                     tag.sprites = tag.sprites.filter((s: any) => s !== stale);
                 });
             }
-            player.addHowls(h, src, id);
-            loadedCount++;
+
+            // Replace sprite — use addHowl directly (not addHowls which searches by soundId)
+            player.addHowl(h, src, spriteId);
         });
     });
 })();
