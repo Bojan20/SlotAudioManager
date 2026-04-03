@@ -189,10 +189,10 @@ for (const soundName of existingStandalone) {
     });
 }
 
-// Streaming music — builds M4A like standalone but excluded from manifest
+// Streaming music — builds individual M4A like standalone, manifest entry with loadType "S"
 const existingStreaming = streamingSounds.filter(s => allWavFiles.includes(s));
 if (existingStreaming.length > 0) {
-    console.log(`\nStreaming: ${existingStreaming.length} music files (HTML5 Audio — excluded from manifest)`);
+    console.log(`\nStreaming: ${existingStreaming.length} music files (HTML5 Audio, loadType S)`);
 }
 for (const soundName of existingStreaming) {
     if (!streamingNeedsRebuild(soundName)) {

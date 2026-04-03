@@ -112,7 +112,6 @@ for (const dataFile of soundDataFiles) {
     }
 }
 
-// Replace streaming placeholder soundIds with the first real manifest entry's soundId
 // Sort manifest by sprite config priority
 const spriteOrder = Object.keys(spriteConfig.sprites);
 const standaloneNames = spriteConfig.standalone.sounds || [];

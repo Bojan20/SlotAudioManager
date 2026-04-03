@@ -264,7 +264,7 @@ async function processSourceSprites() {
         // Skip standalone and streaming sounds — they have their own M4A, no sprite timing
         const baseName = element.replace('.wav', '');
         if (streamingSounds.has(baseName)) {
-            console.log("Processing streaming sprite: " + baseName + " (HTML5 Audio — sprite defs kept, manifest excluded)");
+            console.log("Processing streaming sprite: " + baseName + " (HTML5 Audio, loadType S)");
             // Add streaming sprite entry with full duration from soundData
             // soundId points to first non-streaming manifest entry so setSounds() doesn't crash
             const sdFileStr = "dist/soundFiles/soundData_" + baseName + ".json";
