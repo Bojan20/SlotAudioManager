@@ -73,7 +73,8 @@ function decodeWav(arrayBuffer) {
 }
 
 function autoTag(name) {
-  if (/music/i.test(name))                            return 'Music';
+  if (/^vo[A-Z_]|^VO[_]|voice/i.test(name))            return 'Voice';
+  if (/music/i.test(name))                              return 'Music';
   if (/(loop|ambient|atmo|background|bg$)/i.test(name)) return 'Music';
   return 'SoundEffects';
 }
@@ -628,7 +629,36 @@ export default function SoundsPage({ project, setProject, showToast }) {
               >{s.name}</span>
 
               {inJson
-                ? <span className="badge bg-green-dim text-green" title="This sound has a matching entry in soundSprites">in JSON</span>
+                ? (() => {
+                    const sprite = project.soundsJson?.soundDefinitions?.soundSprites?.[`s_${s.name}`];
+                    const currentTag = sprite?.tags?.[0] || 'SoundEffects';
+                    const tagOptions = ['SoundEffects', 'Music', 'Voice'];
+                    return (
+                      <div className="flex items-center gap-1.5">
+                        <span className="badge bg-green-dim text-green" title="In soundSprites">in JSON</span>
+                        <select
+                          value={currentTag}
+                          onChange={async (e) => {
+                            const newTag = e.target.value;
+                            const newSoundsJson = structuredClone(project.soundsJson);
+                            newSoundsJson.soundDefinitions.soundSprites[`s_${s.name}`].tags = [newTag];
+                            const r = await window.api.saveSoundsJson(newSoundsJson);
+                            if (r?.success) {
+                              const updated = structuredClone(project);
+                              updated.soundsJson = newSoundsJson;
+                              setProject(updated);
+                            } else {
+                              showToast(r?.error || 'Save failed', 'error');
+                            }
+                          }}
+                          className="text-[10px] font-mono bg-bg-hover border border-border rounded px-1.5 py-0.5 text-text-dim hover:border-border-bright cursor-pointer"
+                          title="Sound tag"
+                        >
+                          {tagOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
+                    );
+                  })()
                 : (
                   <button
                     onClick={() => setAddModal({ name: s.name, tags: autoTag(s.name), overlap: false, saving: false })}
@@ -780,7 +810,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
               <div>
                 <label className="section-label mb-1.5 block">Tags</label>
                 <div className="flex gap-2">
-                  {['SoundEffects', 'Music'].map(t => (
+                  {['SoundEffects', 'Music', 'Voice'].map(t => (
                     <button
                       key={t}
                       onClick={() => setAddModal(m => ({ ...m, tags: t }))}

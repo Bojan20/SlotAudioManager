@@ -61,8 +61,19 @@ ${tracks.map(t => `    ["${t.soundId}", SOUNDS_PATH + "${t.file}"]`).join(',\n')
 // Start loading all tracks immediately (parallel with game load)
 const loaded: Array<{ id: string; src: string; howl: Howl }> = [];
 TRACKS.forEach(([id, src]) => {
-    const h = new Howl({ src: [src], html5: true, preload: true });
-    h.once("load", () => loaded.push({ id, src, howl: h }));
+    const spriteId = "s_" + id;
+    const h = new Howl({
+        src: [src],
+        html5: true,
+        preload: true,
+        sprite: { [spriteId]: [0, 600000] } // full file — 10min max, Howler clamps to actual duration
+    });
+    h.once("load", () => {
+        // Update sprite duration to actual file length so fade/stop/seek work precisely
+        const realDuration = Math.round(h.duration() * 1000);
+        if (realDuration > 0) (h as any)._sprite[spriteId] = [0, realDuration];
+        loaded.push({ id, src, howl: h });
+    });
 });
 
 // Inject into SoundPlayer once player is ready and howls are loaded
