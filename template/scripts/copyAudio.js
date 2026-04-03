@@ -91,6 +91,27 @@ function copyBGMModule() {
     const destFile = path.join(utilsDest, "BGMStreamingInit.ts");
     fs.copyFileSync(bgmSrc, destFile);
     console.log("BGMStreamingInit.ts → " + destFile);
+
+    // Auto-add import to main.ts if not already there
+    const mainTsPath = path.join(gameProjectPath, "src", "ts", "main.ts");
+    if (fs.existsSync(mainTsPath)) {
+        const mainTs = fs.readFileSync(mainTsPath, "utf8");
+        if (!mainTs.includes("BGMStreamingInit")) {
+            // Insert after the last import line
+            const lines = mainTs.split("\n");
+            let lastImportIdx = -1;
+            for (let i = 0; i < lines.length; i++) {
+                if (/^import\s/.test(lines[i])) lastImportIdx = i;
+            }
+            if (lastImportIdx >= 0) {
+                lines.splice(lastImportIdx + 1, 0, 'import "./utils/BGMStreamingInit";');
+                fs.writeFileSync(mainTsPath, lines.join("\n"), "utf8");
+                console.log("Added BGMStreamingInit import to main.ts (line " + (lastImportIdx + 2) + ")");
+            }
+        } else {
+            console.log("BGMStreamingInit import already in main.ts");
+        }
+    }
 }
 
 console.log("audio files:");

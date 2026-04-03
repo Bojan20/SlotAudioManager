@@ -53,46 +53,51 @@ const output = `/**
 import { soundManager } from "playa-core";
 import { Howl } from "howler";
 
-const SOUNDS_PATH = "sounds/soundFiles/";
-const TRACKS: [string, string][] = [
-${tracks.map(t => `    ["${t.soundId}", SOUNDS_PATH + "${t.file}"]`).join(',\n')}
+const STREAMING_IDS: string[] = [
+${tracks.map(t => `    "${t.soundId}"`).join(',\n')}
 ];
 
-// Start loading all tracks immediately (parallel with game load)
-const loaded: Array<{ id: string; src: string; howl: Howl }> = [];
-TRACKS.forEach(([id, src]) => {
-    const spriteId = "s_" + id;
-    const h = new Howl({
-        src: [src],
-        html5: true,
-        preload: true,
-        sprite: { [spriteId]: [0, 600000] } // full file — 10min max, Howler clamps to actual duration
-    });
-    h.once("load", () => {
-        // Update sprite duration to actual file length so fade/stop/seek work precisely
-        const realDuration = Math.round(h.duration() * 1000);
-        if (realDuration > 0) (h as any)._sprite[spriteId] = [0, realDuration];
-        loaded.push({ id, src, howl: h });
-    });
-});
-
-// Inject into SoundPlayer once player is ready and howls are loaded
+// Wait for player to be ready (sounds.json loaded, sprites created), then inject HTML5 Howls
 (function inject() {
     const player = soundManager.player as any;
-    if (!player || !player._soundSprites) { setTimeout(inject, 100); return; }
-    if (loaded.length < TRACKS.length) { setTimeout(inject, 100); return; }
-    loaded.forEach(({ id, src, howl }) => {
-        // Register howl so addHowl's guard check passes
-        player._howlInstances[src] = howl;
-        // Clean stale sprite from tag arrays (setSounds created it with undefined howl)
-        const stale = player._soundSprites.get("s_" + id);
-        if (stale) {
-            player._tags?.forEach((tag: any) => {
-                tag.sprites = tag.sprites.filter((s: any) => s !== stale);
-            });
-        }
-        // Replace sprite with one backed by HTML5 Howl
-        player.addHowls(howl, src, id);
+    if (!player || !player._soundManifestData) { setTimeout(inject, 100); return; }
+
+    // Read actual URLs from the manifest that framework already resolved (handles webpack hashes)
+    const manifest = player._soundManifestData.soundManifest || [];
+    const soundUrl = player._soundUrl || {};
+
+    const toLoad = STREAMING_IDS.map(id => {
+        const entry = manifest.find((e: any) => e.id === id);
+        if (!entry) return null;
+        // Resolve URL same way framework does — check _soundUrl map first, fallback to raw src
+        const rawSrc = entry.src.find((s: string) => s.endsWith(".m4a")) || entry.src[0];
+        const resolvedUrl = soundUrl[rawSrc] || rawSrc;
+        return { id, src: resolvedUrl };
+    }).filter(Boolean) as Array<{ id: string; src: string }>;
+
+    let loadedCount = 0;
+    toLoad.forEach(({ id, src }) => {
+        const spriteId = "s_" + id;
+        const h = new Howl({
+            src: [src],
+            html5: true,
+            preload: true,
+            sprite: { [spriteId]: [0, 600000] }
+        });
+        h.once("load", () => {
+            const realDuration = Math.round(h.duration() * 1000);
+            if (realDuration > 0) (h as any)._sprite[spriteId] = [0, realDuration];
+
+            player._howlInstances[src] = h;
+            const stale = player._soundSprites.get(spriteId);
+            if (stale) {
+                player._tags?.forEach((tag: any) => {
+                    tag.sprites = tag.sprites.filter((s: any) => s !== stale);
+                });
+            }
+            player.addHowls(h, src, id);
+            loadedCount++;
+        });
     });
 })();
 `;
