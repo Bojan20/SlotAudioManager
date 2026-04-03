@@ -157,20 +157,20 @@ function processSourceManifest() {
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else if (element.endsWith(".m4a")) {
             let id = element.substring(0, element.length - 4);
-            // Streaming music: EXCLUDED from manifest (loaded via HTML5 Audio by BGMStreamingInit)
             const baseName = _gameName && id.startsWith(_gameName + '_') ? id.slice(_gameName.length + 1) : id;
             const isStreaming = streamingSounds.has(baseName) || streamingSounds.has(id);
+            let src = [];
+            let entry = {};
+            src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
+            entry.id = id;
+            entry.src = src;
             if (isStreaming) {
-                console.log("Streaming excluded from manifest: " + id + " (HTML5 Audio)");
+                entry.loadType = "S";
+                console.log("Streaming manifest: " + id + " (loadType S)");
             } else {
-                let src = [];
-                let entry = {};
-                src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
-                entry.id = id;
-                entry.src = src;
                 console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
-                myNewSoundManifest.push(entry);
             }
+            myNewSoundManifest.push(entry);
         } else {
             console.log("problem with file " + element + " not ending with .wav");
         }
@@ -275,9 +275,8 @@ async function processSourceSprites() {
                     const spriteKey = Object.keys(sprite)[0];
                     if (spriteKey) {
                         const entryName = "s_" + baseName;
-                        const fallbackSoundId = myNewSoundManifest.length > 0 ? myNewSoundManifest[0].id : baseName;
                         myNewSoundSprites[entryName] = {
-                            soundId: fallbackSoundId,
+                            soundId: baseName,
                             spriteId: baseName,
                             startTime: sprite[spriteKey][0] || 0,
                             duration: sprite[spriteKey][1] || 0,
