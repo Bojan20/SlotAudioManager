@@ -259,6 +259,82 @@ function readJsonSafe(filePath) {
 
 // ===== IPC HANDLERS =====
 
+// One-time disk writes when opening a project — NOT called on reload
+function initProjectOnOpen(dirPath) {
+  // Fuzzy-fix broken command references in sounds.json
+  const soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
+  if (soundsJson?.soundDefinitions?.commands) {
+    const sprites = soundsJson.soundDefinitions.soundSprites || {};
+    const lists = soundsJson.soundDefinitions.spriteList || {};
+    const cmds = soundsJson.soundDefinitions.commands;
+    const spriteKeys = Object.keys(sprites);
+    const listKeys = Object.keys(lists);
+    const levenshtein = (a, b) => {
+      const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i]);
+      for (let j = 1; j <= n; j++) d[0][j] = j;
+      for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+        d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] !== b[j-1] ? 1 : 0));
+      return d[m][n];
+    };
+    const findNearest = (id, pool) => {
+      let best = null, bestDist = 3;
+      const idLow = id.toLowerCase();
+      for (const k of pool) { const d = levenshtein(idLow, k.toLowerCase()); if (d < bestDist) { best = k; bestDist = d; } }
+      if (best && Math.abs(id.length - best.length) > 3) return null;
+      return best;
+    };
+    let fixed = false;
+    for (const steps of Object.values(cmds)) {
+      if (!Array.isArray(steps)) continue;
+      for (const s of steps) {
+        if (!s) continue;
+        if (s.spriteId && !s.spriteListId && !sprites[s.spriteId] && lists[s.spriteId]) { s.spriteListId = s.spriteId; delete s.spriteId; fixed = true; }
+        if (s.spriteListId && !s.spriteId && !lists[s.spriteListId] && sprites[s.spriteListId]) { s.spriteId = s.spriteListId; delete s.spriteListId; fixed = true; }
+        if (s.commandId && !cmds[s.commandId] && !s.spriteId && !s.spriteListId) {
+          if (sprites[s.commandId]) { s.spriteId = s.commandId; delete s.commandId; fixed = true; }
+          else if (lists[s.commandId]) { s.spriteListId = s.commandId; delete s.commandId; fixed = true; }
+        }
+        if (s.spriteListId && !s.spriteId && !lists[s.spriteListId]) {
+          const m = s.spriteListId.replace(/^sl_/, 's_'); if (sprites[m]) { s.spriteId = m; delete s.spriteListId; fixed = true; }
+        }
+        if (s.spriteId && !s.spriteListId && !sprites[s.spriteId]) {
+          const m = s.spriteId.replace(/^s_/, 'sl_'); if (lists[m]) { s.spriteListId = m; delete s.spriteId; fixed = true; }
+        }
+        if (s.spriteId && !sprites[s.spriteId] && !s.spriteListId) { const m = findNearest(s.spriteId, spriteKeys); if (m) { s.spriteId = m; fixed = true; } }
+        if (s.spriteListId && !lists[s.spriteListId] && !s.spriteId) { const m = findNearest(s.spriteListId, listKeys); if (m) { s.spriteListId = m; fixed = true; } }
+      }
+    }
+    if (fixed) { try { fs.writeFileSync(path.join(dirPath, 'sounds.json'), JSON.stringify(soundsJson, null, 2)); } catch {} }
+  }
+  // Ensure .gitattributes
+  const gitattrsPath = path.join(dirPath, '.gitattributes');
+  if (!fs.existsSync(gitattrsPath)) {
+    try { fs.writeFileSync(gitattrsPath, '* text=auto\n*.wav binary\n*.m4a binary\n*.mp3 binary\n*.ogg binary\n'); } catch {}
+  }
+  // Auto-detect game repo — persist to disk
+  const settings = readJsonSafe(path.join(dirPath, 'settings.json'));
+  if (!settings?.gameProjectPath) {
+    const folderName = path.basename(dirPath);
+    const audioMatch = folderName.match(/^(.+)-audio(?:-\w+)?$/);
+    if (audioMatch) {
+      const gameName = audioMatch[1] + '-game';
+      const gameCandidate = path.join(path.dirname(dirPath), gameName);
+      if (fs.existsSync(gameCandidate) && fs.existsSync(path.join(gameCandidate, 'package.json'))) {
+        const relPath = path.relative(dirPath, gameCandidate);
+        try {
+          const existing = readJsonSafe(path.join(dirPath, 'settings.json')) || {};
+          existing.gameProjectPath = relPath;
+          fs.writeFileSync(path.join(dirPath, 'settings.json'), JSON.stringify(existing, null, 4));
+        } catch {}
+        try {
+          const audioPkg = readJsonSafe(path.join(dirPath, 'package.json'));
+          if (audioPkg) { audioPkg.name = folderName; audioPkg.description = `Audio for ${gameName}`; fs.writeFileSync(path.join(dirPath, 'package.json'), JSON.stringify(audioPkg, null, 2) + '\n'); }
+        } catch {}
+      }
+    }
+  }
+}
+
 ipcMain.handle('open-project', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
@@ -267,8 +343,8 @@ ipcMain.handle('open-project', async () => {
   if (result.canceled || !result.filePaths.length) return null;
   projectPath = result.filePaths[0];
   undoStack.length = 0; redoStack.length = 0;
-  // Clear caches for new project
   Object.keys(gameNodeCache).filter(k => k.startsWith('_')).forEach(k => delete gameNodeCache[k]);
+  initProjectOnOpen(projectPath);
   return loadProject(projectPath);
 });
 
@@ -296,84 +372,8 @@ function loadProject(dirPath) {
   data.spriteConfig = readJsonSafe(path.join(dirPath, 'sprite-config.json'));
   data.soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
 
-  // Auto-fix: resolve misplaced and broken references in commands
-  if (data.soundsJson?.soundDefinitions?.commands) {
-    const sprites = data.soundsJson.soundDefinitions.soundSprites || {};
-    const lists = data.soundsJson.soundDefinitions.spriteList || {};
-    const cmds = data.soundsJson.soundDefinitions.commands;
-    const spriteKeys = Object.keys(sprites);
-    const listKeys = Object.keys(lists);
-
-    // Fuzzy match: find closest sprite/list by Levenshtein distance (max 3 edits)
-    const levenshtein = (a, b) => {
-      const m = a.length, n = b.length, d = Array.from({ length: m + 1 }, (_, i) => [i]);
-      for (let j = 1; j <= n; j++) d[0][j] = j;
-      for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
-        d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] !== b[j-1] ? 1 : 0));
-      return d[m][n];
-    };
-    const findNearest = (id, pool) => {
-      let best = null, bestDist = 3; // max 2 edits
-      const idLow = id.toLowerCase();
-      for (const k of pool) { const d = levenshtein(idLow, k.toLowerCase()); if (d < bestDist) { best = k; bestDist = d; } }
-      // Only accept if match is very close AND id length is similar (avoids short→long false positives)
-      if (best && Math.abs(id.length - best.length) > 3) return null;
-      return best;
-    };
-
-    let fixed = false;
-    for (const steps of Object.values(cmds)) {
-      if (!Array.isArray(steps)) continue;
-      for (const s of steps) {
-        if (!s) continue;
-
-        // Layer 1: spriteId → actually a sprite list
-        if (s.spriteId && !s.spriteListId && !sprites[s.spriteId] && lists[s.spriteId]) {
-          s.spriteListId = s.spriteId; delete s.spriteId; fixed = true;
-        }
-        // Layer 1: spriteListId → actually a sound sprite
-        if (s.spriteListId && !s.spriteId && !lists[s.spriteListId] && sprites[s.spriteListId]) {
-          s.spriteId = s.spriteListId; delete s.spriteListId; fixed = true;
-        }
-        // Layer 1: commandId → actually a sprite or list
-        if (s.commandId && !cmds[s.commandId] && !s.spriteId && !s.spriteListId) {
-          if (sprites[s.commandId]) { s.spriteId = s.commandId; delete s.commandId; fixed = true; }
-          else if (lists[s.commandId]) { s.spriteListId = s.commandId; delete s.commandId; fixed = true; }
-        }
-
-        // Layer 2: prefix normalization — sl_ ref not in lists, try as s_ sprite or vice versa
-        if (s.spriteListId && !s.spriteId && !lists[s.spriteListId]) {
-          const asSprite = s.spriteListId.replace(/^sl_/, 's_');
-          if (sprites[asSprite]) { s.spriteId = asSprite; delete s.spriteListId; fixed = true; }
-        }
-        if (s.spriteId && !s.spriteListId && !sprites[s.spriteId]) {
-          const asList = s.spriteId.replace(/^s_/, 'sl_');
-          if (lists[asList]) { s.spriteListId = asList; delete s.spriteId; fixed = true; }
-        }
-
-        // Layer 3: fuzzy match — fix typos (max 3 character difference)
-        if (s.spriteId && !sprites[s.spriteId] && !s.spriteListId) {
-          const match = findNearest(s.spriteId, spriteKeys);
-          if (match) { s.spriteId = match; fixed = true; }
-        }
-        if (s.spriteListId && !lists[s.spriteListId] && !s.spriteId) {
-          const match = findNearest(s.spriteListId, listKeys);
-          if (match) { s.spriteListId = match; fixed = true; }
-        }
-      }
-    }
-    if (fixed) {
-      try { fs.writeFileSync(path.join(dirPath, 'sounds.json'), JSON.stringify(data.soundsJson, null, 2)); } catch {}
-    }
-  }
-
-  // Ensure .gitattributes exists for consistent line endings
-  const gitattrsPath = path.join(dirPath, '.gitattributes');
-  if (!fs.existsSync(gitattrsPath)) {
-    try { fs.writeFileSync(gitattrsPath, '* text=auto\n*.wav binary\n*.m4a binary\n*.mp3 binary\n*.ogg binary\n'); } catch {}
-  }
-
   // Auto-detect game repo if not configured — convention: {name}-audio[-howler] → {name}-game in same parent
+  // Read-only detection: sets data.settings in memory but does NOT write to disk
   if (!data.settings?.gameProjectPath) {
     const folderName = path.basename(dirPath);
     const audioMatch = folderName.match(/^(.+)-audio(?:-\w+)?$/);
@@ -382,26 +382,9 @@ function loadProject(dirPath) {
       const gameCandidate = path.join(path.dirname(dirPath), gameName);
       if (fs.existsSync(gameCandidate) && fs.existsSync(path.join(gameCandidate, 'package.json'))) {
         const relPath = path.relative(dirPath, gameCandidate);
-        // Auto-configure: write to settings.json and update package.json
         if (!data.settings) data.settings = {};
         data.settings.gameProjectPath = relPath;
-        try {
-          const settingsPath = path.join(dirPath, 'settings.json');
-          const existing = readJsonSafe(settingsPath) || {};
-          existing.gameProjectPath = relPath;
-          fs.writeFileSync(settingsPath, JSON.stringify(existing, null, 4));
-        } catch {}
-        // Update package.json name/description
-        try {
-          const pkgPath = path.join(dirPath, 'package.json');
-          const audioPkg = readJsonSafe(pkgPath);
-          if (audioPkg) {
-            const audioSlug = folderName;
-            audioPkg.name = audioSlug;
-            audioPkg.description = `Audio for ${gameName}`;
-            fs.writeFileSync(pkgPath, JSON.stringify(audioPkg, null, 2) + '\n');
-          }
-        } catch {}
+        // NOTE: disk write moved to initProjectOnOpen() — loadProject is now read-only
       }
     }
   }

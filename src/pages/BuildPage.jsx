@@ -167,10 +167,12 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       else if (r?.scripts) {
           setGameScripts(r.scripts); setGameRepoPath(r.gameRepoPath || '');
           // Auto-select first launch script if none selected
-          if (!autoLaunch && r.scripts.length > 0) {
+          setAutoLaunch(prev => {
+            if (prev) return prev; // keep existing selection
+            if (r.scripts.length === 0) return '';
             const launchScripts = r.scripts.filter(s => /^playa\s+launch\b/.test(s.cmd));
-            setAutoLaunch(launchScripts.length > 0 ? launchScripts[0].name : r.scripts[0].name);
-          }
+            return launchScripts.length > 0 ? launchScripts[0].name : r.scripts[0].name;
+          });
         }
     } catch (e) { setGameScriptsError(e.message); }
     setLoadingGameScripts(false);
