@@ -81,7 +81,10 @@ console.log(`Found ${allWavFiles.length} WAV files in source directory`);
 const standaloneSounds = spriteConfig.standalone.sounds || [];
 const streamingSounds = spriteConfig.streaming?.sounds || [];
 const spriteGroups = spriteConfig.sprites;
-const encoding = spriteConfig.encoding;
+const encoding = spriteConfig.encoding || {};
+const _defaultEnc = { bitrate: 64, channels: 2, samplerate: 44100, encoder: 'native' };
+if (!encoding.sfx) encoding.sfx = { ..._defaultEnc };
+if (!encoding.music) encoding.music = { ..._defaultEnc };
 
 // Log encoding settings so user can verify bitrate + encoder per category
 if (encoding) {
@@ -133,10 +136,12 @@ const newCache = {};
 
 // Hash sprite-config.json so tier membership changes invalidate cache
 const spriteConfigHash = fileHash('sprite-config.json') || 'none';
-// Track encoder so switching ffmpeg binary (native → FDK) forces rebuild
-// If cache exists but has no _encoderName, it's from an older build — treat as unknown and rebuild
+// Lightweight fingerprint: size+mtime (avoid hashing 130MB binary on every build)
+let ffmpegHash = 'none';
+try { const st = fs.statSync(pathToFFmpeg); ffmpegHash = `${st.size}_${st.mtimeMs}`; } catch {}
+// Track encoder + binary so switching ffmpeg (native → FDK or version change) forces rebuild
 const cacheHasEntries = Object.keys(cache).some(k => !k.startsWith('_'));
-const encoderChanged = cacheHasEntries && cache._encoderName !== encoderName;
+const encoderChanged = cacheHasEntries && (cache._encoderName !== encoderName || cache._ffmpegHash !== ffmpegHash);
 const configChanged = cache._spriteConfigHash !== spriteConfigHash || encoderChanged;
 if (encoderChanged) {
     console.log(`AAC encoder changed (${cache._encoderName || 'unknown'} -> ${encoderName}) — forcing full rebuild`);
@@ -247,7 +252,7 @@ for (const soundName of existingStreaming) {
 
 if (buildQueue.length === 0) {
     console.log('\nAll outputs up to date — nothing to rebuild.');
-    saveCache({ ...cache, ...newCache, _spriteConfigHash: spriteConfigHash, _encoderName: encoderName });
+    saveCache({ ...cache, ...newCache, _spriteConfigHash: spriteConfigHash, _encoderName: encoderName, _ffmpegHash: ffmpegHash });
     process.exit(0);
 }
 
@@ -323,7 +328,7 @@ async function runAll() {
     const safeNewCache = Object.fromEntries(
         Object.entries(newCache).filter(([sound]) => !failedTierNames.has(sound))
     );
-    saveCache({ ...cache, ...safeNewCache, _spriteConfigHash: spriteConfigHash, _encoderName: encoderName });
+    saveCache({ ...cache, ...safeNewCache, _spriteConfigHash: spriteConfigHash, _encoderName: encoderName, _ffmpegHash: ffmpegHash });
 }
 
 runAll();

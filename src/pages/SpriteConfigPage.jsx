@@ -462,6 +462,14 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
     setConfigKey(k => k + 1);
   }, [project?.path]); // eslint-disable-line — intentionally path only, not _reloadKey
 
+  // Sync from disk on reload — but only if no unsaved changes
+  useEffect(() => {
+    if (!dirty && project?.spriteConfig && project?._reloadKey) {
+      setConfig(structuredClone(project.spriteConfig));
+      setConfigKey(k => k + 1);
+    }
+  }, [project?._reloadKey]); // eslint-disable-line — intentionally reloadKey only
+
   useEffect(() => {
     window.api.getEncoderSetting().then(r => setFdkAvailable(!!r?.fdkAvailable)).catch(() => {});
   }, []);

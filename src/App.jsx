@@ -88,7 +88,12 @@ export default function App() {
   useEffect(() => {
     const handler = (_, info) => {
       if (!info) return;
-      setProject(prev => prev ? { ...prev, ...info } : prev);
+      setProject(prev => {
+        if (!prev) return prev;
+        const next = structuredClone(prev);
+        Object.assign(next, info);
+        return next;
+      });
     };
     window.api.onBranchUpdate(handler);
     return () => window.api.offBranchUpdate(handler);

@@ -150,7 +150,7 @@ app.on('before-quit', () => {
     // Only scan port 8080 if we had a game process (skip expensive netstat otherwise)
     try {
       if (isWin) {
-        const out = execSync('netstat -ano', { timeout: 3000, encoding: 'utf8' });
+        const out = execSync('netstat -ano', { timeout: 3000, encoding: 'utf8', maxBuffer: 5 * 1024 * 1024 });
         for (const line of out.split('\n')) {
           if (line.includes(':8080') && line.includes('LISTENING')) {
             const p = line.trim().split(/\s+/).pop();
@@ -763,7 +763,7 @@ ipcMain.handle('run-script', async (event, scriptName) => {
     const fbResult = await runNpmScript(cwd, scriptName, fb.dir, send);
     if (fbResult.success) {
       gameNodeCache[cwd] = fb.dir;
-      nvmUse(fb.version);
+      await nvmUse(fb.version);
       send(`\n✔ Switched system Node to v${fb.version} (nvm use)\n`);
       return fbResult;
     }
@@ -774,6 +774,7 @@ ipcMain.handle('run-script', async (event, scriptName) => {
 
 ipcMain.handle('run-deploy', async (event, scriptName) => {
   if (!projectPath) return { error: 'No project open' };
+  if (buildProcess) return { error: 'A build is already running' };
   const name = scriptName || 'deploy';
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) return { error: 'Invalid script name' };
   const cwd = projectPath;
@@ -1359,7 +1360,7 @@ ipcMain.handle('yarn-install-game', async () => {
       const fbResult = await runYarnInstall(gameRepoPath, fb.dir);
       if (fbResult.success) {
         gameNodeCache[gameRepoPath] = fb.dir;
-        nvmUse(fb.version);
+        await nvmUse(fb.version);
         return { ...fbResult, output: `Used Node ${fb.version} (nvm use applied)\n` + fbResult.output, project: loadProject(projectPath), detectedNode: fb.version };
       }
     }
@@ -1527,18 +1528,23 @@ if (_nvmExe && fs.existsSync(_nvmExe) && fs.existsSync(_nvmRestoreFile)) {
   } catch {}
 }
 
+// Detect system Node version (nvm symlink, not Electron's bundled Node)
+// Use spawnSync at module load — fast (<100ms) but correct
 let _originalNodeVersion = null;
-try { _originalNodeVersion = execFileSync('node', ['-v'], { timeout: 3000 }).toString().trim().replace(/^v/, ''); } catch {}
+try {
+  const r = require('child_process').spawnSync('node', ['-v'], { timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] });
+  if (r.stdout) _originalNodeVersion = r.stdout.toString().trim().replace(/^v/, '');
+} catch {}
+if (!_originalNodeVersion) _originalNodeVersion = process.version.replace(/^v/, ''); // fallback to Electron node
 
-function nvmUse(version) {
+async function nvmUse(version) {
   if (!version || !_nvmExe || !fs.existsSync(_nvmExe)) return;
   const ver = version.replace(/^v/, '');
-  if (ver === _originalNodeVersion) return; // already on this version
-  // Save original to disk BEFORE switching — so any crash can recover
+  if (ver === _originalNodeVersion) return;
   if (_originalNodeVersion && !fs.existsSync(_nvmRestoreFile)) {
     try { fs.writeFileSync(_nvmRestoreFile, _originalNodeVersion); } catch {}
   }
-  try { execFileSync(_nvmExe, ['use', ver], { timeout: 10000, stdio: 'ignore' }); } catch {}
+  try { await spawnAsync(_nvmExe, ['use', ver], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] }); } catch {}
 }
 
 function nvmRestore() {
@@ -1684,7 +1690,7 @@ ipcMain.handle('build-game', async () => {
     const fbResult = await runBuildDev(gameRepoPath, fb.dir, send);
     if (fbResult.success) {
       gameNodeCache[gameRepoPath] = fb.dir;
-      nvmUse(fb.version);
+      await nvmUse(fb.version);
       send(`\n✔ Switched system Node to v${fb.version} (nvm use)\n`);
       return { ...fbResult, detectedNode: fb.version };
     }

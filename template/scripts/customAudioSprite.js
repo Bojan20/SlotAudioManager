@@ -93,9 +93,11 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
         spritemap: {}
     }
 
-    spawn(ffmpegPath, ['-version']).on('exit', code => {
+    const verProc = spawn(ffmpegPath, ['-version']);
+    verProc.on('error', () => callback(new Error('ffmpeg was not found on your path')));
+    verProc.on('exit', code => {
         if (code) {
-            callback(new Error('ffmpeg was not found on your path'))
+            return callback(new Error('ffmpeg was not found on your path'))
         }
 
         if (opts.silence) {
@@ -336,7 +338,7 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
             })
         }, function(err) {
             if (err) {
-                return callback(new Error('Error adding file ' + err.message))
+                return callback(new Error('Error adding file ' + (err.msg || err.message || JSON.stringify(err))))
             }
 
             async.forEachSeries(Object.keys(formats), function(ext, cb) {

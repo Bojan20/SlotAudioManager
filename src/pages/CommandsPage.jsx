@@ -340,7 +340,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
     setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null); setClipboard(null);
     setSelected(new Set()); setConfirmBulkDelete(false);
-  }, [project?.path]);
+  }, [project?.path, project?._reloadKey]);
 
   // Clear selection when switching tabs
   useEffect(() => { setSelected(new Set()); setConfirmBulkDelete(false); }, [viewTab]);

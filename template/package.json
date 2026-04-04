@@ -31,6 +31,10 @@
     "node-exiftool": "^2.3.0",
     "sox": "^0.1.0",
     "audiosprite": "^0.7.2",
-    "ffmpeg-static": "^5.1.0"
+    "ffmpeg-static": "^5.1.0",
+    "async": "^3.2.0",
+    "glob": "^7.2.0",
+    "mkdirp": "^1.0.0",
+    "underscore": "^1.13.0"
   }
 }
