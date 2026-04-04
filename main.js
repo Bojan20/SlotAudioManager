@@ -104,14 +104,31 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // audio:// custom protocol — serves WAV files from sourceSoundFiles/ without CORS issues
+  // audio:// custom protocol — serves audio files without CORS issues
+  // audio://local/Name.wav       → sourceSoundFiles/Name.wav
+  // audio://test/native_Name.m4a → dist/encoder-test/native_Name.m4a
   protocol.handle('audio', (req) => {
     const url = new URL(req.url);
+    const host = url.hostname || url.host; // 'local' or 'test'
     const filename = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    if (!projectPath) return new Response('No project open', { status: 503 });
+
+    if (host === 'test') {
+      // Encoder comparison M4A files
+      if (!filename || !filename.endsWith('.m4a') || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      const testDir = path.join(projectPath, 'dist', 'encoder-test');
+      const filePath = path.join(testDir, filename);
+      if (!filePath.startsWith(testDir + path.sep)) return new Response('Forbidden', { status: 403 });
+      if (!fs.existsSync(filePath)) return new Response('Not found', { status: 404 });
+      return net.fetch(pathToFileURL(filePath).toString());
+    }
+
+    // Default: WAV from sourceSoundFiles/
     if (!filename || !filename.endsWith('.wav') || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
       return new Response('Forbidden', { status: 403 });
     }
-    if (!projectPath) return new Response('No project open', { status: 503 });
     const sourceDir = path.join(projectPath, 'sourceSoundFiles');
     const filePath = path.join(sourceDir, filename);
     if (!filePath.startsWith(sourceDir + path.sep)) return new Response('Forbidden', { status: 403 });
@@ -124,33 +141,22 @@ app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) creat
 
 // Kill all spawned game processes when app quits
 app.on('before-quit', () => {
-  // Kill tracked game process
+  // Kill tracked game process + port 8080 only if game was launched this session
   if (gameProcess && !gameProcess.killed) {
     const pid = gameProcess.pid;
-    if (isWin) { try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' }); } catch {} }
+    if (isWin) { try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore', timeout: 3000 }); } catch {} }
     else { try { process.kill(pid, 'SIGTERM'); } catch {} }
     gameProcess = null;
+    // Only scan port 8080 if we had a game process (skip expensive netstat otherwise)
+    try {
+      if (isWin) {
+        execSync('cmd /c "for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8080 ^| findstr LISTENING\') do taskkill /F /T /PID %a"', { stdio: 'ignore', timeout: 3000, shell: true });
+      } else {
+        try { execSync("lsof -ti:8080 | xargs kill -9", { stdio: 'ignore', timeout: 3000 }); } catch {}
+      }
+    } catch {}
   }
-  // Kill anything on port 8080 (GLR server, detached dev server, etc.)
-  try {
-    if (isWin) {
-      const out = execSync('netstat -ano', { timeout: 5000, encoding: 'utf8' });
-      const pids = new Set();
-      for (const line of out.split('\n')) {
-        if (line.includes(':8080') && line.includes('LISTENING')) {
-          const parts = line.trim().split(/\s+/);
-          const pid = parts[parts.length - 1];
-          if (pid && /^\d+$/.test(pid) && pid !== '0') pids.add(pid);
-        }
-      }
-      for (const pid of pids) {
-        try { execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' }); } catch {}
-      }
-    } else {
-      try { execSync("lsof -ti:8080 | xargs kill -9", { stdio: 'ignore' }); } catch {}
-    }
-  } catch {}
-  // Restore system Node to the version that was active when app started
+  // Restore system Node only if we switched it during this session
   nvmRestore();
 });
 
@@ -235,23 +241,25 @@ ipcMain.handle('open-project', async () => {
   return loadProject(projectPath);
 });
 
+const _branchCache = {}; // dirPath → { branch, ts }
+
 function loadProject(dirPath) {
   const data = { path: dirPath, sounds: [], settings: null, spriteConfig: null, soundsJson: null, scripts: {}, distInfo: null, gameRepoAbsPath: null, gameRepoExists: false, gameNodeModulesExists: false };
 
-  // Auto fetch + pull on every project load — keeps working copy in sync with remote.
-  // Runs async (non-blocking) so app doesn't freeze if network is slow/unavailable.
+  // Read current branch — cached, refreshed in background
   if (fs.existsSync(path.join(dirPath, '.git'))) {
-    try {
-      const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dirPath, timeout: 5000 }).toString().trim();
-      if (branch && branch !== 'HEAD') {
-        const fetchPull = spawn('git', ['fetch', 'origin'], { cwd: dirPath, stdio: 'ignore', env: gitSilentEnv });
-        fetchPull.on('close', () => {
-          try { execFileSync('git', ['pull', 'origin', branch, '--ff-only'], { cwd: dirPath, timeout: 15000, stdio: 'ignore', env: gitSilentEnv }); } catch {}
-        });
-        fetchPull.on('error', () => {});
-        setTimeout(() => { try { fetchPull.kill(); } catch {} }, 15000);
-      }
-    } catch {}
+    const bc = _branchCache[dirPath];
+    if (bc) {
+      data.branch = bc.branch;
+    } else {
+      try { data.branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dirPath, timeout: 3000 }).toString().trim(); } catch {}
+    }
+    // Always refresh in background for next call
+    const gitProc = spawn('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dirPath, stdio: ['ignore', 'pipe', 'ignore'] });
+    let brOut = '';
+    gitProc.stdout.on('data', d => brOut += d);
+    gitProc.on('close', () => { const b = brOut.trim(); if (b) _branchCache[dirPath] = { branch: b }; });
+    gitProc.on('error', () => {});
   }
 
   data.settings = readJsonSafe(path.join(dirPath, 'settings.json'));
@@ -386,33 +394,34 @@ function loadProject(dirPath) {
     // Surface cached Node version for UI
     const cachedNow = gameNodeCache[abs];
     if (cachedNow === 'system') {
-      try { data.gameNodeVersion = execFileSync('node', ['-v'], { timeout: 3000 }).toString().trim(); }
-      catch { data.gameNodeVersion = process.version; }
+      data.gameNodeVersion = process.version; // use current process version — no subprocess needed
     } else if (cachedNow && typeof cachedNow === 'string' && !cachedNow.startsWith('_')) {
       const dirName = path.basename(cachedNow);
       data.gameNodeVersion = dirName.startsWith('v') ? dirName : 'v' + dirName;
     }
 
-    // Collect branch info for UI — no auto-checkout, user picks branch
+    // Collect branch info for UI — cached per session, refreshed on Pull/Switch
     if (data.gameRepoExists) {
-      try {
-        // Fetch silently so branch list is fresh — once per session per repo
-        if (!gameNodeCache['_fetched_' + abs]) {
-          try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: abs, timeout: 10000, stdio: 'ignore', env: gitSilentEnv }); } catch {}
-          gameNodeCache['_fetched_' + abs] = true;
-        }
-        data.gameRepoBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 5000 }).toString().trim();
-        const remoteBranches = execFileSync('git', ['branch', '-r'], { cwd: abs, timeout: 5000 }).toString();
-        data.gameRepoBranches = [...remoteBranches.matchAll(/origin\/([^\s]+)/g)]
-          .map(m => m[1])
-          .filter(b => b !== 'HEAD' && !b.startsWith('HEAD '))
-          .sort((a, b) => {
-            // release first, then develop, then rest
-            const ra = a.startsWith('release/') ? 0 : a === 'develop' ? 1 : 2;
-            const rb = b.startsWith('release/') ? 0 : b === 'develop' ? 1 : 2;
-            return ra !== rb ? ra - rb : a.localeCompare(b);
-          });
-      } catch { data.gameRepoBranch = ''; data.gameRepoBranches = []; }
+      const branchCacheKey = '_branches_' + abs;
+      const cached = gameNodeCache[branchCacheKey];
+      if (cached) {
+        data.gameRepoBranch = cached.branch;
+        data.gameRepoBranches = cached.branches;
+      } else {
+        try {
+          data.gameRepoBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 3000 }).toString().trim();
+          const remoteBranches = execFileSync('git', ['branch', '-r'], { cwd: abs, timeout: 3000 }).toString();
+          data.gameRepoBranches = [...remoteBranches.matchAll(/origin\/([^\s]+)/g)]
+            .map(m => m[1])
+            .filter(b => b !== 'HEAD' && !b.startsWith('HEAD '))
+            .sort((a, b) => {
+              const ra = a.startsWith('release/') ? 0 : a === 'develop' ? 1 : 2;
+              const rb = b.startsWith('release/') ? 0 : b === 'develop' ? 1 : 2;
+              return ra !== rb ? ra - rb : a.localeCompare(b);
+            });
+          gameNodeCache[branchCacheKey] = { branch: data.gameRepoBranch, branches: data.gameRepoBranches };
+        } catch { data.gameRepoBranch = ''; data.gameRepoBranches = []; }
+      }
     }
   }
 
@@ -745,6 +754,26 @@ ipcMain.handle('clean-dist', async () => {
     return { success: true, removed };
   } catch (e) {
     return { error: e.message };
+  }
+});
+
+ipcMain.handle('git-pull', async () => {
+  if (!projectPath) return { error: 'No project open' };
+  const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
+  try {
+    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 5000 }).toString().trim();
+    if (!branch || branch === 'HEAD') return { error: 'Detached HEAD — cannot pull' };
+    send(`Fetching origin...\n`);
+    execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 30000, stdio: 'ignore', env: gitSilentEnv });
+    send(`Pulling ${branch}...\n`);
+    const out = execFileSync('git', ['pull', 'origin', branch, '--ff-only'], { cwd: projectPath, timeout: 30000, env: gitSilentEnv }).toString();
+    send(out || 'Already up to date.\n');
+    send(`✔ Pull complete\n`);
+    return { success: true, project: loadProject(projectPath) };
+  } catch (e) {
+    const msg = e.stderr ? e.stderr.toString() : e.message;
+    send(`✖ Pull failed: ${msg}\n`);
+    return { error: msg };
   }
 });
 
@@ -1470,7 +1499,9 @@ function nvmUse(version) {
 
 function nvmRestore() {
   if (!_originalNodeVersion || !_nvmExe) return;
-  try { execFileSync(_nvmExe, ['use', _originalNodeVersion], { timeout: 10000, stdio: 'ignore' }); } catch {}
+  // Only restore if we actually switched (restore file exists = we switched)
+  if (!fs.existsSync(_nvmRestoreFile)) return;
+  try { execFileSync(_nvmExe, ['use', _originalNodeVersion], { timeout: 5000, stdio: 'ignore' }); } catch {}
   try { fs.rmSync(_nvmRestoreFile, { force: true }); } catch {}
 }
 
@@ -1711,8 +1742,9 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
     }
     // Clean untracked files left by branch switch
     try { execFileSync('git', ['clean', '-fd'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
-    // Invalidate cached Node version — new branch may have different webpack version
+    // Invalidate caches — new branch may have different webpack/branches
     delete gameNodeCache[gameRepoPath];
+    delete gameNodeCache['_branches_' + gameRepoPath];
     const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
     send(`✔ On branch ${currentBranch}\n`);
     return { success: true, branch: currentBranch, project: loadProject(projectPath) };
@@ -1734,14 +1766,21 @@ ipcMain.handle('git-pull-game', async () => {
   // Pull on current branch — don't switch branches
   try {
     const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    send(`Fetching...\n`);
+    try { execFileSync('git', ['fetch', 'origin', '--prune'], { cwd: gameRepoPath, timeout: 30000, stdio: 'ignore', env: gitSilentEnv }); } catch {}
     send(`Pulling ${branch}...\n`);
-    const child = spawn('git', ['pull', 'origin', branch], { cwd: gameRepoPath, shell: false });
+    const child = spawn('git', ['pull', 'origin', branch, '--ff-only'], { cwd: gameRepoPath, shell: false });
     let output = '';
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
     return new Promise(resolve => {
       const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'git pull timeout' }); }, 20000);
-      child.on('close', code => { clearTimeout(timer); resolve({ success: code === 0, output, branch }); });
+      child.on('close', code => {
+        clearTimeout(timer);
+        // Invalidate branch cache so next loadProject refreshes
+        delete gameNodeCache['_branches_' + gameRepoPath];
+        resolve({ success: code === 0, output, branch });
+      });
       child.on('error', e => { clearTimeout(timer); resolve({ success: false, error: e.message }); });
     });
   } catch (e) {
@@ -1813,6 +1852,211 @@ ipcMain.handle('vpn-status', async () => {
   } catch {
     return { connected: false };
   }
+});
+
+ipcMain.handle('list-encoder-test', async () => {
+  if (!projectPath) return { error: 'No project open' };
+  const testDir = path.join(projectPath, 'dist', 'encoder-test');
+  if (!fs.existsSync(testDir)) return { files: [] };
+  try {
+    const allFiles = fs.readdirSync(testDir).filter(f => f.endsWith('.m4a'));
+    // Group by sound name: native_Name.m4a + fdk_Name.m4a → { name, native, fdk }
+    const sounds = {};
+    for (const f of allFiles) {
+      const match = f.match(/^(native|fdk)_(.+)\.m4a$/);
+      if (!match) continue;
+      const [, type, name] = match;
+      if (!sounds[name]) sounds[name] = { name };
+      sounds[name][type] = f;
+      try { sounds[name][type + 'Size'] = fs.statSync(path.join(testDir, f)).size; } catch {}
+    }
+    return { files: Object.values(sounds) };
+  } catch { return { files: [] }; }
+});
+
+// ── Upgrade ffmpeg to FDK-AAC build ──────────────────────────────────────────
+ipcMain.handle('upgrade-ffmpeg', async () => {
+  if (!projectPath) return { error: 'No project open' };
+  const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
+
+  // 1. Locate current ffmpeg binary in audio project
+  const ffmpegDir = path.join(projectPath, 'node_modules', 'ffmpeg-static');
+  const ffmpegBin = path.join(ffmpegDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+  if (!fs.existsSync(ffmpegDir)) return { error: 'ffmpeg-static not installed — run npm install first' };
+
+  // 2. Check if FDK already available
+  try {
+    const out = execFileSync(ffmpegBin, ['-encoders'], { timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+    if (out.includes('libfdk_aac')) { send('libfdk_aac already available — no upgrade needed.\n'); return { success: true, alreadyHasFdk: true }; }
+  } catch (e) {
+    const fb = (e.stderr ? e.stderr.toString() : '') + (e.stdout ? e.stdout.toString() : '');
+    if (fb.includes('libfdk_aac')) { send('libfdk_aac already available — no upgrade needed.\n'); return { success: true, alreadyHasFdk: true }; }
+  }
+
+  if (process.platform === 'darwin') {
+    // macOS: check if brew ffmpeg has FDK
+    send('macOS: checking brew ffmpeg...\n');
+    try {
+      const brewPrefix = execSync('brew --prefix ffmpeg 2>/dev/null', { timeout: 10000, encoding: 'utf8' }).trim();
+      const brewFfmpeg = path.join(brewPrefix, 'bin', 'ffmpeg');
+      if (fs.existsSync(brewFfmpeg)) {
+        const out = execFileSync(brewFfmpeg, ['-encoders'], { timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+        if (out.includes('libfdk_aac')) {
+          const backup = ffmpegBin + '.backup';
+          if (fs.existsSync(ffmpegBin) && !fs.existsSync(backup)) fs.copyFileSync(ffmpegBin, backup);
+          fs.copyFileSync(brewFfmpeg, ffmpegBin);
+          fs.chmodSync(ffmpegBin, 0o755);
+          send('Copied brew ffmpeg with FDK-AAC to project.\n');
+          return { success: true };
+        }
+      }
+    } catch {}
+    return { error: 'brew ffmpeg not found or missing FDK. Run: brew install ffmpeg' };
+  }
+
+  // Windows: download AnimMouse nonfree build (.7z with FDK-AAC)
+  send('Downloading FFmpeg with FDK-AAC (nonfree build)...\n');
+  send('This is ~105 MB — may take a few minutes.\n\n');
+
+  const tmpDir = path.join(app.getPath('temp'), 'ffmpeg-upgrade-' + Date.now());
+  const archivePath = path.join(tmpDir, 'ffmpeg-nonfree.7z');
+  const sevenZrPath = path.join(tmpDir, '7zr.exe');
+
+  // Helper: download file with redirect following + progress
+  const downloadFile = (fileUrl, destPath, label) => new Promise((resolve, reject) => {
+    const https = require('https');
+    const followRedirect = (url, redirects = 0) => {
+      if (redirects > 5) return reject(new Error('Too many redirects'));
+      const proto = url.startsWith('http://') ? require('http') : https;
+      proto.get(url, { headers: { 'User-Agent': 'SlotAudioManager' } }, res => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          return followRedirect(res.headers.location, redirects + 1);
+        }
+        if (res.statusCode !== 200) return reject(new Error(`${label}: HTTP ${res.statusCode}`));
+        const total = parseInt(res.headers['content-length'] || '0');
+        let downloaded = 0;
+        let lastPct = -1;
+        const file = fs.createWriteStream(destPath);
+        res.on('data', chunk => {
+          downloaded += chunk.length;
+          if (total > 0) {
+            const pct = Math.floor(downloaded / total * 100);
+            if (pct !== lastPct && pct % 10 === 0) { send(`  ${label}: ${pct}%\n`); lastPct = pct; }
+          }
+        });
+        res.pipe(file);
+        file.on('close', () => resolve());
+        file.on('error', reject);
+        res.on('error', reject);
+      }).on('error', reject);
+    };
+    followRedirect(fileUrl);
+  });
+
+  try {
+    fs.mkdirSync(tmpDir, { recursive: true });
+
+    // 3. Get download URL from GitHub API (AnimMouse nonfree build)
+    send('Fetching latest release info...\n');
+    const releaseUrl = await new Promise((resolve, reject) => {
+      const https = require('https');
+      https.get('https://api.github.com/repos/AnimMouse/ffmpeg-stable-autobuild/releases/latest', {
+        headers: { 'User-Agent': 'SlotAudioManager' }
+      }, res => {
+        if (res.statusCode !== 200) return reject(new Error(`GitHub API: HTTP ${res.statusCode}${res.statusCode === 403 ? ' — rate limit, try again later' : ''}`));
+        let d = '';
+        res.on('data', c => d += c);
+        res.on('end', () => {
+          try {
+            const r = JSON.parse(d);
+            const asset = r.assets?.find(a => a.name.includes('win64') && a.name.includes('nonfree'));
+            if (!asset) return reject(new Error('win64-nonfree build not found in latest release'));
+            send(`Found: ${asset.name} (${Math.round(asset.size / 1024 / 1024)} MB)\n`);
+            resolve(asset.browser_download_url);
+          } catch (e) { reject(e); }
+        });
+        res.on('error', reject);
+      }).on('error', reject);
+    });
+
+    // 4. Download 7zr.exe (587 KB) — standalone 7z extractor
+    send('\nDownloading 7zr.exe (7-Zip extractor)...\n');
+    await downloadFile('https://www.7-zip.org/a/7zr.exe', sevenZrPath, '7zr.exe');
+    const zrSize = fs.statSync(sevenZrPath).size;
+    if (zrSize < 100000) throw new Error('7zr.exe download too small — check internet');
+
+    // 5. Download ffmpeg .7z archive
+    send('\nDownloading FFmpeg...\n');
+    await downloadFile(releaseUrl, archivePath, 'ffmpeg');
+    const archiveSize = fs.statSync(archivePath).size;
+    send(`Download complete (${Math.round(archiveSize / 1024 / 1024)} MB)\n\n`);
+    if (archiveSize < 10 * 1024 * 1024) throw new Error('Archive too small — probably an error page');
+
+    // 6. Extract ffmpeg.exe from .7z using 7zr.exe
+    send('Extracting ffmpeg.exe...\n');
+    const extractDir = path.join(tmpDir, 'extracted');
+    fs.mkdirSync(extractDir, { recursive: true });
+    execFileSync(sevenZrPath, ['x', archivePath, `-o${extractDir}`, '-y'], { timeout: 300000, maxBuffer: 5 * 1024 * 1024 });
+
+    // Find ffmpeg.exe recursively in extracted dir
+    const findFfmpeg = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { const found = findFfmpeg(full); if (found) return found; }
+        if (entry.name === 'ffmpeg.exe') return full;
+      }
+      return null;
+    };
+    const extractedFfmpeg = findFfmpeg(extractDir);
+    if (!extractedFfmpeg) throw new Error('ffmpeg.exe not found in extracted archive');
+    send(`Found: ${path.basename(path.dirname(extractedFfmpeg))}/${path.basename(extractedFfmpeg)}\n`);
+
+    // 6. Verify extracted binary has FDK
+    send('Verifying FDK-AAC support...\n');
+    let hasFdk = false;
+    try {
+      const out = execFileSync(extractedFfmpeg, ['-encoders'], { timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+      hasFdk = out.includes('libfdk_aac');
+    } catch (e) {
+      const fb = (e.stderr ? e.stderr.toString() : '') + (e.stdout ? e.stdout.toString() : '');
+      hasFdk = fb.includes('libfdk_aac');
+    }
+    if (!hasFdk) throw new Error('Downloaded ffmpeg does not contain libfdk_aac — build may have changed');
+
+    // 7. Backup old binary and replace
+    const backup = ffmpegBin + '.backup';
+    if (fs.existsSync(ffmpegBin) && !fs.existsSync(backup)) {
+      fs.copyFileSync(ffmpegBin, backup);
+      send('Backed up original to ffmpeg.exe.backup\n');
+    }
+    fs.copyFileSync(extractedFfmpeg, ffmpegBin);
+    send('\n✔ FFmpeg upgraded to FDK-AAC build!\n');
+    send('Run compare-encoders to hear the difference.\n');
+
+    // 8. Cleanup temp files
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+
+    return { success: true };
+  } catch (e) {
+    // Cleanup on error
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    send(`\n✖ Error: ${e.message}\n`);
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('open-folder', async (event, relPath) => {
+  if (!projectPath) return { error: 'No project open' };
+  if (!relPath || typeof relPath !== 'string') return { error: 'Invalid path' };
+  // Block absolute paths and parent traversal
+  if (path.isAbsolute(relPath)) return { error: 'Absolute paths not allowed' };
+  if (relPath.includes('..')) return { error: 'Parent traversal not allowed' };
+  const absPath = path.resolve(projectPath, relPath);
+  if (!absPath.startsWith(projectPath + path.sep)) return { error: 'Path outside project' };
+  if (!fs.existsSync(absPath)) return { error: 'Folder does not exist' };
+  const err = await shell.openPath(absPath);
+  if (err) return { error: err };
+  return { success: true };
 });
 
 ipcMain.handle('open-url', async (event, url) => {

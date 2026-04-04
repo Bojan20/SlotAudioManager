@@ -17,6 +17,19 @@ const pathToFFmpeg = require('ffmpeg-static');
 
 console.log("pathToFFmpeg ->", pathToFFmpeg);
 
+// ── Detect AAC encoder ───────────────────────────────────────────────────────
+let encoderName = 'aac (native)';
+try {
+    const out = require('child_process').execFileSync(pathToFFmpeg, ['-encoders'], {
+        timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe']
+    }).toString();
+    if (out.includes('libfdk_aac')) encoderName = 'libfdk_aac (Fraunhofer)';
+} catch (e) {
+    const fallback = (e.stderr ? e.stderr.toString() : '') + (e.stdout ? e.stdout.toString() : '');
+    if (fallback.includes('libfdk_aac')) encoderName = 'libfdk_aac (Fraunhofer)';
+}
+console.log(`AAC encoder: ${encoderName}`);
+
 // Read configs
 let settings, spriteConfig;
 try { settings = JSON.parse(fs.readFileSync("settings.json", "utf8")); }
@@ -101,8 +114,14 @@ const newCache = {};
 
 // Hash sprite-config.json so tier membership changes invalidate cache
 const spriteConfigHash = fileHash('sprite-config.json') || 'none';
-const configChanged = cache._spriteConfigHash !== spriteConfigHash;
-if (configChanged && cache._spriteConfigHash) {
+// Track encoder so switching ffmpeg binary (native → FDK) forces rebuild
+// If cache exists but has no _encoderName, it's from an older build — treat as unknown and rebuild
+const cacheHasEntries = Object.keys(cache).some(k => !k.startsWith('_'));
+const encoderChanged = cacheHasEntries && cache._encoderName !== encoderName;
+const configChanged = cache._spriteConfigHash !== spriteConfigHash || encoderChanged;
+if (encoderChanged) {
+    console.log(`AAC encoder changed (${cache._encoderName || 'unknown'} -> ${encoderName}) — forcing full rebuild`);
+} else if (configChanged && cache._spriteConfigHash) {
     console.log('sprite-config.json changed — forcing full rebuild');
 }
 
@@ -209,7 +228,7 @@ for (const soundName of existingStreaming) {
 
 if (buildQueue.length === 0) {
     console.log('\nAll outputs up to date — nothing to rebuild.');
-    saveCache({ ...cache, ...newCache, _spriteConfigHash: spriteConfigHash });
+    saveCache({ ...cache, ...newCache, _spriteConfigHash: spriteConfigHash, _encoderName: encoderName });
     process.exit(0);
 }
 
@@ -281,7 +300,7 @@ async function runAll() {
     const safeNewCache = Object.fromEntries(
         Object.entries(newCache).filter(([sound]) => !failedTierNames.has(sound))
     );
-    saveCache({ ...cache, ...safeNewCache, _spriteConfigHash: spriteConfigHash });
+    saveCache({ ...cache, ...safeNewCache, _spriteConfigHash: spriteConfigHash, _encoderName: encoderName });
 }
 
 runAll();

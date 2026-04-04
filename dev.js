@@ -28,9 +28,11 @@ killPort(5173);
 try { execSync('taskkill /F /IM electron.exe', { stdio: 'ignore' }); } catch (_) {}
 
 // Restore Node version if previous session left it switched (nvm use during build)
-// Check both dev mode (Electron) and production (slot-audio-manager) userData paths
 const path = require('path');
 const fs = require('fs');
+const nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
+
+// 1. Check restore file from previous crash
 const candidates = [
   path.join(process.env.APPDATA || '', 'Electron', '.nvm-restore'),
   path.join(process.env.APPDATA || '', 'slot-audio-manager', '.nvm-restore'),
@@ -40,13 +42,23 @@ const nvmRestoreFile = candidates.find(f => fs.existsSync(f)) || '';
 if (nvmRestoreFile) {
   try {
     const ver = fs.readFileSync(nvmRestoreFile, 'utf8').trim();
-    const nvmExe = process.env.NVM_HOME ? path.join(process.env.NVM_HOME, 'nvm.exe') : null;
     if (ver && nvmExe && fs.existsSync(nvmExe)) {
       execSync('"' + nvmExe + '" use ' + ver, { stdio: 'ignore', timeout: 10000 });
       console.log('Restored Node to v' + ver);
     }
     fs.rmSync(nvmRestoreFile, { force: true });
   } catch (_) {}
+}
+
+// 2. Verify nvm symlink is healthy — if npm is missing, re-run nvm use for current node
+try { execSync('npm --version', { stdio: 'ignore', timeout: 5000 }); } catch (_) {
+  if (nvmExe && fs.existsSync(nvmExe)) {
+    const nodeVer = process.version.replace(/^v/, '');
+    try {
+      execSync('"' + nvmExe + '" use ' + nodeVer, { stdio: 'ignore', timeout: 10000 });
+      console.log('Fixed nvm symlink for Node v' + nodeVer);
+    } catch (_) {}
+  }
 }
 const vite = spawn('node', ['node_modules/vite/bin/vite.js'], { stdio: 'inherit' });
 

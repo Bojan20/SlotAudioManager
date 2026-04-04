@@ -144,22 +144,36 @@ export default function SetupPage({ project, setProject, showToast }) {
   };
 
   const checkoutBranch = async () => {
-    if (!selectedBranch || selectedBranch === project?.gameRepoBranch) return;
+    if (!selectedBranch) return;
+    const sameBranch = selectedBranch === project?.gameRepoBranch;
     setSwitching(true); setBranchLog('');
     try {
-      const r = await window.api.checkoutGameBranch(selectedBranch);
-      if (r?.success) {
-        if (r.project) setProject(r.project);
-        const newBranch = r.branch || selectedBranch;
-        setSelectedBranch(newBranch);
-        showToast(`Switched to ${newBranch}`, 'success');
+      if (sameBranch) {
+        // Pull only — no checkout needed
+        const r = await window.api.gitPullGame();
+        if (r?.error || r?.success === false) {
+          setBranchLog(r.error || r.output || 'Pull failed');
+          showToast('Pull failed', 'error');
+        } else {
+          setBranchLog(r.output || 'Already up to date.');
+          showToast('Pull complete', 'success');
+          try { const rp = await window.api.reloadProject(); if (rp) setProject(rp); } catch {}
+        }
       } else {
-        setBranchLog(r?.error || 'Branch switch failed');
-        showToast(r?.error || 'Branch switch failed', 'error');
+        const r = await window.api.checkoutGameBranch(selectedBranch);
+        if (r?.success) {
+          if (r.project) setProject(r.project);
+          const newBranch = r.branch || selectedBranch;
+          setSelectedBranch(newBranch);
+          showToast(`Switched to ${newBranch}`, 'success');
+        } else {
+          setBranchLog(r?.error || 'Branch switch failed');
+          showToast(r?.error || 'Branch switch failed', 'error');
+        }
       }
     } catch (e) {
       setBranchLog('Error: ' + e.message);
-      showToast('Branch switch failed', 'error');
+      showToast(sameBranch ? 'Pull failed' : 'Branch switch failed', 'error');
     }
     setSwitching(false);
   };
@@ -277,17 +291,14 @@ export default function SetupPage({ project, setProject, showToast }) {
                     </select>
                     <ActionBtn
                       onClick={checkoutBranch}
-                      disabled={gameOperationBusy || !selectedBranch || selectedBranch === project?.gameRepoBranch}
+                      disabled={gameOperationBusy || !selectedBranch}
                       loading={switching}
-                      loadingText="Switching..."
-                      idleText="Switch & Pull"
-                      color="purple"
-                      title="Checkout selected branch and pull latest changes"
+                      loadingText={selectedBranch === project?.gameRepoBranch ? 'Pulling...' : 'Switching...'}
+                      idleText={selectedBranch === project?.gameRepoBranch ? 'Pull' : 'Switch & Pull'}
+                      color={selectedBranch === project?.gameRepoBranch ? 'cyan' : 'purple'}
+                      title={selectedBranch === project?.gameRepoBranch ? 'Fetch + pull current branch' : 'Checkout selected branch and pull latest changes'}
                     />
                   </div>
-                  {selectedBranch === project?.gameRepoBranch && !switching && (
-                    <p className="text-[10px] text-text-dim/50 pl-1">Already on this branch</p>
-                  )}
                   <LogBlock text={branchLog} maxH="max-h-20" />
                 </div>
               ) : !hasGame ? (

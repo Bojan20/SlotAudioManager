@@ -21,8 +21,13 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [buildChecking, setBuildChecking] = useState(false);
   const [vpnConnected, setVpnConnected] = useState(false);
   const [vpnBusy, setVpnBusy] = useState(false);
+  const [abFiles, setAbFiles] = useState([]); // encoder A/B test files
+  const [abPlaying, setAbPlaying] = useState(null); // 'native_Name' or 'fdk_Name'
   const logRef = useRef(null);
   const abortRef = useRef(false);
+  const abCtxRef = useRef(null);
+  const abSourceRef = useRef(null);
+  const abIdRef = useRef(0);
 
   // Auto-scroll log to bottom as lines stream in
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
@@ -50,6 +55,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
+    setAbFiles([]); setAbPlaying(null); stopAbAudio();
     if (project) { loadGameScripts(); }
   }, [project?.path]);
 
@@ -183,6 +189,51 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     const allKnown = new Set(['build', 'build-audio', 'build-audioSprite', 'build-multi-audioSprites', 'build-audioSprites-size', 'build-validate', 'deploy', 'test']);
     return Object.keys(scripts).filter(s => !allKnown.has(s));
   }, [scripts]);
+
+  // ── A/B encoder audio playback ──────────────────────────────────────────────
+  const stopAbAudio = () => {
+    abIdRef.current++;
+    try { abSourceRef.current?.stop(); } catch {}
+    abSourceRef.current = null;
+    if (abCtxRef.current) { abCtxRef.current.close().catch(() => {}); abCtxRef.current = null; }
+    setAbPlaying(null);
+  };
+
+  const playAbAudio = async (filename) => {
+    if (abPlaying === filename) { stopAbAudio(); return; }
+    stopAbAudio();
+    const playId = ++abIdRef.current;
+    try {
+      const res = await fetch(`audio://test/${encodeURIComponent(filename)}`);
+      if (abIdRef.current !== playId) return; // stale — user clicked another
+      if (!res.ok) { showToast('Could not load audio: ' + res.status, 'error'); return; }
+      const arrayBuffer = await res.arrayBuffer();
+      if (abIdRef.current !== playId) return; // stale
+      const ctx = new AudioContext();
+      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      if (abIdRef.current !== playId) { ctx.close().catch(() => {}); return; } // stale
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.onended = () => { if (abSourceRef.current === source) stopAbAudio(); };
+      abCtxRef.current = ctx;
+      abSourceRef.current = source;
+      setAbPlaying(filename);
+      source.start(0);
+    } catch (e) {
+      if (abIdRef.current !== playId) return; // stale
+      showToast('Playback error: ' + e.message, 'error');
+      stopAbAudio();
+    }
+  };
+
+  const loadAbFiles = async () => {
+    try {
+      const r = await window.api.listEncoderTest();
+      if (r?.files?.length > 0) setAbFiles(r.files);
+      else showToast('No encoder test files found', 'error');
+    } catch {}
+  };
 
   if (!project) {
     return (
@@ -454,6 +505,29 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               </div>
             )}
 
+            {/* FDK-AAC Upgrade */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
+              <span className="section-label shrink-0">Encoder</span>
+              <button
+                onClick={async () => {
+                  setRunning('upgrade-ffmpeg'); setLog(''); setResult(null);
+                  try {
+                    const r = await window.api.upgradeFfmpeg();
+                    if (r?.error) { showToast(r.error, 'error'); setResult({ script: 'upgrade-ffmpeg', ok: false }); }
+                    else if (r?.alreadyHasFdk) { showToast('FDK-AAC already available', 'success'); setResult({ script: 'upgrade-ffmpeg', ok: true }); }
+                    else { showToast('FFmpeg upgraded to FDK-AAC!', 'success'); setResult({ script: 'upgrade-ffmpeg', ok: true }); }
+                  } catch (e) { showToast(e.message, 'error'); setResult({ script: 'upgrade-ffmpeg', ok: false }); }
+                  setRunning(null);
+                }}
+                disabled={running !== null}
+                className={running === 'upgrade-ffmpeg' ? 'btn-ghost text-orange border-orange/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
+                title="Download FFmpeg with FDK-AAC encoder (gyan.dev full build, ~236 MB)"
+              >
+                {running === 'upgrade-ffmpeg' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange mr-1.5 anim-pulse-dot" />}
+                {running === 'upgrade-ffmpeg' ? 'Downloading...' : 'Upgrade FFmpeg (FDK-AAC)'}
+              </button>
+            </div>
+
             {/* Other scripts */}
             {otherScripts.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
@@ -469,6 +543,62 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                     {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1.5 anim-pulse-dot" />}
                     {running === name ? `${name}...` : name}
                   </button>
+                ))}
+                {result?.script === 'compare-encoders' && result?.ok && !running && (
+                  <>
+                    <button
+                      onClick={loadAbFiles}
+                      className="btn-ghost text-green border-green/30 text-xs py-1.5 px-3"
+                      title="Load A/B comparison results"
+                    >
+                      A/B Compare
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const r = await window.api.openFolder('dist/encoder-test');
+                        if (r?.error) showToast(r.error, 'error');
+                      }}
+                      className="btn-ghost text-xs py-1.5 px-3"
+                      title="Open dist/encoder-test/ folder in file explorer"
+                    >
+                      Open Folder
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* A/B Encoder Comparison Player */}
+            {abFiles.length > 0 && (
+              <div className="pt-2 border-t border-border/30 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="section-label shrink-0">Encoder A/B</span>
+                  <span className="text-xs text-text-dim">{abFiles.length} sound{abFiles.length !== 1 ? 's' : ''}</span>
+                  <button onClick={() => { stopAbAudio(); setAbFiles([]); }} className="ml-auto text-xs text-text-dim hover:text-text-secondary">Close</button>
+                </div>
+                {abFiles.map(f => (
+                  <div key={f.name} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-mono text-text-primary truncate min-w-0 max-w-[140px]" title={f.name}>{f.name}</span>
+                    {f.native && (
+                      <button
+                        onClick={() => playAbAudio(f.native)}
+                        className={`text-xs py-1 px-2.5 rounded border transition-all ${abPlaying === f.native ? 'bg-cyan/15 text-cyan border-cyan/40' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}
+                      >
+                        {abPlaying === f.native ? '■ Native' : '▶ Native'}
+                        {f.nativeSize ? ` (${(f.nativeSize / 1024).toFixed(1)}K)` : ''}
+                      </button>
+                    )}
+                    {f.fdk && (
+                      <button
+                        onClick={() => playAbAudio(f.fdk)}
+                        className={`text-xs py-1 px-2.5 rounded border transition-all ${abPlaying === f.fdk ? 'bg-green/15 text-green border-green/40' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}
+                      >
+                        {abPlaying === f.fdk ? '■ FDK' : '▶ FDK'}
+                        {f.fdkSize ? ` (${(f.fdkSize / 1024).toFixed(1)}K)` : ''}
+                      </button>
+                    )}
+                    {!f.fdk && <span className="text-xs text-text-dim italic">FDK not available</span>}
+                  </div>
                 ))}
               </div>
             )}

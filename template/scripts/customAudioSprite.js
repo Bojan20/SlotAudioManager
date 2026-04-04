@@ -4,6 +4,26 @@ const async = require('async')
 const _ = require('underscore')._
 const glob = require('glob');
 
+// ── FDK-AAC detection (cached per process) ───────────────────────────────────
+const _fdkCache = {};
+function hasFdkAac(ffmpegPath) {
+    if (_fdkCache[ffmpegPath] !== undefined) return _fdkCache[ffmpegPath];
+    try {
+        const result = require('child_process').execFileSync(ffmpegPath, ['-encoders'], {
+            timeout: 5000,
+            maxBuffer: 1024 * 1024,
+            stdio: ['pipe', 'pipe', 'pipe']
+        }).toString();
+        _fdkCache[ffmpegPath] = result.includes('libfdk_aac');
+    } catch (e) {
+        // Some ffmpeg builds write -encoders to stderr and exit non-zero
+        const stderr = e.stderr ? e.stderr.toString() : '';
+        const stdout = e.stdout ? e.stdout.toString() : '';
+        _fdkCache[ffmpegPath] = stderr.includes('libfdk_aac') || stdout.includes('libfdk_aac');
+    }
+    return _fdkCache[ffmpegPath];
+}
+
 const defaults = {
     output: 'output',
     path: '',
@@ -255,7 +275,9 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
             ac3: ['-acodec', 'ac3', '-ab', opts.bitrate + 'k'],
             mp3: ['-ar', opts.samplerate, '-f', 'mp3'],
             mp4: ['-ab', opts.bitrate + 'k'],
-            m4a: ['-ab', opts.bitrate + 'k', '-strict', '-2'],
+            m4a: hasFdkAac(ffmpegPath)
+                ? ['-c:a', 'libfdk_aac', '-b:a', opts.bitrate + 'k', '-afterburner', '1']
+                : ['-ab', opts.bitrate + 'k', '-strict', '-2'],
             ogg: ['-acodec', 'libvorbis', '-f', 'ogg', '-ab', opts.bitrate + 'k'],
             opus: ['-acodec', 'libopus', '-ab', opts.bitrate + 'k'],
             webm: ['-acodec', 'libvorbis', '-f', 'webm', '-dash', '1']

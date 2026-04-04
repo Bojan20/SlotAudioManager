@@ -61,6 +61,7 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 | `launch-local-glr` | renderer→main | Spawn `playa launch --glr [name]` detached — no VPN needed |
 | `git-pull-game` | renderer→main | git pull in game repo, streams output via script-output event |
 | `open-url` | renderer→main | shell.openExternal — validates http/https only |
+| `open-folder` | renderer→main | shell.openPath — relative path within project only (no traversal) |
 | `wait-for-port` | renderer→main | Poll TCP port until available (1500ms interval) |
 | `list-deleted-sounds` | renderer→main | List WAVs in sourceSoundFiles/.deleted/ |
 | `restore-sound` | renderer→main | Move WAV from .deleted/ back to sourceSoundFiles/ |
@@ -103,8 +104,9 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
   },
   "standalone": { "sounds": ["BaseMusicLoop", "BonusMusicLoop"] },
   "encoding": {
-    "sfx":   { "bitrate": 64, "channels": 1, "samplerate": 44100 },
-    "music": { "bitrate": 128, "channels": 2, "samplerate": 44100 }
+    "sfx":   { "bitrate": 64, "channels": 2, "samplerate": 44100 },
+    "vo":    { "bitrate": 64, "channels": 2, "samplerate": 44100 },
+    "music": { "bitrate": 64, "channels": 2, "samplerate": 44100 }
   },
   "musicTags": ["Music"], "sfxTags": ["SoundEffects"]
 }
