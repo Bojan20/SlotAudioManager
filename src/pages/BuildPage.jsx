@@ -630,13 +630,13 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 <span className={`inline-block w-1.5 h-1.5 rounded-full ${vpnBusy ? 'bg-orange anim-pulse-dot' : vpnConnected ? 'bg-green shadow-[0_0_6px_rgba(74,222,128,0.6)]' : 'bg-danger shadow-[0_0_6px_rgba(248,113,113,0.6)]'}`} />
                 {vpnBusy ? 'VPN...' : vpnConnected ? 'VPN' : 'VPN'}
               </button>
-              <button
+              {gameStarted && <button
                 onClick={() => { window.api.killGame(); setGameStarted(false); showToast('Port 8080 freed', 'success'); }}
                 className="btn-ghost text-xs py-1 px-2.5 text-text-dim hover:text-danger hover:border-danger/30"
-                title="Kill game server and free port 8080 — for manual launch from CMD"
+                title="Kill game server and free port 8080"
               >
                 Free Port
-              </button>
+              </button>}
               <button
                 onClick={loadGameScripts}
                 disabled={loadingGameScripts || running !== null}

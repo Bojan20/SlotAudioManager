@@ -2269,11 +2269,13 @@ ipcMain.handle('scan-game-hooks', async () => {
     return results;
   };
 
+  const _fileContentCache = {}; // file → stripped content (reused in Phase 4)
   for (const fwDir of frameworkDirs) {
     for (const file of walkJs(fwDir)) {
       let content;
       try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
       const stripped = content.replace(/\/\/.*$/gm, '');
+      _fileContentCache[file] = stripped;
       const rel = path.relative(gameRepoPath, file).replace(/\\/g, '/');
       let m;
       executeRe.lastIndex = 0;
@@ -2297,8 +2299,8 @@ ipcMain.handle('scan-game-hooks', async () => {
   for (const file of files) {
     let content;
     try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
-    // Strip single-line comments to avoid matching commented-out code
     const stripped = content.replace(/\/\/.*$/gm, '');
+    _fileContentCache[file] = stripped; // cache for Phase 4 reuse
     const rel = path.relative(gameRepoPath, file).replace(/\\/g, '/');
 
     let m;
@@ -2363,11 +2365,10 @@ ipcMain.handle('scan-game-hooks', async () => {
   const templateLiteralRe = /soundManager\.execute\(`([^`]*\$\{[^`]*)`\)/g;
   // String concat: soundManager.execute(SFX_CONST + var) where SFX_CONST = "onSomething"
   // We already have globalHookDefs with values like "onSymbolWin" — if game concatenates, the base is a prefix
-  const allFilesToScan = [...files];
-  for (const fwDir of frameworkDirs) { allFilesToScan.push(...walkJs(fwDir)); }
+  const allFilesToScan = Object.keys(_fileContentCache);
   for (const file of allFilesToScan) {
-    let content;
-    try { content = fs.readFileSync(file, 'utf8').replace(/\/\/.*$/gm, ''); } catch { continue; }
+    const content = _fileContentCache[file];
+    if (!content) continue;
     const rel = path.relative(gameRepoPath, file).replace(/\\/g, '/');
     let m;
     // Template literals: `onX${var}Y`

@@ -599,15 +599,27 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   };
   const handleApplyPreview = () => {
     if (!preview) return;
-    if (previewIsReassign) {
-      // Clear all pools first — full re-assignment
-      update(() => {
+    // Batch all assignments into a single update (one structuredClone instead of N)
+    update(() => {
+      if (previewIsReassign) {
         for (const tier of Object.values(config.sprites || {})) tier.sounds = [];
         if (config.standalone) config.standalone.sounds = [];
         if (config.streaming) config.streaming.sounds = [];
-      });
-    }
-    preview.forEach(({ name, tier }) => handleAssign(name, tier));
+      }
+      for (const { name, tier } of preview) {
+        if (!tier) continue;
+        if (tier === 'streaming') {
+          if (!config.streaming) config.streaming = { sounds: [] };
+          if (!config.streaming.sounds.includes(name)) config.streaming.sounds.push(name);
+        } else if (tier === 'standalone') {
+          if (!config.standalone) config.standalone = { sounds: [] };
+          if (!config.standalone.sounds.includes(name)) config.standalone.sounds.push(name);
+        } else if (config.sprites[tier]) {
+          if (!config.sprites[tier].sounds) config.sprites[tier].sounds = [];
+          if (!config.sprites[tier].sounds.includes(name)) config.sprites[tier].sounds.push(name);
+        }
+      }
+    });
     setPreview(null);
     setPreviewIsReassign(false);
   };
