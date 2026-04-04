@@ -51,8 +51,15 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
     if (project) { loadGameScripts(); }
-    window.api.vpnStatus().then(r => setVpnConnected(!!r?.connected));
   }, [project?.path]);
+
+  // VPN status polling — check every 30s + on project load
+  useEffect(() => {
+    const checkVpn = () => window.api.vpnStatus().then(r => setVpnConnected(!!r?.connected));
+    checkVpn();
+    const interval = setInterval(checkVpn, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const loadGameGitStatus = async () => {
     setGameGitLoading(true);
@@ -500,10 +507,15 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                   }
                 }}
                 disabled={vpnBusy}
-                className={`btn-ghost text-xs py-1 px-2.5 disabled:opacity-40 ${vpnConnected ? 'text-green border-green/30' : 'text-text-dim'}`}
+                className={`text-xs font-medium py-1 px-2.5 rounded-md border transition-all duration-150 flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-wait ${
+                  vpnConnected
+                    ? 'bg-green/10 text-green border-green/30 hover:bg-green/20 hover:border-green/50'
+                    : 'bg-danger/10 text-danger border-danger/30 hover:bg-danger/20 hover:border-danger/50'
+                }`}
                 title={vpnConnected ? 'Disconnect GlobalProtect VPN' : 'Connect GlobalProtect VPN'}
               >
-                {vpnBusy ? 'VPN...' : vpnConnected ? 'VPN On' : 'VPN Off'}
+                <span className={`inline-block w-1.5 h-1.5 rounded-full ${vpnBusy ? 'bg-orange anim-pulse-dot' : vpnConnected ? 'bg-green shadow-[0_0_6px_rgba(74,222,128,0.6)]' : 'bg-danger shadow-[0_0_6px_rgba(248,113,113,0.6)]'}`} />
+                {vpnBusy ? 'VPN...' : vpnConnected ? 'VPN' : 'VPN'}
               </button>
               <button
                 onClick={() => { window.api.killGame(); setGameStarted(false); showToast('Port 8080 freed', 'success'); }}

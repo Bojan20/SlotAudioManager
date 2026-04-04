@@ -238,6 +238,22 @@ ipcMain.handle('open-project', async () => {
 function loadProject(dirPath) {
   const data = { path: dirPath, sounds: [], settings: null, spriteConfig: null, soundsJson: null, scripts: {}, distInfo: null, gameRepoAbsPath: null, gameRepoExists: false, gameNodeModulesExists: false };
 
+  // Auto fetch + pull on every project load — keeps working copy in sync with remote.
+  // Runs async (non-blocking) so app doesn't freeze if network is slow/unavailable.
+  if (fs.existsSync(path.join(dirPath, '.git'))) {
+    try {
+      const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dirPath, timeout: 5000 }).toString().trim();
+      if (branch && branch !== 'HEAD') {
+        const fetchPull = spawn('git', ['fetch', 'origin'], { cwd: dirPath, stdio: 'ignore', env: gitSilentEnv });
+        fetchPull.on('close', () => {
+          try { execFileSync('git', ['pull', 'origin', branch, '--ff-only'], { cwd: dirPath, timeout: 15000, stdio: 'ignore', env: gitSilentEnv }); } catch {}
+        });
+        fetchPull.on('error', () => {});
+        setTimeout(() => { try { fetchPull.kill(); } catch {} }, 15000);
+      }
+    } catch {}
+  }
+
   data.settings = readJsonSafe(path.join(dirPath, 'settings.json'));
   data.spriteConfig = readJsonSafe(path.join(dirPath, 'sprite-config.json'));
   data.soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
@@ -1733,7 +1749,6 @@ ipcMain.handle('git-pull-game', async () => {
   }
 });
 
-// Open URL in system browser
 // ── VPN (GlobalProtect) ──────────────────────────────────────────────────
 // GP 6.x uses a WebView UI — CLI flags only open the panel, don't click Connect.
 // Solution: UI Automation finds the Connect/Disconnect button and simulates a click.
@@ -1760,7 +1775,7 @@ ipcMain.handle('vpn-connect', async () => {
     execFileSync(panGPAPath, ['-c', 'connect'], { timeout: 10000 });
     await new Promise(r => setTimeout(r, 1500));
     // Click Connect button via UI Automation
-    const result = execSync(gpClickButton('Connect'), { timeout: 15000 }).toString().trim();
+    const result = execSync(gpClickButton('Connect'), { timeout: 15000, maxBuffer: 1024 * 1024 }).toString().trim();
     if (result === 'NO_WIN') return { error: 'GlobalProtect window not found' };
     if (result === 'NO_BTN') return { error: 'Already connected or Connect button not found' };
     await new Promise(r => setTimeout(r, 5000));
@@ -1775,7 +1790,7 @@ ipcMain.handle('vpn-disconnect', async () => {
   try {
     execFileSync(panGPAPath, ['-c', 'disconnect'], { timeout: 10000 });
     await new Promise(r => setTimeout(r, 1500));
-    const result = execSync(gpClickButton('Disconnect'), { timeout: 15000 }).toString().trim();
+    const result = execSync(gpClickButton('Disconnect'), { timeout: 15000, maxBuffer: 1024 * 1024 }).toString().trim();
     if (result === 'NO_BTN') return { error: 'Already disconnected' };
     await new Promise(r => setTimeout(r, 3000));
     return { success: true };
@@ -1793,7 +1808,7 @@ ipcMain.handle('vpn-status', async () => {
       `$w=$r.FindFirst([System.Windows.Automation.TreeScope]::Children,(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'GlobalProtect')));` +
       `if($w){$a=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition);` +
       `foreach($e in $a){if($e.Current.Name -eq 'Connected'){Write-Host 'UP';exit}};Write-Host 'DOWN'}else{Write-Host 'DOWN'}"`,
-      { timeout: 8000 }).toString().trim();
+      { timeout: 8000, maxBuffer: 1024 * 1024 }).toString().trim();
     return { connected: output === 'UP' };
   } catch {
     return { connected: false };
