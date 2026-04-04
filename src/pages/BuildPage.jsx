@@ -139,6 +139,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
 
   const checkBuildVersion = async (retries = 0) => {
     if (!gameGitTarget) return;
+    if (retries > 0 && !buildVersionTimerRef.current) return; // stale — timer was cleared by project change
     setBuildChecking(true);
     try {
       const r = await window.api.getGameBuildVersion({ targetBranch: gameGitTarget });

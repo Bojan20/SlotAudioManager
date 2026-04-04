@@ -93,9 +93,11 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
         spritemap: {}
     }
 
+    let verFailed = false;
     const verProc = spawn(ffmpegPath, ['-version']);
-    verProc.on('error', () => callback(new Error('ffmpeg was not found on your path')));
+    verProc.on('error', () => { verFailed = true; callback(new Error('ffmpeg was not found on your path')); });
     verProc.on('exit', code => {
+        if (verFailed) return; // error handler already called callback
         if (code) {
             return callback(new Error('ffmpeg was not found on your path'))
         }
