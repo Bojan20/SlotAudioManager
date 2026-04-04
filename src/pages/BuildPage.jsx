@@ -19,6 +19,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [gameGitPrUrl, setGameGitPrUrl] = useState('');
   const [buildVersion, setBuildVersion] = useState(null); // { version, sha } or null
   const [buildChecking, setBuildChecking] = useState(false);
+  const [vpnConnected, setVpnConnected] = useState(false);
+  const [vpnBusy, setVpnBusy] = useState(false);
   const logRef = useRef(null);
   const abortRef = useRef(false);
 
@@ -49,6 +51,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
     if (project) { loadGameScripts(); }
+    window.api.vpnStatus().then(r => setVpnConnected(!!r?.connected));
   }, [project?.path]);
 
   const loadGameGitStatus = async () => {
@@ -480,6 +483,28 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               {project?.gameNodeVersion && (
                 <span className="badge bg-green/10 text-green text-[10px]" title="Detected Node version for this game repo">Node {project.gameNodeVersion}</span>
               )}
+              <button
+                onClick={async () => {
+                  setVpnBusy(true);
+                  try {
+                    const r = vpnConnected
+                      ? await window.api.vpnDisconnect()
+                      : await window.api.vpnConnect();
+                    if (r?.error) { showToast(r.error, 'error'); }
+                    else { setVpnConnected(!vpnConnected); showToast(vpnConnected ? 'VPN disconnected' : 'VPN connected', 'success'); }
+                  } catch (e) { showToast(e.message, 'error'); }
+                  finally {
+                    const s = await window.api.vpnStatus();
+                    setVpnConnected(!!s?.connected);
+                    setVpnBusy(false);
+                  }
+                }}
+                disabled={vpnBusy}
+                className={`btn-ghost text-xs py-1 px-2.5 disabled:opacity-40 ${vpnConnected ? 'text-green border-green/30' : 'text-text-dim'}`}
+                title={vpnConnected ? 'Disconnect GlobalProtect VPN' : 'Connect GlobalProtect VPN'}
+              >
+                {vpnBusy ? 'VPN...' : vpnConnected ? 'VPN On' : 'VPN Off'}
+              </button>
               <button
                 onClick={() => { window.api.killGame(); setGameStarted(false); showToast('Port 8080 freed', 'success'); }}
                 className="btn-ghost text-xs py-1 px-2.5 text-text-dim hover:text-danger hover:border-danger/30"

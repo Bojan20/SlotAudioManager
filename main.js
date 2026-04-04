@@ -1734,6 +1734,72 @@ ipcMain.handle('git-pull-game', async () => {
 });
 
 // Open URL in system browser
+// ── VPN (GlobalProtect) ──────────────────────────────────────────────────
+// GP 6.x uses a WebView UI — CLI flags only open the panel, don't click Connect.
+// Solution: UI Automation finds the Connect/Disconnect button and simulates a click.
+// PanGPA.exe -c connect opens the panel first, then PS clicks the button.
+const panGPAPath = 'C:\\Program Files\\Palo Alto Networks\\GlobalProtect\\PanGPA.exe';
+
+const gpClickButton = (buttonName) => `powershell -NoProfile -Command "` +
+  `Add-Type -AssemblyName UIAutomationClient;` +
+  `Add-Type -AssemblyName UIAutomationTypes;` +
+  `Add-Type -AssemblyName System.Windows.Forms;` +
+  `Add-Type 'using System; using System.Runtime.InteropServices; public class MC { [DllImport(\\\"user32.dll\\\")] public static extern void mouse_event(uint f,int x,int y,uint d,IntPtr e); public static void Click(){mouse_event(2,0,0,0,IntPtr.Zero);mouse_event(4,0,0,0,IntPtr.Zero);} }';` +
+  `$r=[System.Windows.Automation.AutomationElement]::RootElement;` +
+  `$w=$r.FindFirst([System.Windows.Automation.TreeScope]::Children,(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'GlobalProtect')));` +
+  `if($w){` +
+    `$b=$w.FindFirst([System.Windows.Automation.TreeScope]::Descendants,(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'${buttonName}')));` +
+    `if($b){$rc=$b.Current.BoundingRectangle;[System.Windows.Forms.Cursor]::Position=New-Object System.Drawing.Point([int]($rc.X+$rc.Width/2),[int]($rc.Y+$rc.Height/2));[MC]::Click();Write-Host 'OK'}` +
+    `else{Write-Host 'NO_BTN'}` +
+  `}else{Write-Host 'NO_WIN'}"`;
+
+ipcMain.handle('vpn-connect', async () => {
+  if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
+  try {
+    // Open GP panel
+    execFileSync(panGPAPath, ['-c', 'connect'], { timeout: 10000 });
+    await new Promise(r => setTimeout(r, 1500));
+    // Click Connect button via UI Automation
+    const result = execSync(gpClickButton('Connect'), { timeout: 15000 }).toString().trim();
+    if (result === 'NO_WIN') return { error: 'GlobalProtect window not found' };
+    if (result === 'NO_BTN') return { error: 'Already connected or Connect button not found' };
+    await new Promise(r => setTimeout(r, 5000));
+    return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('vpn-disconnect', async () => {
+  if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
+  try {
+    execFileSync(panGPAPath, ['-c', 'disconnect'], { timeout: 10000 });
+    await new Promise(r => setTimeout(r, 1500));
+    const result = execSync(gpClickButton('Disconnect'), { timeout: 15000 }).toString().trim();
+    if (result === 'NO_BTN') return { error: 'Already disconnected' };
+    await new Promise(r => setTimeout(r, 3000));
+    return { success: true };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+ipcMain.handle('vpn-status', async () => {
+  try {
+    // Check GP UI status text — more reliable than adapter status
+    const output = execSync(`powershell -NoProfile -Command "` +
+      `Add-Type -AssemblyName UIAutomationClient;Add-Type -AssemblyName UIAutomationTypes;` +
+      `$r=[System.Windows.Automation.AutomationElement]::RootElement;` +
+      `$w=$r.FindFirst([System.Windows.Automation.TreeScope]::Children,(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'GlobalProtect')));` +
+      `if($w){$a=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition);` +
+      `foreach($e in $a){if($e.Current.Name -eq 'Connected'){Write-Host 'UP';exit}};Write-Host 'DOWN'}else{Write-Host 'DOWN'}"`,
+      { timeout: 8000 }).toString().trim();
+    return { connected: output === 'UP' };
+  } catch {
+    return { connected: false };
+  }
+});
+
 ipcMain.handle('open-url', async (event, url) => {
   if (!url || typeof url !== 'string') return { error: 'Invalid URL' };
   if (!/^https?:\/\//.test(url)) return { error: 'Only http/https URLs allowed' };

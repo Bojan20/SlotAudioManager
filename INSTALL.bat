@@ -1,8 +1,24 @@
 @echo off
+setlocal enabledelayedexpansion
+cd /d "%~dp0"
 echo =============================================
 echo   Slot Audio Manager - Windows Install
 echo =============================================
 echo.
+
+:: If node not in PATH, try nvm-windows
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    if exist "%APPDATA%\nvm\nvm.exe" (
+        set "NODE_VER="
+        for /d %%d in ("%APPDATA%\nvm\v*") do set "NODE_VER=%%~nxd"
+        if defined NODE_VER (
+            echo Aktiviram !NODE_VER! preko nvm...
+            "%APPDATA%\nvm\nvm.exe" use !NODE_VER:v=!
+            set "PATH=%APPDATA%\nvm;%APPDATA%\nvm\!NODE_VER!;%PATH%"
+        )
+    )
+)
 
 :: Check Node.js
 where node >nul 2>&1
