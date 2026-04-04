@@ -65,7 +65,7 @@ export default function SetupPage({ project, setProject, showToast }) {
     setConfirmSync(false);
     setBranchLog('');
     setSelectedBranch(project?.gameRepoBranch || '');
-  }, [project?.path]);
+  }, [project?.path, project?._reloadKey]);
 
   useEffect(() => {
     if (project?.gameRepoBranch) setSelectedBranch(project.gameRepoBranch);
@@ -157,7 +157,7 @@ export default function SetupPage({ project, setProject, showToast }) {
         } else {
           setBranchLog(r.output || 'Already up to date.');
           showToast('Pull complete', 'success');
-          try { const rp = await window.api.reloadProject(); if (rp) setProject(rp); } catch {}
+          try { const rp = await window.api.reloadProject(); if (rp) { rp._reloadKey = Date.now(); setProject(rp); } } catch {}
         }
       } else {
         const r = await window.api.checkoutGameBranch(selectedBranch);

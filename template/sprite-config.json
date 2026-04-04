@@ -35,17 +35,20 @@
     "sfx": {
       "bitrate": 64,
       "channels": 2,
-      "samplerate": 44100
+      "samplerate": 44100,
+      "encoder": "native"
     },
     "vo": {
       "bitrate": 64,
       "channels": 2,
-      "samplerate": 44100
+      "samplerate": 44100,
+      "encoder": "native"
     },
     "music": {
       "bitrate": 64,
       "channels": 2,
-      "samplerate": 44100
+      "samplerate": 44100,
+      "encoder": "native"
     }
   },
   "spriteGap": 0.05,

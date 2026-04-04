@@ -1,5 +1,59 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
+function EncoderFooter({ config, project, fdkAvailable, setFdkAvailable }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const download = async () => {
+    setDownloading(true);
+    try {
+      const r = await window.api.upgradeFfmpeg();
+      if (r?.error) { console.error('FDK download failed:', r.error); }
+      else { setFdkAvailable(true); }
+    } catch (e) { console.error('FDK download failed:', e.message); }
+    setDownloading(false);
+  };
+
+  const estimate = useMemo(() => {
+    if (!config?.encoding || !project?.sounds?.length) return null;
+    const sfxEnc = config.encoding.sfx || { bitrate: 64 };
+    const musicEnc = config.encoding.music || { bitrate: 64 };
+    const standaloneSounds = new Set(config.standalone?.sounds || []);
+    const streamingSounds = new Set(config.streaming?.sounds || []);
+
+    let sfxTotalKB = 0, musicTotalKB = 0;
+    for (const s of project.sounds) {
+      if (standaloneSounds.has(s.name) || streamingSounds.has(s.name)) {
+        musicTotalKB += s.sizeKB;
+      } else {
+        sfxTotalKB += s.sizeKB;
+      }
+    }
+    const sfxM4A = (sfxTotalKB / 250) * ((sfxEnc.keepOriginal ? 320 : sfxEnc.bitrate) / 8);
+    const musicM4A = (musicTotalKB / 250) * ((musicEnc.keepOriginal ? 320 : musicEnc.bitrate) / 8);
+    const totalKB = sfxM4A + musicM4A;
+    return { totalMB: (totalKB / 1024).toFixed(1), sfxKB: Math.round(sfxM4A), musicKB: Math.round(musicM4A) };
+  }, [config?.encoding, project?.sounds, config?.standalone?.sounds, config?.streaming?.sounds]);
+
+  return (
+    <div className="flex items-center gap-3 pt-3 border-t border-border/30 flex-wrap">
+      {!fdkAvailable && (
+        <button
+          onClick={download}
+          disabled={downloading}
+          className={`text-xs py-1 px-2.5 rounded border transition-all ${downloading ? 'text-orange border-orange/30 cursor-wait' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}
+        >
+          {downloading ? 'Downloading FDK...' : 'Download FDK-AAC'}
+        </button>
+      )}
+      {estimate && (
+        <span className="text-xs text-text-dim ml-auto" title={`SFX: ~${estimate.sfxKB} KB · Music: ~${estimate.musicKB} KB`}>
+          ~{estimate.totalMB} MB estimated
+        </span>
+      )}
+    </div>
+  );
+}
+
 const SUBLOADER_OPTIONS = [
   { value: '',  label: 'Main load  —  immediate' },
   { value: 'A', label: 'SubLoader A  —  deferred' },
@@ -397,14 +451,20 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const [previewIsReassign, setPreviewIsReassign] = useState(false);
   const [copied, setCopied]           = useState(null);
   const [configKey, setConfigKey]     = useState(0);
+  const [fdkAvailable, setFdkAvailable] = useState(false);
   const copyTimerRef = useRef(null);
 
   useEffect(() => {
+    // Reset only on actual project change (different folder), not on reload
     if (project?.spriteConfig) setConfig(structuredClone(project.spriteConfig));
     else setConfig(null);
     setDirty(false); setSaving(false); setPreview(null); setAssignTarget({});
     setConfigKey(k => k + 1);
-  }, [project?.path]);
+  }, [project?.path]); // eslint-disable-line — intentionally path only, not _reloadKey
+
+  useEffect(() => {
+    window.api.getEncoderSetting().then(r => setFdkAvailable(!!r?.fdkAvailable)).catch(() => {});
+  }, []);
 
   const unassigned = useMemo(() => {
     if (!config || !project?.sounds) return [];
@@ -671,6 +731,14 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                 {Object.entries(config.encoding || {}).map(([key, enc]) => (
                   <div key={key} className="flex items-center gap-4 flex-wrap">
                     <span className={`text-sm font-bold uppercase tracking-wider w-14 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
+                    <select
+                      value={enc.encoder || 'native'}
+                      onChange={(e) => update(() => { enc.encoder = e.target.value; })}
+                      className="input-base !w-auto text-sm !py-1.5 !px-2 !rounded-lg"
+                    >
+                      <option value="native">Native</option>
+                      <option value="fdk" disabled={!fdkAvailable}>FDK{!fdkAvailable ? ' — not downloaded' : ''}</option>
+                    </select>
                     <label className="flex items-center gap-2 cursor-pointer select-none">
                       <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-4 h-4 accent-accent rounded cursor-pointer" />
                       <span className="text-sm text-text-dim">Keep Original</span>
@@ -679,16 +747,13 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                       <span className="text-sm text-text-dim italic">320 kbps, source channels & sample rate</span>
                     ) : (
                       <>
-                        <span className="text-sm text-text-dim">Bitrate:</span>
                         <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
                           {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
                         </select>
-                        <span className="text-sm text-text-dim ml-2">Channels:</span>
                         <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
                           <option value={1}>Mono</option>
                           <option value={2}>Stereo</option>
                         </select>
-                        <span className="text-sm text-text-dim ml-2">Sample Rate:</span>
                         <select value={enc.samplerate || 44100} onChange={(e) => update(() => { enc.samplerate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
                           <option value={22050}>22050 Hz</option>
                           <option value={32000}>32000 Hz</option>
@@ -699,6 +764,7 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
                     )}
                   </div>
                 ))}
+                <EncoderFooter config={config} project={project} fdkAvailable={fdkAvailable} setFdkAvailable={setFdkAvailable} />
               </div>
             </div>
           </div>

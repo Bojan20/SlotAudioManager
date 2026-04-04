@@ -150,7 +150,13 @@ app.on('before-quit', () => {
     // Only scan port 8080 if we had a game process (skip expensive netstat otherwise)
     try {
       if (isWin) {
-        execSync('cmd /c "for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8080 ^| findstr LISTENING\') do taskkill /F /T /PID %a"', { stdio: 'ignore', timeout: 3000, shell: true });
+        const out = execSync('netstat -ano', { timeout: 3000, encoding: 'utf8' });
+        for (const line of out.split('\n')) {
+          if (line.includes(':8080') && line.includes('LISTENING')) {
+            const p = line.trim().split(/\s+/).pop();
+            if (p && /^\d+$/.test(p) && p !== '0') try { execSync(`taskkill /F /T /PID ${p}`, { stdio: 'ignore', timeout: 2000 }); } catch {}
+          }
+        }
       } else {
         try { execSync("lsof -ti:8080 | xargs kill -9", { stdio: 'ignore', timeout: 3000 }); } catch {}
       }
@@ -215,6 +221,31 @@ async function killPort(port) {
   await waitPortFree(port, 5000);
 }
 
+// ── Async git helper — non-blocking replacement for execFileSync('git', ...) ──
+function gitAsync(args, opts = {}) {
+  const cwd = opts.cwd || projectPath;
+  if (!cwd) return Promise.reject(new Error('No working directory for git'));
+  const timeout = opts.timeout || 30000;
+  const env = opts.env || gitSilentEnv;
+  const captureOutput = opts.capture !== false;
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (err, val) => { if (done) return; done = true; err ? reject(err) : resolve(val); };
+    const stdioOpt = captureOutput ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'ignore', 'pipe'];
+    const child = spawn('git', args, { cwd, stdio: stdioOpt, env });
+    let stdout = '', stderr = '';
+    if (captureOutput && child.stdout) child.stdout.on('data', d => stdout += d);
+    if (child.stderr) child.stderr.on('data', d => stderr += d);
+    const timer = setTimeout(() => { try { child.kill(); } catch {} finish(new Error(`git ${args[0]} timeout (${timeout}ms)`)); }, timeout);
+    child.on('error', e => { clearTimeout(timer); finish(e); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code !== 0) { const err = new Error(stderr.trim() || `git ${args[0]} exited with code ${code}`); err.stderr = stderr; finish(err); }
+      else finish(null, stdout);
+    });
+  });
+}
+
 function readJsonSafe(filePath) {
   try {
     if (fs.existsSync(filePath)) {
@@ -246,20 +277,19 @@ const _branchCache = {}; // dirPath → { branch, ts }
 function loadProject(dirPath) {
   const data = { path: dirPath, sounds: [], settings: null, spriteConfig: null, soundsJson: null, scripts: {}, distInfo: null, gameRepoAbsPath: null, gameRepoExists: false, gameNodeModulesExists: false };
 
-  // Read current branch — cached, refreshed in background
+  // Read current branch — cached, async refresh for next call
   if (fs.existsSync(path.join(dirPath, '.git'))) {
     const bc = _branchCache[dirPath];
     if (bc) {
       data.branch = bc.branch;
-    } else {
-      try { data.branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dirPath, timeout: 3000 }).toString().trim(); } catch {}
     }
-    // Always refresh in background for next call
+    // Always refresh in background (first call gets result for next loadProject)
     const gitProc = spawn('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dirPath, stdio: ['ignore', 'pipe', 'ignore'] });
     let brOut = '';
     gitProc.stdout.on('data', d => brOut += d);
     gitProc.on('close', () => { const b = brOut.trim(); if (b) _branchCache[dirPath] = { branch: b }; });
     gitProc.on('error', () => {});
+    setTimeout(() => { try { gitProc.kill(); } catch {} }, 5000);
   }
 
   data.settings = readJsonSafe(path.join(dirPath, 'settings.json'));
@@ -400,27 +430,47 @@ function loadProject(dirPath) {
       data.gameNodeVersion = dirName.startsWith('v') ? dirName : 'v' + dirName;
     }
 
-    // Collect branch info for UI — cached per session, refreshed on Pull/Switch
+    // Collect branch info for UI — cached, async populate on first load
     if (data.gameRepoExists) {
       const branchCacheKey = '_branches_' + abs;
-      const cached = gameNodeCache[branchCacheKey];
-      if (cached) {
-        data.gameRepoBranch = cached.branch;
-        data.gameRepoBranches = cached.branches;
+      const cachedBr = gameNodeCache[branchCacheKey];
+      if (cachedBr) {
+        data.gameRepoBranch = cachedBr.branch;
+        data.gameRepoBranches = cachedBr.branches;
       } else {
-        try {
-          data.gameRepoBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: abs, timeout: 3000 }).toString().trim();
-          const remoteBranches = execFileSync('git', ['branch', '-r'], { cwd: abs, timeout: 3000 }).toString();
-          data.gameRepoBranches = [...remoteBranches.matchAll(/origin\/([^\s]+)/g)]
-            .map(m => m[1])
-            .filter(b => b !== 'HEAD' && !b.startsWith('HEAD '))
-            .sort((a, b) => {
-              const ra = a.startsWith('release/') ? 0 : a === 'develop' ? 1 : 2;
-              const rb = b.startsWith('release/') ? 0 : b === 'develop' ? 1 : 2;
-              return ra !== rb ? ra - rb : a.localeCompare(b);
-            });
-          gameNodeCache[branchCacheKey] = { branch: data.gameRepoBranch, branches: data.gameRepoBranches };
-        } catch { data.gameRepoBranch = ''; data.gameRepoBranches = []; }
+        // First load: populate async — data arrives on next loadProject/reload
+        data.gameRepoBranch = '';
+        data.gameRepoBranches = [];
+        const absRef = abs;
+        const brProc = spawn('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: absRef, stdio: ['ignore', 'pipe', 'ignore'] });
+        let brData = '';
+        brProc.stdout.on('data', d => brData += d);
+        brProc.on('error', () => {});
+        setTimeout(() => { try { brProc.kill(); } catch {} }, 5000);
+        brProc.on('close', () => {
+          const branch = brData.trim();
+          if (!branch) return;
+          const lsProc = spawn('git', ['branch', '-r'], { cwd: absRef, stdio: ['ignore', 'pipe', 'ignore'] });
+          let lsData = '';
+          lsProc.stdout.on('data', d => lsData += d);
+          lsProc.on('error', () => {});
+          setTimeout(() => { try { lsProc.kill(); } catch {} }, 5000);
+          lsProc.on('close', () => {
+            const branches = [...lsData.matchAll(/origin\/([^\s]+)/g)]
+              .map(m => m[1])
+              .filter(b => b !== 'HEAD' && !b.startsWith('HEAD '))
+              .sort((a, b) => {
+                const ra = a.startsWith('release/') ? 0 : a === 'develop' ? 1 : 2;
+                const rb = b.startsWith('release/') ? 0 : b === 'develop' ? 1 : 2;
+                return ra !== rb ? ra - rb : a.localeCompare(b);
+              });
+            gameNodeCache[branchCacheKey] = { branch, branches };
+            // Notify renderer — merge branch info into existing project, don't replace
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('project-branch-update', { gameRepoBranch: branch, gameRepoBranches: branches });
+            }
+          });
+        });
       }
     }
   }
@@ -636,6 +686,9 @@ function runNpmScript(cwd, scriptName, nodeDir, send) {
   return new Promise((resolve) => {
     const baseEnv = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
     delete baseEnv.NODE_OPTIONS;
+    // Pass FDK binary path to build scripts (encoder choice is in sprite-config.json per project)
+    const encSetting = getEncoderSetting();
+    if (encSetting.fdkPath) baseEnv.FFMPEG_FDK_PATH = encSetting.fdkPath;
     let cmd, args, env, useShell;
     if (nodeDir) {
       const nodeExe = path.join(nodeDir, isWin ? 'node.exe' : 'bin/node');
@@ -761,12 +814,12 @@ ipcMain.handle('git-pull', async () => {
   if (!projectPath) return { error: 'No project open' };
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
   try {
-    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: projectPath, timeout: 5000 }).toString().trim();
+    const branch = (await gitAsync(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })).trim();
     if (!branch || branch === 'HEAD') return { error: 'Detached HEAD — cannot pull' };
     send(`Fetching origin...\n`);
-    execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 30000, stdio: 'ignore', env: gitSilentEnv });
+    await gitAsync(['fetch', 'origin'], { capture: false });
     send(`Pulling ${branch}...\n`);
-    const out = execFileSync('git', ['pull', 'origin', branch, '--ff-only'], { cwd: projectPath, timeout: 30000, env: gitSilentEnv }).toString();
+    const out = await gitAsync(['pull', 'origin', branch, '--ff-only']);
     send(out || 'Already up to date.\n');
     send(`✔ Pull complete\n`);
     return { success: true, project: loadProject(projectPath) };
@@ -780,11 +833,10 @@ ipcMain.handle('git-pull', async () => {
 ipcMain.handle('git-status', async () => {
   if (!projectPath) return { error: 'No project open' };
   try {
-    const opts = { cwd: projectPath, encoding: 'utf8', timeout: 10000 };
-    const status = execFileSync('git', ['status', '--porcelain'], opts);
-    const branch = execFileSync('git', ['branch', '--show-current'], opts).trim();
+    const status = await gitAsync(['status', '--porcelain'], { timeout: 10000 });
+    const branch = (await gitAsync(['branch', '--show-current'], { timeout: 5000 })).trim();
     let log = '';
-    try { log = execFileSync('git', ['log', '--oneline', '-10'], opts); } catch {} // empty repo has no commits
+    try { log = await gitAsync(['log', '--oneline', '-10'], { timeout: 5000 }); } catch {} // empty repo has no commits
     return { status, branch, log };
   } catch (e) {
     return { error: e.message };
@@ -798,11 +850,10 @@ ipcMain.handle('git-commit-push', async (event, message) => {
     return { error: 'Commit message is required' };
   }
   try {
-    const opts = { cwd: projectPath, timeout: 30000 };
-    execFileSync('git', ['add', '-A'], opts);
-    execFileSync('git', ['commit', '-m', message.trim()], opts);
-    execFileSync('git', ['push'], { cwd: projectPath, timeout: 60000 });
-    try { execFileSync('git', ['fetch', 'origin'], { cwd: projectPath, timeout: 15000, env: gitSilentEnv }); } catch {}
+    await gitAsync(['add', '-A'], { capture: false });
+    await gitAsync(['commit', '-m', message.trim()]);
+    await gitAsync(['push'], { timeout: 60000, capture: false });
+    try { await gitAsync(['fetch', 'origin'], { timeout: 15000, capture: false }); } catch {}
     return { success: true };
   } catch (e) {
     return { error: e.message };
@@ -818,15 +869,14 @@ ipcMain.handle('game-git-status', async () => {
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   try {
-    const opts = { cwd: gameRepoPath, timeout: 10000 };
-    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], opts).toString().trim();
-    const status = execFileSync('git', ['status', '--porcelain'], opts).toString().trim();
+    const gopts = { cwd: gameRepoPath, timeout: 10000 };
+    const branch = (await gitAsync(['rev-parse', '--abbrev-ref', 'HEAD'], gopts)).trim();
+    const status = (await gitAsync(['status', '--porcelain'], gopts)).trim();
     const files = status ? status.split('\n') : [];
-    // List remote branches to find develop/release
     let remoteBranches = [];
     try {
-      remoteBranches = execFileSync('git', ['branch', '-r', '--format', '%(refname:short)'], opts)
-        .toString().trim().split('\n').filter(Boolean).map(b => b.replace('origin/', '')).filter(b => b !== 'HEAD');
+      const brOut = (await gitAsync(['branch', '-r', '--format', '%(refname:short)'], gopts)).trim();
+      remoteBranches = brOut.split('\n').filter(Boolean).map(b => b.replace('origin/', '')).filter(b => b !== 'HEAD');
     } catch {}
     const hasDevelop = remoteBranches.includes('develop');
     const releaseBranches = remoteBranches.filter(b => b.startsWith('release'));
@@ -847,36 +897,35 @@ ipcMain.handle('game-git-create-branch-commit-push', async (event, { targetBranc
   if (!/^[a-zA-Z0-9][a-zA-Z0-9/_.-]*$/.test(branchName)) return { error: 'Invalid branch name characters' };
   if (!targetBranch || !/^[a-zA-Z0-9/_.-]+$/.test(targetBranch)) return { error: 'Invalid target branch' };
   try {
-    const opts = { cwd: gameRepoPath, timeout: 30000 };
+    const gopts = { cwd: gameRepoPath };
     // Fetch latest
-    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
+    try { await gitAsync(['fetch', 'origin'], { ...gopts, timeout: 15000, capture: false }); } catch {}
     // Stash any local changes before switching branches
-    try { execFileSync('git', ['stash', '--include-untracked'], opts); } catch {}
+    try { await gitAsync(['stash', '--include-untracked'], { ...gopts, capture: false }); } catch {}
     // Checkout target branch and pull latest
-    execFileSync('git', ['checkout', targetBranch], opts);
-    try { execFileSync('git', ['pull', 'origin', targetBranch], { cwd: gameRepoPath, timeout: 30000 }); } catch {}
+    await gitAsync(['checkout', targetBranch], { ...gopts, capture: false });
+    try { await gitAsync(['pull', 'origin', targetBranch], gopts); } catch {}
     // Create new branch or switch to existing
     try {
-      execFileSync('git', ['checkout', '-b', branchName], opts);
+      await gitAsync(['checkout', '-b', branchName], { ...gopts, capture: false });
     } catch {
       // Branch exists — switch to it and reset to target
-      execFileSync('git', ['checkout', branchName], opts);
-      execFileSync('git', ['reset', '--hard', targetBranch], opts);
+      await gitAsync(['checkout', branchName], { ...gopts, capture: false });
+      await gitAsync(['reset', '--hard', targetBranch], { ...gopts, capture: false });
     }
     // Restore stashed changes
-    try { execFileSync('git', ['stash', 'pop'], opts); } catch (stashErr) {
-      // If stash pop fails with conflict, abort and report
-      const stashList = execFileSync('git', ['stash', 'list'], opts).toString().trim();
+    try { await gitAsync(['stash', 'pop'], { ...gopts, capture: false }); } catch {
+      const stashList = (await gitAsync(['stash', 'list'], gopts).catch(() => '')).trim();
       if (stashList) {
-        try { execFileSync('git', ['stash', 'drop'], opts); } catch {}
+        try { await gitAsync(['stash', 'drop'], { ...gopts, capture: false }); } catch {}
         return { error: 'Stash conflict — your deployed files conflict with remote changes. Re-deploy and try again.' };
       }
     }
     // Stage, commit, push
-    execFileSync('git', ['add', '-A'], opts);
-    execFileSync('git', ['commit', '-m', commitMsg.trim()], opts);
-    execFileSync('git', ['push', '-u', 'origin', branchName], { cwd: gameRepoPath, timeout: 60000 });
-    try { execFileSync('git', ['fetch', 'origin'], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
+    await gitAsync(['add', '-A'], { ...gopts, capture: false });
+    await gitAsync(['commit', '-m', commitMsg.trim()], gopts);
+    await gitAsync(['push', '-u', 'origin', branchName], { ...gopts, timeout: 60000, capture: false });
+    try { await gitAsync(['fetch', 'origin'], { ...gopts, timeout: 15000, capture: false }); } catch {}
     return { success: true, branch: branchName };
   } catch (e) {
     return { error: e.message };
@@ -892,12 +941,8 @@ ipcMain.handle('game-git-create-pr', async (event, { branchName, targetBranch, t
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   try {
     const ghBin = isWin ? 'gh.exe' : 'gh';
-    const result = execFileSync(ghBin, ['pr', 'create',
-      '--base', targetBranch,
-      '--head', branchName,
-      '--title', title.trim(),
-      '--body', 'Audio update'
-    ], { cwd: gameRepoPath, timeout: 30000, encoding: 'utf8', env: gitSilentEnv });
+    const result = await spawnAsync(ghBin, ['pr', 'create', '--base', targetBranch, '--head', branchName, '--title', title.trim(), '--body', 'Audio update'],
+      { cwd: gameRepoPath, env: gitSilentEnv, timeout: 30000 });
     return { success: true, url: result.trim() };
   } catch (e) {
     const msg = e.code === 'ENOENT' ? 'GitHub CLI (gh) not installed — install from https://cli.github.com' : e.message;
@@ -915,10 +960,9 @@ ipcMain.handle('get-game-build-version', async (event, { targetBranch }) => {
   const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   try {
-    // Fetch latest from origin — silent, proceed with cached data if offline
-    try { execFileSync('git', ['fetch', 'origin', targetBranch], { cwd: gameRepoPath, timeout: 15000, env: gitSilentEnv }); } catch {}
-    // Read last 5 commits on the target branch — find Jenkins version commit
-    const log = execFileSync('git', ['log', `origin/${targetBranch}`, '--oneline', '-5'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    const gopts = { cwd: gameRepoPath };
+    try { await gitAsync(['fetch', 'origin', targetBranch], { ...gopts, timeout: 15000, capture: false }); } catch {}
+    const log = (await gitAsync(['log', `origin/${targetBranch}`, '--oneline', '-5'], { ...gopts, timeout: 5000 })).trim();
     const lines = log.split('\n');
     // Jenkins version commits match: "v{semver}-{rc|dev}.{N}" or "v{semver}-{branchName}"
     // The post-merge increment is: v1.0.0-rc.N (release) or v0.0.1-dev.N (develop)
@@ -1721,31 +1765,27 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
   if (!fs.existsSync(gameRepoPath)) return { error: 'Game repo folder not found' };
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   try {
+    const gopts = { cwd: gameRepoPath };
     send(`Fetching origin...\n`);
-    try { execFileSync('git', ['fetch', '--all', '--prune'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore', env: gitSilentEnv }); }
+    try { await gitAsync(['fetch', '--all', '--prune'], { ...gopts, timeout: 15000, capture: false }); }
     catch { send(`⚠ Fetch failed (offline?) — using cached refs\n`); }
     send(`Switching to ${branchName}...\n`);
-    // Force checkout — discards local changes (reset --hard follows anyway)
-    execFileSync('git', ['checkout', '-f', branchName], { cwd: gameRepoPath, timeout: 10000, stdio: 'ignore' });
-    // Hard reset to origin — guarantees local matches remote exactly
+    await gitAsync(['checkout', '-f', branchName], { ...gopts, timeout: 10000, capture: false });
     try {
-      execFileSync('git', ['reset', '--hard', `origin/${branchName}`], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' });
+      await gitAsync(['reset', '--hard', `origin/${branchName}`], { ...gopts, timeout: 15000, capture: false });
       send(`✔ Reset to origin/${branchName}\n`);
     } catch {
-      // Branch might not have remote tracking (local-only) — try pull as fallback
       try {
-        const pullOut = execFileSync('git', ['pull', 'origin', branchName], { cwd: gameRepoPath, timeout: 30000 }).toString();
+        const pullOut = await gitAsync(['pull', 'origin', branchName], gopts);
         send(pullOut || `✔ Pulled ${branchName}\n`);
       } catch (pullErr) {
         send(`⚠ Pull failed: ${pullErr.message}\n`);
       }
     }
-    // Clean untracked files left by branch switch
-    try { execFileSync('git', ['clean', '-fd'], { cwd: gameRepoPath, timeout: 15000, stdio: 'ignore' }); } catch {}
-    // Invalidate caches — new branch may have different webpack/branches
+    try { await gitAsync(['clean', '-fd'], { ...gopts, timeout: 15000, capture: false }); } catch {}
     delete gameNodeCache[gameRepoPath];
     delete gameNodeCache['_branches_' + gameRepoPath];
-    const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    const currentBranch = (await gitAsync(['rev-parse', '--abbrev-ref', 'HEAD'], { ...gopts, timeout: 5000 })).trim();
     send(`✔ On branch ${currentBranch}\n`);
     return { success: true, branch: currentBranch, project: loadProject(projectPath) };
   } catch (e) {
@@ -1765,9 +1805,10 @@ ipcMain.handle('git-pull-game', async () => {
 
   // Pull on current branch — don't switch branches
   try {
-    const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: gameRepoPath, timeout: 5000 }).toString().trim();
+    const gopts = { cwd: gameRepoPath };
+    const branch = (await gitAsync(['rev-parse', '--abbrev-ref', 'HEAD'], { ...gopts, timeout: 5000 })).trim();
     send(`Fetching...\n`);
-    try { execFileSync('git', ['fetch', 'origin', '--prune'], { cwd: gameRepoPath, timeout: 30000, stdio: 'ignore', env: gitSilentEnv }); } catch {}
+    try { await gitAsync(['fetch', 'origin', '--prune'], { ...gopts, capture: false }); } catch {}
     send(`Pulling ${branch}...\n`);
     const child = spawn('git', ['pull', 'origin', branch, '--ff-only'], { cwd: gameRepoPath, shell: false });
     let output = '';
@@ -1807,14 +1848,29 @@ const gpClickButton = (buttonName) => `powershell -NoProfile -Command "` +
     `else{Write-Host 'NO_BTN'}` +
   `}else{Write-Host 'NO_WIN'}"`;
 
+// Helper: run a command async and return stdout
+function spawnAsync(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (e, v) => { if (done) return; done = true; e ? reject(e) : resolve(v); };
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+    let out = '', err = '';
+    if (child.stdout) child.stdout.on('data', d => out += d);
+    if (child.stderr) child.stderr.on('data', d => err += d);
+    const timer = setTimeout(() => { try { child.kill(); } catch {} finish(new Error('timeout')); }, opts.timeout || 30000);
+    child.on('error', e => { clearTimeout(timer); finish(e); });
+    child.on('close', code => { clearTimeout(timer); code === 0 ? finish(null, out) : finish(new Error(err || `exit ${code}`)); });
+  });
+}
+
 ipcMain.handle('vpn-connect', async () => {
   if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
   try {
-    // Open GP panel
-    execFileSync(panGPAPath, ['-c', 'connect'], { timeout: 10000 });
+    await spawnAsync(panGPAPath, ['-c', 'connect'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] });
     await new Promise(r => setTimeout(r, 1500));
-    // Click Connect button via UI Automation
-    const result = execSync(gpClickButton('Connect'), { timeout: 15000, maxBuffer: 1024 * 1024 }).toString().trim();
+    const result = await new Promise((resolve, reject) => {
+      exec(gpClickButton('Connect'), { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => err ? reject(err) : resolve(stdout.trim()));
+    });
     if (result === 'NO_WIN') return { error: 'GlobalProtect window not found' };
     if (result === 'NO_BTN') return { error: 'Already connected or Connect button not found' };
     await new Promise(r => setTimeout(r, 5000));
@@ -1827,9 +1883,11 @@ ipcMain.handle('vpn-connect', async () => {
 ipcMain.handle('vpn-disconnect', async () => {
   if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
   try {
-    execFileSync(panGPAPath, ['-c', 'disconnect'], { timeout: 10000 });
+    await spawnAsync(panGPAPath, ['-c', 'disconnect'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] });
     await new Promise(r => setTimeout(r, 1500));
-    const result = execSync(gpClickButton('Disconnect'), { timeout: 15000, maxBuffer: 1024 * 1024 }).toString().trim();
+    const result = await new Promise((resolve, reject) => {
+      exec(gpClickButton('Disconnect'), { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => err ? reject(err) : resolve(stdout.trim()));
+    });
     if (result === 'NO_BTN') return { error: 'Already disconnected' };
     await new Promise(r => setTimeout(r, 3000));
     return { success: true };
@@ -1840,14 +1898,22 @@ ipcMain.handle('vpn-disconnect', async () => {
 
 ipcMain.handle('vpn-status', async () => {
   try {
-    // Check GP UI status text — more reliable than adapter status
-    const output = execSync(`powershell -NoProfile -Command "` +
-      `Add-Type -AssemblyName UIAutomationClient;Add-Type -AssemblyName UIAutomationTypes;` +
+    // Check GP UI status text — non-blocking spawn (was execSync blocking main for 2-8s)
+    const psCmd = `Add-Type -AssemblyName UIAutomationClient;Add-Type -AssemblyName UIAutomationTypes;` +
       `$r=[System.Windows.Automation.AutomationElement]::RootElement;` +
       `$w=$r.FindFirst([System.Windows.Automation.TreeScope]::Children,(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'GlobalProtect')));` +
       `if($w){$a=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition);` +
-      `foreach($e in $a){if($e.Current.Name -eq 'Connected'){Write-Host 'UP';exit}};Write-Host 'DOWN'}else{Write-Host 'DOWN'}"`,
-      { timeout: 8000, maxBuffer: 1024 * 1024 }).toString().trim();
+      `foreach($e in $a){if($e.Current.Name -eq 'Connected'){Write-Host 'UP';exit}};Write-Host 'DOWN'}else{Write-Host 'DOWN'}`;
+    const output = await new Promise((resolve) => {
+      let done = false;
+      const finish = (val) => { if (done) return; done = true; resolve(val); };
+      const child = spawn('powershell', ['-NoProfile', '-Command', psCmd], { stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      child.stdout.on('data', d => out += d);
+      child.on('close', () => finish(out.trim()));
+      child.on('error', () => finish('DOWN'));
+      setTimeout(() => { try { child.kill(); } catch {} finish('DOWN'); }, 8000);
+    });
     return { connected: output === 'UP' };
   } catch {
     return { connected: false };
@@ -1875,26 +1941,45 @@ ipcMain.handle('list-encoder-test', async () => {
 });
 
 // ── Upgrade ffmpeg to FDK-AAC build ──────────────────────────────────────────
+// ── Encoder setting (global, persisted in userData) ──────────────────────────
+const _encoderSettingFile = path.join(app.getPath('userData'), 'encoder-setting.json');
+const _fdkDir = path.join(app.getPath('userData'), 'ffmpeg-fdk');
+const _fdkBin = path.join(_fdkDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+
+function getEncoderSetting() {
+  const fdkAvailable = fs.existsSync(_fdkBin);
+  return { fdkAvailable, fdkPath: fdkAvailable ? _fdkBin : null };
+}
+
+ipcMain.handle('get-encoder-setting', async () => getEncoderSetting());
+
+ipcMain.handle('set-encoder-setting', async (event, encoder) => {
+  if (encoder !== 'native' && encoder !== 'fdk') return { error: 'Invalid encoder' };
+  if (encoder === 'fdk' && !fs.existsSync(_fdkBin)) return { error: 'FDK not downloaded yet' };
+  try { fs.writeFileSync(_encoderSettingFile, JSON.stringify({ encoder })); } catch (e) { return { error: e.message }; }
+  return { success: true };
+});
+
 ipcMain.handle('upgrade-ffmpeg', async () => {
-  if (!projectPath) return { error: 'No project open' };
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
 
-  // 1. Locate current ffmpeg binary in audio project
-  const ffmpegDir = path.join(projectPath, 'node_modules', 'ffmpeg-static');
-  const ffmpegBin = path.join(ffmpegDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
-  if (!fs.existsSync(ffmpegDir)) return { error: 'ffmpeg-static not installed — run npm install first' };
-
-  // 2. Check if FDK already available
-  try {
-    const out = execFileSync(ffmpegBin, ['-encoders'], { timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
-    if (out.includes('libfdk_aac')) { send('libfdk_aac already available — no upgrade needed.\n'); return { success: true, alreadyHasFdk: true }; }
-  } catch (e) {
-    const fb = (e.stderr ? e.stderr.toString() : '') + (e.stdout ? e.stdout.toString() : '');
-    if (fb.includes('libfdk_aac')) { send('libfdk_aac already available — no upgrade needed.\n'); return { success: true, alreadyHasFdk: true }; }
+  // Check if FDK already downloaded to app storage
+  if (fs.existsSync(_fdkBin)) {
+    let hasFdk = false;
+    try {
+      const out = execFileSync(_fdkBin, ['-encoders'], { timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
+      hasFdk = out.includes('libfdk_aac');
+    } catch (e) {
+      const fb = (e.stderr ? e.stderr.toString() : '') + (e.stdout ? e.stdout.toString() : '');
+      hasFdk = fb.includes('libfdk_aac');
+    }
+    if (hasFdk) {
+      send('FDK-AAC already downloaded.\n');
+      return { success: true, alreadyHasFdk: true };
+    }
   }
 
   if (process.platform === 'darwin') {
-    // macOS: check if brew ffmpeg has FDK
     send('macOS: checking brew ffmpeg...\n');
     try {
       const brewPrefix = execSync('brew --prefix ffmpeg 2>/dev/null', { timeout: 10000, encoding: 'utf8' }).trim();
@@ -1902,11 +1987,10 @@ ipcMain.handle('upgrade-ffmpeg', async () => {
       if (fs.existsSync(brewFfmpeg)) {
         const out = execFileSync(brewFfmpeg, ['-encoders'], { timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] }).toString();
         if (out.includes('libfdk_aac')) {
-          const backup = ffmpegBin + '.backup';
-          if (fs.existsSync(ffmpegBin) && !fs.existsSync(backup)) fs.copyFileSync(ffmpegBin, backup);
-          fs.copyFileSync(brewFfmpeg, ffmpegBin);
-          fs.chmodSync(ffmpegBin, 0o755);
-          send('Copied brew ffmpeg with FDK-AAC to project.\n');
+          fs.mkdirSync(_fdkDir, { recursive: true });
+          fs.copyFileSync(brewFfmpeg, _fdkBin);
+          fs.chmodSync(_fdkBin, 0o755);
+          send('Copied brew ffmpeg with FDK-AAC to app storage.\n');
           return { success: true };
         }
       }
@@ -2023,15 +2107,11 @@ ipcMain.handle('upgrade-ffmpeg', async () => {
     }
     if (!hasFdk) throw new Error('Downloaded ffmpeg does not contain libfdk_aac — build may have changed');
 
-    // 7. Backup old binary and replace
-    const backup = ffmpegBin + '.backup';
-    if (fs.existsSync(ffmpegBin) && !fs.existsSync(backup)) {
-      fs.copyFileSync(ffmpegBin, backup);
-      send('Backed up original to ffmpeg.exe.backup\n');
-    }
-    fs.copyFileSync(extractedFfmpeg, ffmpegBin);
-    send('\n✔ FFmpeg upgraded to FDK-AAC build!\n');
-    send('Run compare-encoders to hear the difference.\n');
+    // 7. Copy to app storage (shared across all projects)
+    fs.mkdirSync(_fdkDir, { recursive: true });
+    fs.copyFileSync(extractedFfmpeg, _fdkBin);
+    send('\n✔ FDK-AAC downloaded to app storage!\n');
+    send('All projects can now use FDK encoder.\n');
 
     // 8. Cleanup temp files
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}

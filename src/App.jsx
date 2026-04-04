@@ -84,6 +84,16 @@ export default function App() {
   // Refresh undo status when project changes (after saves)
   useEffect(() => { refreshUndoStatus(); }, [project, refreshUndoStatus]);
 
+  // Listen for async branch updates (git info loaded in background — merge, don't replace)
+  useEffect(() => {
+    const handler = (_, info) => {
+      if (!info) return;
+      setProject(prev => prev ? { ...prev, ...info } : prev);
+    };
+    window.api.onBranchUpdate(handler);
+    return () => window.api.offBranchUpdate(handler);
+  }, []);
+
   // Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {
@@ -110,12 +120,16 @@ export default function App() {
     try {
       const data = await window.api.reloadProject();
       if (data) {
-        // null→data cycle forces useEffect([project?.path]) to re-fire on all pages
-        setProject(null);
-        requestAnimationFrame(() => { setProject(data); showToast('Reloaded', 'success'); });
+        // Add reload key to force useEffect([project?.path]) on all pages
+        // without null→data cycle that causes flicker and state loss
+        data._reloadKey = Date.now();
+        setProject(data);
+        showToast('Reloaded', 'success');
       }
+      return data;
     } catch (e) {
       showToast('Reload failed: ' + e.message, 'error');
+      return null;
     }
   };
 

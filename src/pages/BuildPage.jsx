@@ -57,7 +57,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
     setAbFiles([]); setAbPlaying(null); stopAbAudio();
     if (project) { loadGameScripts(); }
-  }, [project?.path]);
+  }, [project?.path, project?._reloadKey]);
 
   // VPN status polling — check every 30s + on project load
   useEffect(() => {
@@ -254,7 +254,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       if (r?.success) {
         const refreshed = await window.api.reloadProject();
         if (stopped()) return;
-        if (refreshed && setProject) setProject(refreshed);
+        if (refreshed && setProject) { refreshed._reloadKey = Date.now(); setProject(refreshed); }
 
         const refreshedDistOk = refreshed?.distInfo?.hasDist && refreshed?.distInfo?.hasSoundsJson;
         const shouldAutoDeploy = !scriptName.includes('validate') && deployScripts.includes('deploy')
@@ -292,7 +292,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               if (stopped()) return;
               if (build?.detectedNode) {
                 showToast(`Game uses Node ${build.detectedNode} (auto-detected)`, 'success');
-                try { if (reloadProject) { const rp = await reloadProject(); if (rp) setProject(rp); } } catch {}
+                try { if (reloadProject) { await reloadProject(); } } catch {}
               }
               if (build?.error === 'No build-dev script in game package.json') {
                 setLog(prev => prev + 'No build-dev script, skipping...\n');
@@ -370,7 +370,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         if (stopped()) return;
         if (build?.detectedNode) {
           showToast(`Game uses Node ${build.detectedNode} (auto-detected)`, 'success');
-          if (reloadProject) { const rp = await reloadProject(); if (rp) setProject(rp); }
+          if (reloadProject) { await reloadProject(); }
         }
         if (build?.error === 'No build-dev script in game package.json') {
           setLog(prev => prev + 'No build-dev script found, skipping build step...\n\n');
@@ -504,29 +504,6 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                 ))}
               </div>
             )}
-
-            {/* FDK-AAC Upgrade */}
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/30">
-              <span className="section-label shrink-0">Encoder</span>
-              <button
-                onClick={async () => {
-                  setRunning('upgrade-ffmpeg'); setLog(''); setResult(null);
-                  try {
-                    const r = await window.api.upgradeFfmpeg();
-                    if (r?.error) { showToast(r.error, 'error'); setResult({ script: 'upgrade-ffmpeg', ok: false }); }
-                    else if (r?.alreadyHasFdk) { showToast('FDK-AAC already available', 'success'); setResult({ script: 'upgrade-ffmpeg', ok: true }); }
-                    else { showToast('FFmpeg upgraded to FDK-AAC!', 'success'); setResult({ script: 'upgrade-ffmpeg', ok: true }); }
-                  } catch (e) { showToast(e.message, 'error'); setResult({ script: 'upgrade-ffmpeg', ok: false }); }
-                  setRunning(null);
-                }}
-                disabled={running !== null}
-                className={running === 'upgrade-ffmpeg' ? 'btn-ghost text-orange border-orange/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
-                title="Download FFmpeg with FDK-AAC encoder (gyan.dev full build, ~236 MB)"
-              >
-                {running === 'upgrade-ffmpeg' && <span className="inline-block w-1.5 h-1.5 rounded-full bg-orange mr-1.5 anim-pulse-dot" />}
-                {running === 'upgrade-ffmpeg' ? 'Downloading...' : 'Upgrade FFmpeg (FDK-AAC)'}
-              </button>
-            </div>
 
             {/* Other scripts */}
             {otherScripts.length > 0 && (

@@ -25,7 +25,7 @@ export default function GitPage({ project, showToast }) {
     setCommitMsg('');
     setAutoFilled(false);
     if (project) refresh();
-  }, [project?.path]);
+  }, [project?.path, project?._reloadKey]);
 
   const handleCommitPush = async () => {
     if (!commitMsg.trim()) { showToast('Enter a commit message', 'error'); return; }

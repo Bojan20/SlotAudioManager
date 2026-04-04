@@ -164,7 +164,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
     return map;
   }, [project?.soundsJson]);
 
-  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); setSelectedSound(null); }, [project?.path]);
+  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); setSelectedSound(null); }, [project?.path, project?._reloadKey]);
   useEffect(() => () => stopAudio(), []);
 
   const stopAudio = () => {
@@ -440,7 +440,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
   const handleReload = async () => {
     try {
       const data = await window.api.reloadProject();
-      if (data) { setProject(data); showToast('Refreshed', 'success'); }
+      if (data) { data._reloadKey = Date.now(); setProject(data); showToast('Refreshed', 'success'); }
     } catch (e) {
       showToast('Refresh failed: ' + e.message, 'error');
     }

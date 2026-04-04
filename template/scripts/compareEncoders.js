@@ -17,7 +17,10 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const pathToFFmpeg = require('ffmpeg-static');
+// Compare needs BOTH encoders — FDK binary has both native aac + libfdk_aac
+const _fdkPath = process.env.FFMPEG_FDK_PATH;
+const pathToFFmpeg = (_fdkPath && fs.existsSync(_fdkPath)) ? _fdkPath : require('ffmpeg-static');
+// compare-encoders ignores FFMPEG_ENCODER setting — always tests both if available
 
 // ── Read config ──────────────────────────────────────────────────────────────
 let spriteConfig;
@@ -77,7 +80,7 @@ if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
 // ── Encode ───────────────────────────────────────────────────────────────────
 function encode(inputWav, outputM4a, encoder, bitrate, channels, samplerate) {
-    const args = ['-y', '-i', inputWav];
+    const args = ['-y', '-loglevel', 'error', '-i', inputWav];
     if (encoder === 'libfdk_aac') {
         args.push('-c:a', 'libfdk_aac', '-b:a', bitrate + 'k', '-afterburner', '1');
     } else {
@@ -105,11 +108,15 @@ console.log('');
 const standaloneSounds = new Set(spriteConfig.standalone?.sounds || []);
 const streamingSounds = new Set(spriteConfig.streaming?.sounds || []);
 
+let totalNative = 0, totalFdk = 0, totalWav = 0, fileCount = 0;
+
 for (const name of wavFiles) {
     const inputPath = path.join(sourceDir, name + '.wav');
     const isMusic = standaloneSounds.has(name) || streamingSounds.has(name);
     const enc = isMusic ? musicEnc : sfxEnc;
     const typeLabel = isMusic ? 'MUSIC' : 'SFX';
+    const wavSize = fileSize(inputPath);
+    totalWav += wavSize;
 
     console.log(`── ${name} (${typeLabel}, ${enc.bitrate}kbps ${enc.channels}ch) ──`);
 
@@ -117,7 +124,9 @@ for (const name of wavFiles) {
     const nativePath = path.join(outDir, `native_${name}.m4a`);
     try {
         encode(inputPath, nativePath, 'aac', enc.bitrate, enc.channels, enc.samplerate);
-        console.log(`  native:  ${nativePath}  (${formatKB(fileSize(nativePath))})`);
+        const ns = fileSize(nativePath);
+        totalNative += ns;
+        console.log(`  native:  ${formatKB(ns)}`);
     } catch (e) {
         console.error(`  native:  FAILED — ${e.message}`);
     }
@@ -127,23 +136,40 @@ for (const name of wavFiles) {
         const fdkPath = path.join(outDir, `fdk_${name}.m4a`);
         try {
             encode(inputPath, fdkPath, 'libfdk_aac', enc.bitrate, enc.channels, enc.samplerate);
-            console.log(`  fdk:     ${fdkPath}  (${formatKB(fileSize(fdkPath))})`);
-
-            const nativeSize = fileSize(nativePath);
-            const fdkSize = fileSize(fdkPath);
-            if (nativeSize > 0 && fdkSize > 0) {
-                const diffNum = (fdkSize - nativeSize) / nativeSize * 100;
+            const fs_ = fileSize(fdkPath);
+            totalFdk += fs_;
+            const ns = fileSize(nativePath);
+            console.log(`  fdk:     ${formatKB(fs_)}`);
+            if (ns > 0 && fs_ > 0) {
+                const diffNum = (fs_ - ns) / ns * 100;
                 const diffStr = (diffNum >= 0 ? '+' : '') + diffNum.toFixed(1);
                 const label = diffNum > 0.1 ? 'FDK larger' : diffNum < -0.1 ? 'FDK smaller' : 'same size';
-                console.log(`  size delta: ${diffStr}% (${label})`);
+                console.log(`  delta:   ${diffStr}% (${label})`);
             }
         } catch (e) {
             console.error(`  fdk:     FAILED — ${e.message}`);
         }
     }
 
+    fileCount++;
     console.log('');
 }
 
-console.log(`Output: ${path.resolve(outDir)}`);
+// ── Summary ──────────────────────────────────────────────────────────────────
+console.log('==========================================================');
+console.log(`  ${fileCount} files encoded`);
+console.log(`  Source WAV:    ${formatKB(totalWav)}`);
+console.log(`  Native AAC:   ${formatKB(totalNative)}`);
+if (hasFdk && totalFdk > 0) {
+    console.log(`  FDK-AAC:      ${formatKB(totalFdk)}`);
+    const savedVsNative = ((totalFdk - totalNative) / totalNative * 100);
+    const savedVsWav = ((1 - totalFdk / totalWav) * 100);
+    console.log(`  FDK vs Native: ${(savedVsNative >= 0 ? '+' : '') + savedVsNative.toFixed(1)}%`);
+    console.log(`  Compression:   ${savedVsWav.toFixed(1)}% smaller than WAV`);
+} else {
+    const savedVsWav = ((1 - totalNative / totalWav) * 100);
+    console.log(`  Compression:   ${savedVsWav.toFixed(1)}% smaller than WAV`);
+}
+console.log('==========================================================');
+console.log(`\nOutput: ${path.resolve(outDir)}`);
 console.log('Listen to both files to compare quality.');

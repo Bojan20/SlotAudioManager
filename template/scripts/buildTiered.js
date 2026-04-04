@@ -13,9 +13,24 @@ const audiosprite = require('./customAudioSprite');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const pathToFFmpeg = require('ffmpeg-static');
+// Read configs
+let settings, spriteConfig;
+try { settings = JSON.parse(fs.readFileSync("settings.json", "utf8")); }
+catch (e) { console.error("Failed to read settings.json:", e.message); process.exit(1); }
+try { spriteConfig = JSON.parse(fs.readFileSync("sprite-config.json", "utf8")); }
+catch (e) { console.error("Failed to read sprite-config.json:", e.message); process.exit(1); }
+
+// ── Select FFmpeg binary ─────────────────────────────────────────────────────
+// Per-category encoder: each encoding entry has its own "encoder" field.
+// If ANY category uses 'fdk', we need the FDK binary. Native categories
+// get useNativeAac=true to force native codec even from the FDK binary.
+const _fdkPath = process.env.FFMPEG_FDK_PATH;
+const _fdkExists = _fdkPath && fs.existsSync(_fdkPath);
+const _anyFdk = _fdkExists && Object.values(spriteConfig.encoding || {}).some(e => (e.encoder || spriteConfig.encoder) === 'fdk');
+const pathToFFmpeg = _anyFdk ? _fdkPath : require('ffmpeg-static');
 
 console.log("pathToFFmpeg ->", pathToFFmpeg);
+if (_anyFdk) console.log("(FDK binary — per-category encoder selection)");
 
 // ── Detect AAC encoder ───────────────────────────────────────────────────────
 let encoderName = 'aac (native)';
@@ -28,14 +43,7 @@ try {
     const fallback = (e.stderr ? e.stderr.toString() : '') + (e.stdout ? e.stdout.toString() : '');
     if (fallback.includes('libfdk_aac')) encoderName = 'libfdk_aac (Fraunhofer)';
 }
-console.log(`AAC encoder: ${encoderName}`);
-
-// Read configs
-let settings, spriteConfig;
-try { settings = JSON.parse(fs.readFileSync("settings.json", "utf8")); }
-catch (e) { console.error("Failed to read settings.json:", e.message); process.exit(1); }
-try { spriteConfig = JSON.parse(fs.readFileSync("sprite-config.json", "utf8")); }
-catch (e) { console.error("Failed to read sprite-config.json:", e.message); process.exit(1); }
+console.log(`AAC encoder available: ${encoderName}`);
 
 const gameProjectPath = settings.gameProjectPath;
 if (!gameProjectPath) { console.error("gameProjectPath not set in settings.json"); process.exit(1); }
@@ -74,6 +82,17 @@ const standaloneSounds = spriteConfig.standalone.sounds || [];
 const streamingSounds = spriteConfig.streaming?.sounds || [];
 const spriteGroups = spriteConfig.sprites;
 const encoding = spriteConfig.encoding;
+
+// Log encoding settings so user can verify bitrate + encoder per category
+if (encoding) {
+  for (const [key, enc] of Object.entries(encoding)) {
+    const encType = (enc.encoder || spriteConfig.encoder || 'native');
+    const wantsFdk = encType === 'fdk';
+    const encLabel = (wantsFdk && _fdkExists) ? 'FDK' : 'native';
+    console.log(`Encoding ${key}: ${enc.keepOriginal ? '320 (keep original)' : enc.bitrate + 'kbps'} ${enc.channels}ch ${enc.samplerate}Hz [${encLabel}]`);
+    if (wantsFdk && !_fdkExists) console.log(`  ⚠ ${key}: FDK requested but binary not found — falling back to native`);
+  }
+}
 
 // Collect assigned sounds
 const assignedSounds = new Set();
@@ -243,7 +262,10 @@ function buildOne(build, index, total) {
         const gap = isStandalone ? 0 : spriteConfig.spriteGap;
         const typeLabel = build.type === 'streaming' ? 'Streaming' : build.type === 'standalone' ? 'Standalone' : 'Sprite';
 
-        console.log(`\n[${index + 1}/${total}] ${typeLabel}: ${build.name} (${build.files.length} file(s), ${enc.bitrate}kbps)`);
+        const encEncoder = enc.encoder || spriteConfig.encoder || 'native';
+        const usesFdkForThis = (encEncoder === 'fdk') && _fdkExists;
+        const encLabel = usesFdkForThis ? 'FDK' : 'native';
+        console.log(`\n[${index + 1}/${total}] ${typeLabel}: ${build.name} (${build.files.length} file(s), ${enc.bitrate}kbps, ${encLabel})`);
 
         const opts = {
             output: outDir + build.outputName,
@@ -252,6 +274,7 @@ function buildOne(build, index, total) {
             bitrate: enc.keepOriginal ? 320 : enc.bitrate,
             gap,
             silence: 0,
+            useNativeAac: !usesFdkForThis,
             logger: { debug: () => {}, info: console.log, log: console.log }
         };
         if (!enc.keepOriginal) {

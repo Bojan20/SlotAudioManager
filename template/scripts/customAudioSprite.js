@@ -275,7 +275,7 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
             ac3: ['-acodec', 'ac3', '-ab', opts.bitrate + 'k'],
             mp3: ['-ar', opts.samplerate, '-f', 'mp3'],
             mp4: ['-ab', opts.bitrate + 'k'],
-            m4a: hasFdkAac(ffmpegPath)
+            m4a: (hasFdkAac(ffmpegPath) && !opts.useNativeAac)
                 ? ['-c:a', 'libfdk_aac', '-b:a', opts.bitrate + 'k', '-afterburner', '1']
                 : ['-ab', opts.bitrate + 'k', '-strict', '-2'],
             ogg: ['-acodec', 'libvorbis', '-f', 'ogg', '-ab', opts.bitrate + 'k'],
