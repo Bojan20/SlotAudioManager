@@ -210,7 +210,7 @@ async function killPort(port) {
         if (pids.size === 0) return resolve();
         let pending = pids.size;
         for (const pid of pids) {
-          exec(`taskkill /F /PID ${pid}`, () => { if (--pending === 0) resolve(); });
+          exec(`taskkill /F /T /PID ${pid}`, () => { if (--pending === 0) resolve(); });
         }
       });
     } else {
@@ -465,8 +465,8 @@ function loadProject(dirPath) {
                 return ra !== rb ? ra - rb : a.localeCompare(b);
               });
             gameNodeCache[branchCacheKey] = { branch, branches };
-            // Notify renderer — merge branch info into existing project, don't replace
-            if (mainWindow && !mainWindow.isDestroyed()) {
+            // Notify renderer — only if same project is still open
+            if (mainWindow && !mainWindow.isDestroyed() && projectPath === dirPath) {
               mainWindow.webContents.send('project-branch-update', { gameRepoBranch: branch, gameRepoBranches: branches });
             }
           });
@@ -2013,20 +2013,23 @@ ipcMain.handle('upgrade-ffmpeg', async () => {
   const sevenZrPath = path.join(tmpDir, '7zr.exe');
 
   // Helper: download file with redirect following + progress
-  const downloadFile = (fileUrl, destPath, label) => new Promise((resolve, reject) => {
+  const downloadFile = (fileUrl, destPath, label, maxMs = 600000) => new Promise((resolve, reject) => {
     const https = require('https');
+    let done = false, file = null, req = null;
+    const finish = (err) => { if (done) return; done = true; if (file) { file.destroy(); } if (req) { req.destroy(); } err ? reject(err) : resolve(); };
+    const totalTimer = setTimeout(() => finish(new Error(`${label}: download timeout (${maxMs / 1000}s)`)), maxMs);
     const followRedirect = (url, redirects = 0) => {
-      if (redirects > 5) return reject(new Error('Too many redirects'));
+      if (redirects > 5) return finish(new Error('Too many redirects'));
       const proto = url.startsWith('http://') ? require('http') : https;
-      proto.get(url, { headers: { 'User-Agent': 'SlotAudioManager' } }, res => {
+      req = proto.get(url, { headers: { 'User-Agent': 'SlotAudioManager' } }, res => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return followRedirect(res.headers.location, redirects + 1);
         }
-        if (res.statusCode !== 200) return reject(new Error(`${label}: HTTP ${res.statusCode}`));
+        if (res.statusCode !== 200) return finish(new Error(`${label}: HTTP ${res.statusCode}`));
         const total = parseInt(res.headers['content-length'] || '0');
         let downloaded = 0;
         let lastPct = -1;
-        const file = fs.createWriteStream(destPath);
+        file = fs.createWriteStream(destPath);
         res.on('data', chunk => {
           downloaded += chunk.length;
           if (total > 0) {
@@ -2035,9 +2038,9 @@ ipcMain.handle('upgrade-ffmpeg', async () => {
           }
         });
         res.pipe(file);
-        file.on('close', () => resolve());
-        file.on('error', reject);
-        res.on('error', reject);
+        file.on('close', () => { clearTimeout(totalTimer); finish(); });
+        file.on('error', e => { clearTimeout(totalTimer); finish(e); });
+        res.on('error', e => { clearTimeout(totalTimer); finish(e); });
       }).on('error', reject);
     };
     followRedirect(fileUrl);
@@ -2796,12 +2799,25 @@ as(ff, ${JSON.stringify(files.map(f => f.replace(/\\/g, '/')))}, opts, 0, (err) 
       for (const f of files) {
         try {
           const buf = fs.readFileSync(f);
-          const wavCh = buf.readUInt16LE(22);
-          const wavSr = buf.readUInt32LE(24);
-          const wavBits = buf.readUInt16LE(34);
-          const dataStart = buf.indexOf(Buffer.from('data')) + 8;
-          const dataSize = buf.readUInt32LE(dataStart - 4);
-          const wavSamples = dataSize / (wavCh * (wavBits / 8));
+          // Scan RIFF chunks to find fmt (handles JUNK/LIST before fmt)
+          let wavCh = 2, wavSr = 44100, wavBits = 16, dataSize = 0;
+          if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WAVE') {
+            let pos = 12;
+            while (pos + 8 <= buf.length) {
+              const id = buf.toString('ascii', pos, pos + 4);
+              const sz = buf.readUInt32LE(pos + 4);
+              if (id === 'fmt ' && sz >= 16) {
+                wavCh = buf.readUInt16LE(pos + 10);
+                wavSr = buf.readUInt32LE(pos + 12);
+                wavBits = buf.readUInt16LE(pos + 22);
+              } else if (id === 'data') {
+                dataSize = sz;
+                break;
+              }
+              pos += 8 + sz + (sz % 2); // word-align
+            }
+          }
+          const wavSamples = wavBits > 0 && wavCh > 0 ? dataSize / (wavCh * (wavBits / 8)) : 0;
           // Resample: output duration = wavSamples / wavSr, output samples = duration * sr
           totalSamples += (wavSamples / wavSr) * sr;
         } catch {}

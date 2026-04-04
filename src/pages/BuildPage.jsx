@@ -28,6 +28,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const abCtxRef = useRef(null);
   const abSourceRef = useRef(null);
   const abIdRef = useRef(0);
+  const buildVersionTimerRef = useRef(null);
 
   // Auto-scroll log to bottom as lines stream in
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
@@ -55,6 +56,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
+    if (buildVersionTimerRef.current) { clearTimeout(buildVersionTimerRef.current); buildVersionTimerRef.current = null; }
     setAbFiles([]); setAbPlaying(null); stopAbAudio();
     if (project) { loadGameScripts(); }
   }, [project?.path, project?._reloadKey]);
@@ -145,7 +147,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       } else if (r?.pending && retries < 5) {
         // Jenkins hasn't tagged yet — auto-retry in 15s (up to 5 times = ~75s)
         showToast(`Build not ready, checking again in 15s... (${retries + 1}/5)`, 'info');
-        setTimeout(() => checkBuildVersion(retries + 1), 15000);
+        buildVersionTimerRef.current = setTimeout(() => checkBuildVersion(retries + 1), 15000);
         return; // don't clear buildChecking — still polling
       } else if (r?.pending) {
         showToast('Build version not found after 5 attempts — check Jenkins manually', 'error');
