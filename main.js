@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execFileSync, execSync, exec, spawn } = require('child_process');
@@ -170,8 +170,8 @@ app.on('before-quit', () => {
 // Check if a port is free (ECONNREFUSED = free, anything else = still in use)
 function isPortFree(port) {
   return new Promise(resolve => {
-    const net = require('net');
-    const sock = new net.Socket();
+    const tcpNet = require('net');
+    const sock = new tcpNet.Socket();
     sock.setTimeout(200);
     sock.on('connect', () => { sock.destroy(); resolve(false); });
     sock.on('error', e => { sock.destroy(); resolve(e.code === 'ECONNREFUSED'); });
@@ -794,25 +794,6 @@ ipcMain.handle('clean-dist', async () => {
   }
 });
 
-ipcMain.handle('git-pull', async () => {
-  if (!projectPath) return { error: 'No project open' };
-  const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
-  try {
-    const branch = (await gitAsync(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })).trim();
-    if (!branch || branch === 'HEAD') return { error: 'Detached HEAD — cannot pull' };
-    send(`Fetching origin...\n`);
-    await gitAsync(['fetch', 'origin'], { capture: false });
-    send(`Pulling ${branch}...\n`);
-    const out = await gitAsync(['pull', 'origin', branch, '--ff-only']);
-    send(out || 'Already up to date.\n');
-    send(`✔ Pull complete\n`);
-    return { success: true, project: loadProject(projectPath) };
-  } catch (e) {
-    const msg = e.stderr ? e.stderr.toString() : e.message;
-    send(`✖ Pull failed: ${msg}\n`);
-    return { error: msg };
-  }
-});
 
 ipcMain.handle('git-status', async () => {
   if (!projectPath) return { error: 'No project open' };
@@ -1931,7 +1912,6 @@ ipcMain.handle('list-encoder-test', async () => {
 
 // ── Upgrade ffmpeg to FDK-AAC build ──────────────────────────────────────────
 // ── Encoder setting (global, persisted in userData) ──────────────────────────
-const _encoderSettingFile = path.join(app.getPath('userData'), 'encoder-setting.json');
 const _fdkDir = path.join(app.getPath('userData'), 'ffmpeg-fdk');
 const _fdkBin = path.join(_fdkDir, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
 
@@ -1941,13 +1921,6 @@ function getEncoderSetting() {
 }
 
 ipcMain.handle('get-encoder-setting', async () => getEncoderSetting());
-
-ipcMain.handle('set-encoder-setting', async (event, encoder) => {
-  if (encoder !== 'native' && encoder !== 'fdk') return { error: 'Invalid encoder' };
-  if (encoder === 'fdk' && !fs.existsSync(_fdkBin)) return { error: 'FDK not downloaded yet' };
-  try { fs.writeFileSync(_encoderSettingFile, JSON.stringify({ encoder })); } catch (e) { return { error: e.message }; }
-  return { success: true };
-});
 
 ipcMain.handle('upgrade-ffmpeg', async () => {
   const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
@@ -2223,11 +2196,11 @@ ipcMain.handle('open-game-window', async (event, url) => {
 // Poll TCP port until available, then resolve (for waiting on dev servers)
 ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
   if (!port || typeof port !== 'number' || port < 1 || port > 65535) return { error: 'Invalid port' };
-  const net = require('net');
+  const tcpNet = require('net');
   return new Promise((resolve) => {
     const start = Date.now();
     const check = () => {
-      const client = net.createConnection(port, '127.0.0.1');
+      const client = tcpNet.createConnection(port, '127.0.0.1');
       client.on('connect', () => { client.destroy(); resolve({ ready: true }); });
       client.on('error', () => {
         client.destroy();

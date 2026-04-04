@@ -61,13 +61,14 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     if (project) { loadGameScripts(); }
   }, [project?.path, project?._reloadKey]);
 
-  // VPN status polling — check every 30s + on project load
+  // VPN status polling — check every 30s, only when a project with game repo is open
   useEffect(() => {
+    if (!project?.gameRepoAbsPath) return;
     const checkVpn = () => window.api.vpnStatus().then(r => setVpnConnected(!!r?.connected));
     checkVpn();
     const interval = setInterval(checkVpn, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [project?.gameRepoAbsPath]);
 
   const loadGameGitStatus = async () => {
     setGameGitLoading(true);

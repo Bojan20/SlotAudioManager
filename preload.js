@@ -44,7 +44,6 @@ contextBridge.exposeInMainWorld('api', {
   listEncoderTest: () => ipcRenderer.invoke('list-encoder-test'),
   upgradeFfmpeg: () => ipcRenderer.invoke('upgrade-ffmpeg'),
   getEncoderSetting: () => ipcRenderer.invoke('get-encoder-setting'),
-  setEncoderSetting: (encoder) => ipcRenderer.invoke('set-encoder-setting', encoder),
   vpnConnect: () => ipcRenderer.invoke('vpn-connect'),
   vpnDisconnect: () => ipcRenderer.invoke('vpn-disconnect'),
   vpnStatus: () => ipcRenderer.invoke('vpn-status'),

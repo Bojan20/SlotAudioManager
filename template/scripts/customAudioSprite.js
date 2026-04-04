@@ -142,8 +142,8 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
 
         opts.logger.debug('Start processing', { file: src })
 
-        fs.exists(src, function(exists) {
-            if (exists) {
+        fs.access(src, fs.constants.F_OK, function(err) {
+            if (!err) {
                 let code = -1
                 let signal = undefined
                 let ffmpeg = spawn(ffmpegPath, ['-i', path.resolve(src)]
