@@ -577,6 +577,8 @@ function sanitizeCommandStep(step) {
   if (s.delay !== undefined)  { const v = parseInt(s.delay);    s.delay  = isNaN(v) ? 0 : v; }
   if (s.rate  !== undefined)  { const v = parseFloat(s.rate);   s.rate   = isNaN(v) ? 1 : v; }
   if (s.pan   !== undefined)  { const v = parseFloat(s.pan);    s.pan    = isNaN(v) ? 0 : v; }
+  // spriteToPlay: remove empty string (only meaningful when non-empty)
+  if (s.spriteToPlay !== undefined && !s.spriteToPlay) delete s.spriteToPlay;
   if (s.duration !== undefined) { const v = parseInt(s.duration); s.duration = isNaN(v) ? 0 : v; }
   // delay: remove if 0 (no-op, reduces noise)
   if (s.delay === 0 || s.delay === null || s.delay === undefined) delete s.delay;

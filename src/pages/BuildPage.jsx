@@ -65,7 +65,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   // Refresh on reload — but preserve autoLaunch, gameGit state
   useEffect(() => {
     if (!project?._reloadKey) return;
-    setLog(''); setResult(null); setRunning(null);
+    setResult(null);
+    if (buildVersionTimerRef.current) { clearTimeout(buildVersionTimerRef.current); buildVersionTimerRef.current = null; }
     if (project) { loadGameScripts(); }
   }, [project?._reloadKey]);
 
