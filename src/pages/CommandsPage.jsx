@@ -398,7 +398,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [confirmDeleteList, setConfirmDeleteList] = useState(null);
   const [selected, setSelected] = useState(new Set()); // multi-select for bulk ops
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const [previewCmds, setPreviewCmds] = useState(new Set()); // active preview command names
+  const [previewCmds, setPreviewCmds] = useState(new Set()); // active preview command names (UI)
+  const previewCmdsRef = useRef(new Set()); // same as state but readable in callbacks without stale closure
   const previewCtxRef = useRef(null);
   const previewSourcesRef = useRef([]); // { source, cmdName }
   const previewTimersRef = useRef([]); // { timer, cmdName }
@@ -575,6 +576,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     previewSourcesRef.current.forEach(s => { try { s.source.stop(); } catch {} });
     previewSourcesRef.current = [];
     if (previewCtxRef.current) { previewCtxRef.current.close().catch(() => {}); previewCtxRef.current = null; }
+    previewCmdsRef.current = new Set();
     setPreviewCmds(new Set());
   };
 
@@ -586,6 +588,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const sources = previewSourcesRef.current.filter(s => s.cmdName === cmdName);
     sources.forEach(s => { try { s.source.stop(); } catch {} });
     previewSourcesRef.current = previewSourcesRef.current.filter(s => s.cmdName !== cmdName);
+    previewCmdsRef.current.delete(cmdName);
     setPreviewCmds(prev => { const next = new Set(prev); next.delete(cmdName); return next; });
     // Close ctx only if nothing left playing
     if (previewSourcesRef.current.length === 0 && previewTimersRef.current.length === 0) {
@@ -595,13 +598,14 @@ export default function CommandsPage({ project, setProject, showToast }) {
 
   const playPreview = async (cmdName) => {
     // Toggle: if this command is already playing, stop only it
-    if (previewCmds.has(cmdName)) { stopPreviewCmd(cmdName); return; }
+    if (previewCmdsRef.current.has(cmdName)) { stopPreviewCmd(cmdName); return; }
     const steps = commands[cmdName];
     if (!Array.isArray(steps) || steps.length === 0) return;
 
+    previewCmdsRef.current.add(cmdName);
     setPreviewCmds(prev => new Set(prev).add(cmdName));
     const playSteps = steps.filter(s => s.command === 'Play');
-    if (playSteps.length === 0) { setPreviewCmds(prev => { const n = new Set(prev); n.delete(cmdName); return n; }); return; }
+    if (playSteps.length === 0) { stopPreviewCmd(cmdName); return; }
 
     try {
       // Resolve and fetch all WAVs upfront
@@ -641,7 +645,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
         const volume = step.volume ?? 1;
 
         const timer = setTimeout(() => {
-          if (!previewCmds.has(cmdName) && !document.querySelector(`[data-preview="${cmdName}"]`)) return;
+          if (!previewCmdsRef.current.has(cmdName)) return; // command was stopped
           try {
             const gain = ctx.createGain();
             gain.gain.value = volume;
