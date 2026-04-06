@@ -367,6 +367,20 @@ export default function CommandsPage({ project, setProject, showToast }) {
   // Clear selection when switching tabs
   useEffect(() => { setSelected(new Set()); setConfirmBulkDelete(false); }, [viewTab]);
 
+  // Space key: play/stop preview for expanded command
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.code !== 'Space') return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+      if (!expanded || viewTab !== 'commands') return;
+      e.preventDefault();
+      playPreview(expanded);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [expanded, viewTab, previewCmd]);
+
   // Close inline list editor when command expand/collapse changes
   useEffect(() => { setEditListInline(null); setConfirmDeleteCmd(null); setRenameCmd(null); }, [expanded]);
 
