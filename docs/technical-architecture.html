@@ -1,0 +1,1929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IGT Slot Audio Manager — Technical Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-deep: #06060e;
+    --bg-dark: #0a0a16;
+    --bg-card: #0f0f1e;
+    --bg-card-hover: #14142a;
+    --bg-code: #0c0c1a;
+    --accent: #8b7cf8;
+    --accent-bright: #a599ff;
+    --accent-dim: rgba(139, 124, 248, 0.12);
+    --accent-glow: rgba(139, 124, 248, 0.25);
+    --cyan: #38bdf8;
+    --cyan-dim: rgba(56, 189, 248, 0.12);
+    --green: #4ade80;
+    --green-dim: rgba(74, 222, 128, 0.12);
+    --orange: #fb923c;
+    --orange-dim: rgba(251, 146, 60, 0.12);
+    --danger: #f87171;
+    --text-primary: #eeeeff;
+    --text-secondary: #b0b0d0;
+    --text-dim: #6a6a96;
+    --border: rgba(255,255,255,0.08);
+    --border-bright: rgba(255,255,255,0.15);
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    background: var(--bg-deep);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     COVER PAGE
+     ═══════════════════════════════════════════════════════ */
+  .cover {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 40%, rgba(139,124,248,0.15) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 50% at 70% 60%, rgba(56,189,248,0.08) 0%, transparent 60%),
+      linear-gradient(180deg, #06060e 0%, #0a0a1a 40%, #0e0e24 100%);
+    text-align: center;
+    padding: 80px 60px;
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+  }
+
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%; right: -50%; bottom: -50%;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 100px,
+      rgba(139,124,248,0.02) 100px,
+      rgba(139,124,248,0.02) 101px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 100px,
+      rgba(139,124,248,0.02) 100px,
+      rgba(139,124,248,0.02) 101px
+    );
+    pointer-events: none;
+  }
+
+  .cover-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(139,124,248,0.1);
+    border: 1px solid rgba(139,124,248,0.2);
+    color: var(--accent-bright);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 100px;
+    margin-bottom: 32px;
+    position: relative;
+  }
+
+  .cover-icon {
+    width: 72px; height: 72px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--cyan) 100%);
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 36px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.1),
+      0 20px 60px rgba(139,124,248,0.3),
+      0 8px 24px rgba(0,0,0,0.4);
+    position: relative;
+  }
+
+  .cover h1 {
+    font-size: 42px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent-bright) 50%, var(--cyan) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 12px;
+    border: none;
+    padding: 0;
+    line-height: 1.1;
+    position: relative;
+  }
+
+  .cover .subtitle {
+    font-size: 17px;
+    color: var(--text-dim);
+    font-weight: 400;
+    margin-bottom: 56px;
+    letter-spacing: 0.02em;
+    position: relative;
+  }
+
+  .cover-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px 40px;
+    text-align: left;
+    max-width: 400px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 32px;
+    position: relative;
+  }
+
+  .cover-meta dt {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    font-weight: 600;
+  }
+
+  .cover-meta dd {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-top: 2px;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     TABLE OF CONTENTS
+     ═══════════════════════════════════════════════════════ */
+  .toc {
+    page-break-after: always;
+    padding: 60px;
+    background: var(--bg-deep);
+    min-height: 100vh;
+  }
+
+  .toc h2 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 32px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .toc-list {
+    list-style: none;
+    padding: 0;
+    counter-reset: toc-counter;
+  }
+
+  .toc-list li {
+    counter-increment: toc-counter;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+  }
+
+  .toc-list li::before {
+    content: counter(toc-counter, decimal-leading-zero);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    min-width: 24px;
+  }
+
+  .toc-list li span {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+  }
+
+  .toc-list li em {
+    font-style: normal;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     CONTENT AREA
+     ═══════════════════════════════════════════════════════ */
+  .content {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 56px 60px;
+    background: var(--bg-deep);
+  }
+
+  /* ── Typography ── */
+  h1 {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-primary);
+    letter-spacing: -0.3px;
+    margin: 56px 0 20px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--accent);
+    position: relative;
+  }
+  h1::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 60px;
+    height: 2px;
+    background: var(--cyan);
+  }
+  h1:first-child { margin-top: 0; }
+
+  h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 44px 0 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-bright);
+    page-break-after: avoid;
+  }
+
+  h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent-bright);
+    margin: 32px 0 12px;
+    page-break-after: avoid;
+  }
+
+  h4 {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--cyan);
+    margin: 24px 0 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    page-break-after: avoid;
+  }
+
+  p {
+    margin: 8px 0;
+    color: var(--text-secondary);
+  }
+
+  strong {
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
+  em {
+    color: var(--accent-bright);
+    font-style: italic;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent-dim);
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 40px 0;
+  }
+
+  /* ── Lists ── */
+  ul, ol {
+    padding-left: 20px;
+    margin: 10px 0;
+    color: var(--text-secondary);
+  }
+
+  li {
+    margin: 5px 0;
+    padding-left: 4px;
+  }
+
+  li::marker {
+    color: var(--accent);
+  }
+
+  li strong {
+    color: var(--text-primary);
+  }
+
+  /* ── Inline Code ── */
+  code {
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    background: var(--accent-dim);
+    color: var(--accent-bright);
+    padding: 2px 7px;
+    border-radius: 5px;
+    font-weight: 500;
+    border: 1px solid rgba(139,124,248,0.1);
+  }
+
+  /* ── Code Blocks ── */
+  pre {
+    background: var(--bg-code);
+    color: #c8c8e8;
+    padding: 20px 24px;
+    border-radius: 12px;
+    overflow-x: auto;
+    font-size: 11px;
+    line-height: 1.65;
+    margin: 16px 0;
+    border: 1px solid var(--border);
+    position: relative;
+    page-break-inside: avoid;
+  }
+
+  pre::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), var(--cyan), transparent);
+    opacity: 0.4;
+  }
+
+  pre code {
+    background: none;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+    font-weight: 400;
+    border: none;
+    border-radius: 0;
+  }
+
+  /* ── Tables ── */
+  table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    margin: 16px 0;
+    font-size: 11.5px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border-bright);
+    page-break-inside: avoid;
+  }
+
+  thead th {
+    background: rgba(139,124,248,0.08);
+    color: var(--accent-bright);
+    font-weight: 600;
+    text-align: left;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-bright);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  td {
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    color: var(--text-secondary);
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+
+  tbody tr {
+    background: rgba(255,255,255,0.01);
+  }
+
+  tbody tr:nth-child(even) {
+    background: rgba(255,255,255,0.025);
+  }
+
+  td code {
+    font-size: 10.5px;
+  }
+
+  /* First column bold */
+  td:first-child {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  /* ── Blockquote ── */
+  blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 14px 20px;
+    margin: 20px 0;
+    background: var(--accent-dim);
+    border-radius: 0 10px 10px 0;
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+
+  blockquote p {
+    margin: 0;
+    color: inherit;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     SECTION DIVIDERS
+     ═══════════════════════════════════════════════════════ */
+  .section-break {
+    page-break-before: always;
+    margin-top: 60px;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     PRINT STYLES
+     ═══════════════════════════════════════════════════════ */
+  @media print {
+    body {
+      font-size: 11px;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .cover {
+      height: 100vh;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 40%, rgba(139,124,248,0.15) 0%, transparent 70%),
+        linear-gradient(180deg, #06060e 0%, #0a0a1a 40%, #0e0e24 100%) !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    pre, table, blockquote {
+      page-break-inside: avoid;
+    }
+
+    h2, h3, h4 {
+      page-break-after: avoid;
+    }
+
+    .content {
+      padding: 32px 44px;
+    }
+
+    .toc {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ COVER PAGE ══════════════════ -->
+<div class="cover">
+  <div class="cover-badge">
+    <svg width="12" height="12" fill="currentColor" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4"/></svg>
+    Technical Architecture Document
+  </div>
+  <div class="cover-icon">
+    <svg width="36" height="36" fill="white" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+  </div>
+  <h1 style="font-size:42px;border:none;margin:0 0 12px;padding:0;">IGT Slot Audio Manager</h1>
+  <div class="subtitle">Cross-Platform Electron Desktop Application for Slot Game Audio Workflow</div>
+  <dl class="cover-meta">
+    <div><dt>Version</dt><dd>2.0</dd></div>
+    <div><dt>Date</dt><dd>April 2026</dd></div>
+    <div><dt>Author</dt><dd>Bojan Petkovic</dd></div>
+    <div><dt>Audience</dt><dd>Tech Leads & Architecture Review</dd></div>
+  </dl>
+</div>
+
+<!-- ══════════════════ TABLE OF CONTENTS ══════════════════ -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol class="toc-list">
+    <li><span>Executive Summary</span> <em>Overview & impact</em></li>
+    <li><span>Technology Stack</span> <em>Electron, React, Vite, FFmpeg</em></li>
+    <li><span>Architecture Overview</span> <em>Process model, page architecture</em></li>
+    <li><span>Application Pages — Detailed Walkthrough</span> <em>All 7 tabs explained</em></li>
+    <li><span>Data Model</span> <em>JSON schemas, project structure</em></li>
+    <li><span>Tiered Audio Loading</span> <em>SubLoader system, pool architecture</em></li>
+    <li><span>Build Pipeline</span> <em>WAV → M4A → deploy flow</em></li>
+    <li><span>IPC Channel Reference</span> <em>30+ channels documented</em></li>
+    <li><span>Security Model</span> <em>Process isolation, input validation</em></li>
+    <li><span>Cross-Platform Compatibility</span> <em>macOS + Windows</em></li>
+    <li><span>UI Design System</span> <em>Dark theme, components, animations</em></li>
+    <li><span>Build & Distribution</span> <em>DMG, NSIS, template system</em></li>
+    <li><span>Key Design Decisions</span> <em>Rationale for architectural choices</em></li>
+  </ol>
+</div>
+
+<!-- ══════════════════ CONTENT ══════════════════ -->
+<div class="content">
+<h1>IGT Slot Audio Manager — Technical Architecture Document</h1>
+<p><strong>Version:</strong> 2.0
+<strong>Date:</strong> April 2026
+<strong>Author:</strong> Bojan Petkovic
+<strong>Audience:</strong> Tech Leads, Architecture Review Board, Engineering Management</p>
+<hr>
+<h2>1. Executive Summary</h2>
+<p>IGT Slot Audio Manager is a cross-platform Electron desktop application that manages the complete audio workflow for IGT slot games built on the playa-core framework. It replaces a fragmented, manual, error-prone process — where audio engineers juggle CLI tools, JSON files, and multiple repositories — with a single integrated tool covering the entire lifecycle: import, configure, build, validate, deploy, and launch.</p>
+<p><strong>Key metrics:</strong></p>
+<ul>
+<li>~9,200 lines of source code across 23 files</li>
+<li>7-page single-window UI with always-mounted architecture</li>
+<li>30+ IPC channels between main and renderer processes</li>
+<li>Supports tiered audio sprite building with SubLoader integration</li>
+<li>Full git integration for both audio and game repositories</li>
+<li>Cross-platform: macOS (DMG) + Windows (NSIS installer)</li>
+</ul>
+<p><strong>Before this tool existed:</strong></p>
+<ol>
+<li>Audio engineer manually runs 3–5 CLI scripts in sequence</li>
+<li>Edits JSON files by hand (typo → broken audio in production)</li>
+<li>Copies files between repos manually</li>
+<li>Launches game via separate terminal commands</li>
+<li>Git operations in a separate terminal</li>
+</ol>
+<p><strong>With this tool:</strong></p>
+<ol>
+<li>One click: Build → Deploy → Launch</li>
+<li>Visual editors for all JSON configurations</li>
+<li>Automatic validation catches errors before deploy</li>
+<li>Integrated git workflow with auto-generated commit messages and PRs</li>
+</ol>
+<hr>
+<h2>2. Technology Stack</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+<th>Version</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Runtime</td>
+<td>Electron</td>
+<td>28</td>
+<td>Desktop shell, main process, IPC</td>
+</tr>
+<tr>
+<td>Renderer</td>
+<td>React</td>
+<td>19</td>
+<td>UI components, state management</td>
+</tr>
+<tr>
+<td>Styling</td>
+<td>Tailwind CSS</td>
+<td>v4</td>
+<td>Utility-first CSS with custom dark theme</td>
+</tr>
+<tr>
+<td>Bundler</td>
+<td>Vite</td>
+<td>8</td>
+<td>Renderer build, HMR in dev</td>
+</tr>
+<tr>
+<td>Audio</td>
+<td>FFmpeg (static)</td>
+<td>bundled</td>
+<td>WAV → M4A encoding</td>
+</tr>
+<tr>
+<td>Audio</td>
+<td>audiosprite</td>
+<td>npm</td>
+<td>Sprite file concatenation</td>
+</tr>
+<tr>
+<td>Audio</td>
+<td>node-exiftool</td>
+<td>npm</td>
+<td>Duration extraction from audio metadata</td>
+</tr>
+<tr>
+<td>Audio</td>
+<td>sox</td>
+<td>npm</td>
+<td>Audio processing and analysis</td>
+</tr>
+<tr>
+<td>Packaging</td>
+<td>electron-builder</td>
+<td>latest</td>
+<td>DMG (macOS), NSIS (Windows) installers</td>
+</tr>
+</tbody></table>
+<p><strong>Language:</strong> Pure JavaScript — CommonJS in main/preload, ESM (JSX) in renderer. No TypeScript by design for rapid iteration and minimal build overhead.</p>
+<hr>
+<h2>3. Architecture Overview</h2>
+<pre><code>┌──────────────────────────────────────────────────────────────┐
+│                    Electron Main Process                      │
+│                       main.js (1,676 lines)                  │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌─────────────┐ │
+│  │ File Ops │  │ Git Ops  │  │ Process  │  │ IPC Handlers│ │
+│  │ JSON R/W │  │ Status   │  │ Spawning │  │ 30+ channels│ │
+│  │ WAV Mgmt │  │ Commit   │  │ npm/yarn │  │ Validation  │ │
+│  │ Template │  │ Push/PR  │  │ playa    │  │ Security    │ │
+│  └──────────┘  └──────────┘  └──────────┘  └─────────────┘ │
+│                                                              │
+│  contextIsolation: true       nodeIntegration: false         │
+├──────────────────────────────────────────────────────────────┤
+│                    preload.js (bridge)                        │
+│             contextBridge.exposeInMainWorld(&#39;api&#39;)            │
+├──────────────────────────────────────────────────────────────┤
+│                   Electron Renderer Process                   │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐    │
+│  │                     App.jsx                           │    │
+│  │  Sidebar Nav │ Always-mounted pages │ Toast system    │    │
+│  ├──────────────────────────────────────────────────────┤    │
+│  │  ProjectPage │ SetupPage │ SoundsPage │ SpriteConfig  │    │
+│  │  CommandsPage │ BuildPage │ GitPage                   │    │
+│  └──────────────────────────────────────────────────────┘    │
+│                                                              │
+│  React 19 + Tailwind v4 + Vite 8                            │
+└──────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3>3.1 Process Model</h3>
+<p>The application follows Electron&#39;s two-process model with strict security boundaries:</p>
+<ul>
+<li><strong>Main process</strong> (<code>main.js</code>): All file system operations, git commands, subprocess spawning, and IPC handling. No renderer code touches Node.js APIs.</li>
+<li><strong>Renderer process</strong> (<code>src/</code>): React UI with no access to Node.js. All operations are requested via <code>window.api.*</code> which maps to IPC invoke calls.</li>
+<li><strong>Preload bridge</strong> (<code>preload.js</code>): Thin layer exposing 40+ API methods via <code>contextBridge</code>. Each method maps 1:1 to an IPC channel.</li>
+</ul>
+<h3>3.2 Always-Mounted Page Architecture</h3>
+<p>All 7 pages are <strong>always mounted</strong> simultaneously. Navigation toggles <code>display: none</code> — pages are never unmounted. This preserves state across page switches (build logs, form inputs, scroll positions, audio playback).</p>
+<pre><code>App.jsx renders ALL 7 pages simultaneously
+  ├── active page:   display: block  (visible)
+  └── inactive pages: display: none   (hidden, state preserved)
+</code></pre>
+<p><strong>Why this matters:</strong></p>
+<ul>
+<li>Build log in BuildPage accumulates even when user is on another tab</li>
+<li>Audio playback in SoundsPage continues across navigation</li>
+<li>Form state (unsaved edits) persists without serialization</li>
+<li>No re-mount cost on tab switch — instant navigation</li>
+</ul>
+<hr>
+<h2>4. Application Pages — Detailed Walkthrough</h2>
+<h3>4.1 Project Page — Dashboard &amp; Overview</h3>
+<blockquote>
+<p>The landing page. Shows project health at a glance and provides the entry point for linking a game repository.</p>
+</blockquote>
+<p><strong>Layout:</strong> Hero welcome screen (no project) → Dashboard grid (project loaded)</p>
+<p><strong>Sections:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Stat Cards (4)</td>
+<td>WAV file count, Commands count, Sprites count, Unassigned sounds count</td>
+</tr>
+<tr>
+<td>Game Repo Panel</td>
+<td>Linked game path, repo existence status, node_modules status</td>
+</tr>
+<tr>
+<td>Last Build Panel</td>
+<td>Sprite count, total size (MB), file listing from dist/</td>
+</tr>
+</tbody></table>
+<p><strong>Key Actions:</strong></p>
+<ul>
+<li><code>Open Project</code> — File dialog to select audio repo folder</li>
+<li><code>Reload</code> — Re-reads all config files from disk</li>
+<li><code>Link Game Repository</code> — Picks game repo, auto-syncs template, auto-installs dependencies</li>
+</ul>
+<p><strong>Example flow:</strong></p>
+<pre><code>User clicks &quot;Open Project&quot;
+  → Dialog selects: C:\IGT\audio-treasure-of-troy
+  → App loads: package.json, settings.json, sounds.json, sprite-config.json
+  → Dashboard shows: 47 WAVs, 32 commands, 3 sprites, 5 unassigned
+  → Game Repo: &quot;../treasure-of-troy&quot; ✓ exists, ✓ node_modules
+</code></pre>
+<p><strong>Visual indicators:</strong></p>
+<ul>
+<li>Green dot = healthy, Orange dot = needs attention, Red dot = missing</li>
+<li>Color-coded stat cards with icons</li>
+<li>Truncated paths with monospace font</li>
+</ul>
+<hr>
+<h3>4.2 Setup Page — Project Initialization &amp; Dependencies</h3>
+<blockquote>
+<p>Configures the audio project from the bundled template and manages game repo dependencies.</p>
+</blockquote>
+<p><strong>Layout:</strong> Two-column grid</p>
+<table>
+<thead>
+<tr>
+<th>Left Column</th>
+<th>Right Column</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Sync Template (with mode selection)</td>
+<td>Game Branch Selector</td>
+</tr>
+<tr>
+<td>Sync log with line-by-line status</td>
+<td>Pull sounds.json from Game</td>
+</tr>
+<tr>
+<td></td>
+<td>Game Dependencies (yarn install)</td>
+</tr>
+</tbody></table>
+<p><strong>Template Sync Modes:</strong></p>
+<ol>
+<li><strong>Sync All</strong> — Overwrites scripts, configs (sprite-config.json, sounds.json), and merges package.json</li>
+<li><strong>Skip Configs</strong> — Overwrites scripts only, preserves existing configs (recommended after first init)</li>
+</ol>
+<p><strong>Example sync log:</strong></p>
+<pre><code>✓ Copied 12 scripts to scripts/
+✓ Merged package.json (3 scripts, 4 dependencies)
+✓ Updated settings.json (preserved gameProjectPath)
+⚠ Skipped sprite-config.json (Skip Configs mode)
+⚠ Skipped sounds.json (Skip Configs mode)
+✓ Created sourceSoundFiles/ directory
+✓ Pulled sounds.json from game deploy path
+</code></pre>
+<p><strong>Game Branch Selector:</strong></p>
+<ul>
+<li>Dropdown with remote branches</li>
+<li>Switch &amp; Pull button — checks out branch, pulls latest</li>
+<li>Auto-detects Node version from nvm</li>
+<li>Badge shows current branch and Node version</li>
+</ul>
+<p><strong>Key Actions:</strong></p>
+<ul>
+<li><code>Sync Template</code> → <code>npm install</code> (auto-chained)</li>
+<li><code>Switch &amp; Pull</code> — Changes game repo branch</li>
+<li><code>Pull from Game</code> — Copies sounds.json from game&#39;s deploy path to audio repo root</li>
+<li><code>Install</code> — Runs <code>yarn install</code> in game repo</li>
+</ul>
+<hr>
+<h3>4.3 Sounds Page — Source WAV File Management</h3>
+<blockquote>
+<p>Manages the raw WAV source files that become audio sprites. Full playback, waveform visualization, and JSON integration.</p>
+</blockquote>
+<p><strong>Layout:</strong> Header with actions → Search filter → Sound list grid → Modals</p>
+<p><strong>Sound List Grid (5 columns):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Play/Pause</td>
+<td>Web Audio playback with waveform visualization</td>
+</tr>
+<tr>
+<td>Filename</td>
+<td>Monospace name, truncated</td>
+</tr>
+<tr>
+<td>JSON Status</td>
+<td>Green &quot;in JSON&quot; badge or orange &quot;+ Add&quot; button</td>
+</tr>
+<tr>
+<td>Size</td>
+<td>File size in KB (right-aligned)</td>
+</tr>
+<tr>
+<td>Delete</td>
+<td>Trash icon (visible on hover)</td>
+</tr>
+</tbody></table>
+<p><strong>Waveform Player:</strong></p>
+<ul>
+<li>Custom <code>decodeWav()</code> function — pure JS, supports 8/16/24/32-bit PCM and 32-bit IEEE float</li>
+<li>Never uses <code>decodeAudioData()</code> (crashes Electron for 24-bit and 32-bit int PCM)</li>
+<li>200-peak waveform visualization with animated playhead</li>
+<li>Click-to-seek on waveform bar</li>
+<li>Pause/resume with accurate position tracking</li>
+</ul>
+<p><strong>JSON Cleanup (Orphan Analysis):</strong></p>
+<pre><code>Analyze → Finds sprites in sounds.json with no matching WAV file
+
+Example result:
+  3 orphaned sprites: s_DeletedSound1, s_OldEffect, s_Unused
+  2 affected sprite lists: sl_WinSounds (1 item), sl_Bonus (1 item)
+  1 affected command: onOldEvent (2 steps)
+
+  → &quot;Delete 3 orphan(s)&quot; removes dead references from sounds.json
+</code></pre>
+<p><strong>Key Actions:</strong></p>
+<ul>
+<li><code>Import WAVs</code> — Multi-select file dialog, copies WAVs to sourceSoundFiles/</li>
+<li><code>Add All to JSON</code> — Bulk adds all unassigned sounds with auto-tag detection</li>
+<li><code>Analyze</code> / <code>Delete orphans</code> — Finds and cleans dead references</li>
+<li><code>Trash</code> — Opens trash modal showing soft-deleted files (restorable)</li>
+<li>Play/Pause/Stop — Per-sound audio playback with visual feedback</li>
+</ul>
+<p><strong>Soft Delete System:</strong></p>
+<ul>
+<li>Delete moves WAV to <code>sourceSoundFiles/.deleted/</code></li>
+<li>Trash modal lists deleted files with Restore buttons</li>
+<li>Permanent deletion only happens when <code>.deleted/</code> is manually cleared</li>
+</ul>
+<hr>
+<h3>4.4 Sprite Config Page — Audio Tier Configuration</h3>
+<blockquote>
+<p>Assigns sounds to loading pools (tiers) that control when and how audio is loaded at runtime.</p>
+</blockquote>
+<p><strong>Layout:</strong> Header with unassigned count → Pool cards (one per tier) → Standalone card</p>
+<p><strong>The 4-Pool Architecture:</strong></p>
+<pre><code>┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌──────────────┐
+│  LOADING    │  │    MAIN     │  │    BONUS    │  │  STANDALONE  │
+│  Immediate  │  │ Deferred A  │  │ Deferred B  │  │  Separate    │
+│             │  │             │  │ Unloadable  │  │  M4A files   │
+│  UI, reel   │  │ Symbols,    │  │ Free spins, │  │              │
+│  land, pay  │  │ big win,    │  │ picker,     │  │  Base game   │
+│  line, spin │  │ anticipate  │  │ hold &amp; win  │  │  music only  │
+│             │  │             │  │             │  │              │
+│  ~500 KB    │  │  ~2 MB      │  │  ~2 MB      │  │  Per-file    │
+│  Priority 1 │  │  Priority 2 │  │  Priority 3 │  │              │
+└─────────────┘  └─────────────┘  └─────────────┘  └──────────────┘
+</code></pre>
+<p><strong>Pool Card Features:</strong></p>
+<ul>
+<li>Loading strategy badge (IMMEDIATE / DEFERRED / LAZY / MUSIC)</li>
+<li>SubLoader ID badge (A, B, C... for deferred pools)</li>
+<li>UNLOADABLE badge (for bonus pool)</li>
+<li>Sound count and estimated compressed size</li>
+<li>Size progress bar with percentage (red if over <code>maxSizeKB</code> limit)</li>
+<li>Expandable sound list with drag-and-drop between pools</li>
+<li>Settings: maxSizeKB, SubLoader selector (A–F, Z), unloadable checkbox</li>
+</ul>
+<p><strong>Auto-Assign Algorithm:</strong>
+Priority-ordered pattern matching, first match wins:</p>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Target Pool</th>
+<th>Examples</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>BaseGameMusicLoop*</code>, <code>AmbBg</code></td>
+<td>standalone</td>
+<td>BaseGameMusicLoop1, AmbBg</td>
+</tr>
+<tr>
+<td><code>Ui*</code>, <code>ReelLand*</code>, <code>SpinsLoop*</code>, <code>Payline*</code></td>
+<td>loading</td>
+<td>UiSpin, ReelLand1, SpinsLoop1</td>
+</tr>
+<tr>
+<td><code>Bonus*</code>, <code>FreeSpin*</code>, <code>Picker*</code>, <code>HoldAnd*</code></td>
+<td>bonus</td>
+<td>BonusIntro, FreeSpinMusic, PickerHit</td>
+</tr>
+<tr>
+<td><code>BigWin*</code>, <code>Sym*</code>, <code>Anticipation*</code></td>
+<td>main</td>
+<td>BigWinStart, SymHp1Win, Anticipation</td>
+</tr>
+<tr>
+<td>Everything else</td>
+<td>main (fallback)</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><strong>Copy Snippet Feature:</strong>
+For each deferred pool, generates integration code that game developers copy-paste:</p>
+<pre><code class="language-javascript">// SubLoader A — Main pool (call on first spin)
+soundManager.startSubLoader(&quot;A&quot;);
+
+// SubLoader B — Bonus pool (call when bonus confirmed)
+soundManager.startSubLoader(&quot;B&quot;);
+
+// Unload B — After bonus ends
+soundManager.unloadSubLoader(&quot;B&quot;);
+</code></pre>
+<hr>
+<h3>4.5 Commands Page — Sound Command &amp; Sprite List Editor</h3>
+<blockquote>
+<p>Visual editor for the <code>soundDefinitions</code> section of sounds.json. Manages commands (what the game calls), sprite lists (randomized/sequential groups), and validates against game source code.</p>
+</blockquote>
+<p><strong>Layout:</strong> Two-tab view (Commands | Sprite Lists) → Filter bar → Scrollable list → Modals</p>
+<p><strong>Commands Tab:</strong></p>
+<p>A command is what the game calls via <code>soundManager.execute(&quot;commandName&quot;)</code>. Each command has one or more action steps.</p>
+<p><strong>Example command structure:</strong></p>
+<pre><code class="language-json">{
+  &quot;onBigWin&quot;: [
+    { &quot;command&quot;: &quot;Stop&quot;,  &quot;spriteId&quot;: &quot;s_SpinsLoop1&quot; },
+    { &quot;command&quot;: &quot;Play&quot;,  &quot;spriteId&quot;: &quot;s_BigWinStart&quot;, &quot;volume&quot;: 0.9 },
+    { &quot;command&quot;: &quot;Play&quot;,  &quot;spriteId&quot;: &quot;s_CoinShower1&quot;, &quot;volume&quot;: 0.7, &quot;delay&quot;: 500 }
+  ]
+}
+</code></pre>
+<p><strong>Command Row (collapsed):</strong></p>
+<ul>
+<li>Command name (monospace)</li>
+<li>Action count badge</li>
+<li>Error badge (if references missing sprites)</li>
+<li>Hover actions: Copy, Rename, Delete</li>
+</ul>
+<p><strong>Command Row (expanded):</strong>
+Each action step shows:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Display</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Step #</td>
+<td>Numbered badge</td>
+<td>1, 2, 3</td>
+</tr>
+<tr>
+<td>Command Type</td>
+<td>Colored badge</td>
+<td>Play, Stop, Fade, Set, Pause, Resume</td>
+</tr>
+<tr>
+<td>Target</td>
+<td>Sprite ID or List ID (color-coded)</td>
+<td>s_BigWinStart, sl_ReelLands</td>
+</tr>
+<tr>
+<td>Parameters</td>
+<td>Inline badges</td>
+<td>vol: 0.9, delay: 500ms, loop, overlap</td>
+</tr>
+</tbody></table>
+<p><strong>Action Step Types:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Parameters</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Play</td>
+<td>volume, delay, loop, overlap, cancelDelay</td>
+<td>Play a sound or random from list</td>
+</tr>
+<tr>
+<td>Stop</td>
+<td>—</td>
+<td>Stop a playing sound</td>
+</tr>
+<tr>
+<td>Fade</td>
+<td>volume, duration, delay</td>
+<td>Fade in/out (music transitions)</td>
+</tr>
+<tr>
+<td>Set</td>
+<td>volume, pan, rate</td>
+<td>Modify a playing sound</td>
+</tr>
+<tr>
+<td>Pause / Resume</td>
+<td>—</td>
+<td>Pause/resume a specific sound</td>
+</tr>
+<tr>
+<td>Execute</td>
+<td>—</td>
+<td>Chain another command</td>
+</tr>
+<tr>
+<td>ResetSpriteList</td>
+<td>—</td>
+<td>Reset a sprite list to beginning</td>
+</tr>
+</tbody></table>
+<p><strong>Sprite Lists Tab:</strong></p>
+<p>A sprite list is a group of related sounds played randomly or sequentially:</p>
+<pre><code class="language-json">{
+  &quot;sl_ReelLands&quot;: {
+    &quot;items&quot;: [&quot;s_ReelLand1&quot;, &quot;s_ReelLand2&quot;, &quot;s_ReelLand3&quot;, &quot;s_ReelLand4&quot;],
+    &quot;type&quot;: &quot;random&quot;,
+    &quot;overlap&quot;: true
+  }
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Options</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Type</td>
+<td><code>random</code> (pick one randomly) or <code>sequential</code> (cycle through)</td>
+</tr>
+<tr>
+<td>Overlap</td>
+<td><code>true</code> = can play while previous is still playing</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>Array of sprite IDs</td>
+</tr>
+</tbody></table>
+<p><strong>Game Code Scanner:</strong>
+Scans the game repository&#39;s TypeScript source for <code>soundManager.execute()</code> calls and reports:</p>
+<pre><code>Scan Results:
+  ✓ 28 hooks found in game source code
+  ⚠ 3 missing — hooks called in game but not defined in sounds.json:
+      onSymbolWin, onBonusIntroComplete, onWheelSpin
+  ⚠ 2 empty — defined in sounds.json but have no action steps:
+      onGameLoad, onBaseToBonus
+  ⚠ 4 dead — defined in sounds.json but never called by game:
+      onOldFeature, onDeprecatedWin, onTestHook, onUnused
+
+  Auto-fix options:
+  ☑ Add 3 missing commands (generates stub actions from sprite patterns)
+  ☑ Remove 4 dead commands
+  ☑ Fill 2 empty commands with suggested actions
+</code></pre>
+<p><strong>Generate Missing Commands:</strong>
+Auto-creates commands for sprites not yet referenced by any command:</p>
+<ul>
+<li>Analyzes sprite name patterns (e.g., <code>SymHp1Win</code> → suggests <code>onSymbolHp1Win</code>)</li>
+<li>Generates default Play action with appropriate volume</li>
+<li>Preview modal lets user include/exclude each suggestion before saving</li>
+</ul>
+<hr>
+<h3>4.6 Build Page — Audio Build, Deploy &amp; Game Launch</h3>
+<blockquote>
+<p>The operational center. Chains build → validate → deploy → game build → launch in a single click with live streaming output.</p>
+</blockquote>
+<p><strong>Layout:</strong> Two-column top (Audio Pipeline | Game Panel) → Full-width output log bottom</p>
+<p><strong>Left Column — Audio Pipeline:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Build Scripts</td>
+<td>Buttons for each npm script (build, build-audio, etc.)</td>
+</tr>
+<tr>
+<td>After-Build Action</td>
+<td>Dropdown: None, Deploy Only, Deploy + Launch</td>
+</tr>
+<tr>
+<td>Dist Sprites</td>
+<td>Badges showing built M4A files and sizes</td>
+</tr>
+<tr>
+<td>Other Scripts</td>
+<td>Additional npm scripts (validate, clean, etc.)</td>
+</tr>
+</tbody></table>
+<p><strong>Right Column — Game Panel:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Content</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Game Repo</td>
+<td>Path display, Node version badge</td>
+</tr>
+<tr>
+<td>Branch Selector</td>
+<td>Dropdown to switch game branches</td>
+</tr>
+<tr>
+<td>Launch Scripts</td>
+<td>Grid of <code>playa launch</code> variants with Launch buttons</td>
+</tr>
+<tr>
+<td>Game Git</td>
+<td>Branch, changed files, commit + push + PR workflow</td>
+</tr>
+</tbody></table>
+<p><strong>One-Click Build Chain:</strong></p>
+<pre><code>User clicks &quot;build&quot; with After-Build set to &quot;Deploy + Launch&quot;
+
+1. npm run build                 → buildTiered.js (WAV → M4A sprites)
+   ├── SHA256 hash check         → skip unchanged sounds
+   ├── Parallel FFmpeg encode    → loading.m4a, main.m4a, bonus.m4a
+   └── Size check                → ⚠ OVER LIMIT warning (non-blocking)
+
+2. npm run build-validate        → validateBuild.js (5 QA checks)
+   ├── M4A files exist + sizes
+   ├── Command → sprite refs valid
+   ├── SpriteList → sprite refs valid
+   ├── SoundSprite → manifest refs valid
+   └── Orphan sprite detection
+
+3. npm run deploy                → copyAudio.js
+   ├── Clean game sounds/ dir
+   └── Copy M4A + sounds.json → game/assets/.../sounds/
+
+4. yarn install (game repo)      → if dependencies changed
+
+5. yarn build-dev (game repo)    → webpack rebuild
+
+6. playa launch (game repo)      → dev server on port 8080
+
+7. Wait for port 8080            → TCP polling, 120s timeout
+
+8. Open browser                  → Chrome/Edge with isolated profile
+</code></pre>
+<p><strong>Live Output Log:</strong></p>
+<ul>
+<li>Streams stdout/stderr in real-time via <code>script-output</code> IPC event</li>
+<li>Auto-scrolls to bottom</li>
+<li>Filters noisy npm warnings</li>
+<li>Stop button aborts the entire chain</li>
+<li>Pulsing green dot indicates &quot;running&quot;</li>
+</ul>
+<p><strong>Game Git Integration:</strong></p>
+<p>Built-in workflow for committing audio changes to the game repo:</p>
+<pre><code>1. User clicks &quot;Refresh&quot; → loads game git status
+2. Auto-generates branch name: feature/PA-treasure-of-troy-audio-update
+3. Auto-generates commit message: &quot;Update 3 audio sprites, sounds.json&quot;
+4. Auto-selects target branch: develop (or release/*)
+5. User clicks &quot;Commit, Push &amp; PR&quot;
+   → git checkout -b [branch]
+   → git add -A
+   → git commit -m [message]
+   → git push -u origin [branch]
+   → gh pr create --base [target] --title [title] --body [body]
+6. PR URL displayed as clickable link
+</code></pre>
+<p><strong>GLR Local Launch (No VPN):</strong></p>
+<ul>
+<li>Lists pre-recorded GLR sessions from <code>game/GLR/</code> directory</li>
+<li>Each GLR subdir contains recorded RGS responses (authenticate, initstate, play.N)</li>
+<li><code>playa launch --glr [name]</code> serves game with recorded data</li>
+<li>Common GLRs: <code>GLR</code> (full), <code>bonus</code>, <code>bigWin</code>, <code>wins</code></li>
+<li>Auto git-pulls game repo before launch</li>
+</ul>
+<hr>
+<h3>4.7 Git Page — Audio Repository Version Control</h3>
+<blockquote>
+<p>Simple, focused git interface for the audio repository. Commit and push with auto-generated messages.</p>
+</blockquote>
+<p><strong>Layout:</strong> Header with status badges → Two-column (Changed Files | Recent Commits) → Commit input</p>
+<p><strong>Header Badges:</strong></p>
+<ul>
+<li>Branch name (purple badge)</li>
+<li>Changes count (orange badge) — or &quot;Clean&quot; (green badge) if no changes</li>
+</ul>
+<p><strong>Changed Files Panel:</strong>
+Each file shows a colored status badge:</p>
+<table>
+<thead>
+<tr>
+<th>Badge</th>
+<th>Color</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>NEW</td>
+<td>Cyan</td>
+<td>Untracked file</td>
+</tr>
+<tr>
+<td>ADD</td>
+<td>Green</td>
+<td>Newly staged</td>
+</tr>
+<tr>
+<td>MOD</td>
+<td>Orange</td>
+<td>Modified</td>
+</tr>
+<tr>
+<td>DEL</td>
+<td>Red</td>
+<td>Deleted</td>
+</tr>
+<tr>
+<td>REN</td>
+<td>Purple</td>
+<td>Renamed</td>
+</tr>
+</tbody></table>
+<p><strong>Recent Commits Panel:</strong>
+Last 10 commits with:</p>
+<ul>
+<li>Git hash (first 7 chars, accent color)</li>
+<li>Commit message (truncated)</li>
+</ul>
+<p><strong>Auto-Generated Commit Messages:</strong>
+Analyzes changed files and generates contextual messages:</p>
+<pre><code>Changed: 3 new WAVs, sprite-config.json, dist/
+
+Generated: &quot;Add 3 sounds, update sprite config, rebuild sprites&quot;
+</code></pre>
+<pre><code>Changed: sounds.json, dist/sounds.json
+
+Generated: &quot;Update commands, rebuild JSON&quot;
+</code></pre>
+<p><strong>Key Actions:</strong></p>
+<ul>
+<li><code>Refresh</code> — Reloads git status</li>
+<li><code>Commit &amp; Push</code> — git add -A → commit → push (single click)</li>
+<li>Enter key in commit message triggers push</li>
+</ul>
+<hr>
+<h2>5. Data Model</h2>
+<h3>5.1 Project Structure (Audio Repository)</h3>
+<pre><code>audio-repo/
+├── package.json          ← npm scripts (build, validate, deploy)
+├── settings.json         ← paths, game repo link
+├── sounds.json           ← SOURCE OF TRUTH for sound definitions
+├── sprite-config.json    ← tier configuration, encoding settings
+├── sourceSoundFiles/     ← raw WAV files (40–70 files typical)
+│   ├── BigWinStart.wav
+│   ├── ReelLand1.wav
+│   ├── BaseGameMusicLoop.wav
+│   └── .deleted/         ← soft-deleted WAVs (restorable)
+├── scripts/              ← build scripts (from template)
+│   ├── buildTiered.js
+│   ├── buildTieredJSON.js
+│   ├── copyAudio.js
+│   └── validateBuild.js  (+ 8 more)
+├── dist/                 ← build output
+│   ├── sounds.json       ← generated
+│   └── soundFiles/
+│       ├── loading.m4a
+│       ├── main.m4a
+│       └── bonus.m4a
+└── node_modules/
+</code></pre>
+<h3>5.2 JSON Schemas</h3>
+<p><strong>settings.json</strong> — Project paths and game repo link:</p>
+<pre><code class="language-json">{
+  &quot;gameProjectPath&quot;: &quot;../treasure-of-troy&quot;,
+  &quot;JSONtemplate&quot;: &quot;./sounds.json&quot;,
+  &quot;JSONtarget&quot;: &quot;./dist/sounds.json&quot;,
+  &quot;SourceSoundDirectory&quot;: &quot;./sourceSoundFiles&quot;,
+  &quot;DestinationSoundDirectory&quot;: &quot;./dist&quot;,
+  &quot;DestinationAudioSpriteDirectory&quot;: &quot;./dist/soundFiles&quot;
+}
+</code></pre>
+<p><strong>sprite-config.json</strong> — Tier definitions and encoding:</p>
+<pre><code class="language-json">{
+  &quot;spriteGap&quot;: 0.05,
+  &quot;sprites&quot;: {
+    &quot;loading&quot;: {
+      &quot;maxSizeKB&quot;: 700, &quot;priority&quot;: 1,
+      &quot;sounds&quot;: [&quot;UiSpin&quot;, &quot;ReelLand1&quot;, &quot;Payline&quot;, &quot;SpinsLoop1&quot;]
+    },
+    &quot;main&quot;: {
+      &quot;maxSizeKB&quot;: 3000, &quot;priority&quot;: 2, &quot;subLoaderId&quot;: &quot;A&quot;,
+      &quot;sounds&quot;: [&quot;BigWinStart&quot;, &quot;SymHp1Win&quot;, &quot;Anticipation&quot;]
+    },
+    &quot;bonus&quot;: {
+      &quot;maxSizeKB&quot;: 3000, &quot;priority&quot;: 3, &quot;subLoaderId&quot;: &quot;B&quot;, &quot;unloadable&quot;: true,
+      &quot;sounds&quot;: [&quot;FreeSpinMusic&quot;, &quot;PickerMusicLoop&quot;, &quot;BonusTransition&quot;]
+    }
+  },
+  &quot;standalone&quot;: { &quot;sounds&quot;: [&quot;BaseGameMusicLoop&quot;, &quot;AmbBg&quot;] },
+  &quot;encoding&quot;: {
+    &quot;sfx&quot;:   { &quot;bitrate&quot;: 64,  &quot;channels&quot;: 1, &quot;samplerate&quot;: 44100 },
+    &quot;music&quot;: { &quot;bitrate&quot;: 128, &quot;channels&quot;: 2, &quot;samplerate&quot;: 44100 }
+  }
+}
+</code></pre>
+<p><strong>sounds.json</strong> — Sound definitions (source of truth):</p>
+<pre><code class="language-json">{
+  &quot;soundManifest&quot;: [
+    { &quot;id&quot;: &quot;loading_sprite&quot;, &quot;src&quot;: [&quot;soundFiles/loading.m4a&quot;] },
+    { &quot;id&quot;: &quot;main_sprite&quot;, &quot;src&quot;: [&quot;soundFiles/main.m4a&quot;], &quot;loadType&quot;: &quot;A&quot; },
+    { &quot;id&quot;: &quot;bonus_sprite&quot;, &quot;src&quot;: [&quot;soundFiles/bonus.m4a&quot;], &quot;loadType&quot;: &quot;B&quot;, &quot;unloadable&quot;: true },
+    { &quot;id&quot;: &quot;BaseGameMusicLoop&quot;, &quot;src&quot;: [&quot;soundFiles/BaseGameMusicLoop.m4a&quot;] }
+  ],
+  &quot;soundDefinitions&quot;: {
+    &quot;soundSprites&quot;: {
+      &quot;s_ReelLand1&quot;: {
+        &quot;soundId&quot;: &quot;loading_sprite&quot;, &quot;spriteId&quot;: &quot;ReelLand1&quot;,
+        &quot;startTime&quot;: 0, &quot;duration&quot;: 2666,
+        &quot;tags&quot;: [&quot;SoundEffects&quot;], &quot;overlap&quot;: false
+      }
+    },
+    &quot;commands&quot;: {
+      &quot;onReelLand&quot;: [
+        { &quot;command&quot;: &quot;Play&quot;, &quot;spriteId&quot;: &quot;s_ReelLand1&quot;, &quot;volume&quot;: 1.0 }
+      ],
+      &quot;onBigWin&quot;: [
+        { &quot;command&quot;: &quot;Stop&quot;, &quot;spriteId&quot;: &quot;s_SpinsLoop1&quot; },
+        { &quot;command&quot;: &quot;Play&quot;, &quot;spriteId&quot;: &quot;s_BigWinStart&quot;, &quot;volume&quot;: 0.9 },
+        { &quot;command&quot;: &quot;Play&quot;, &quot;spriteId&quot;: &quot;s_CoinShower1&quot;, &quot;volume&quot;: 0.7, &quot;delay&quot;: 500 }
+      ]
+    },
+    &quot;spriteList&quot;: {
+      &quot;sl_ReelLands&quot;: {
+        &quot;items&quot;: [&quot;s_ReelLand1&quot;, &quot;s_ReelLand2&quot;, &quot;s_ReelLand3&quot;],
+        &quot;type&quot;: &quot;random&quot;, &quot;overlap&quot;: true
+      }
+    }
+  }
+}
+</code></pre>
+<hr>
+<h2>6. Tiered Audio Loading — playa-core SubLoader System</h2>
+<h3>6.1 The Problem</h3>
+<p>A typical slot game has 40–70 individual sounds totaling 5–15 MB of compressed audio. Loading all audio at game start causes:</p>
+<ul>
+<li><strong>Slow initial load</strong> — player waits 5–10 seconds before first spin</li>
+<li><strong>Wasted bandwidth</strong> — bonus audio (40–60% of total) may never be needed</li>
+<li><strong>Memory pressure</strong> — all audio in RAM for the entire session</li>
+</ul>
+<h3>6.2 The Solution: Tiered Audio Pools</h3>
+<pre><code>┌──────────────────────────────────────────────────────────────────┐
+│                         GAME TIMELINE                             │
+│                                                                   │
+│  Game Start        First Spin         Bonus Confirmed     Bonus   │
+│      │                 │                    │              End     │
+│      ▼                 ▼                    ▼               │     │
+│  ┌────────┐     ┌────────────┐     ┌──────────────┐        │     │
+│  │LOADING │     │   MAIN     │     │    BONUS     │        │     │
+│  │ ~500KB │     │  ~2 MB     │     │   ~2 MB      │        │     │
+│  │        │     │            │     │              │        │     │
+│  │ No     │     │loadType:&quot;A&quot;│     │loadType:&quot;B&quot;  │   ┌────┴───┐│
+│  │loadType│     │ Deferred   │     │Deferred +    │   │UNLOAD  ││
+│  │        │     │            │     │Unloadable    │   │bonus   ││
+│  │Loaded  │     │startSub-   │     │startSub-     │   │pool    ││
+│  │with    │     │Loader(&quot;A&quot;) │     │Loader(&quot;B&quot;)   │   │free RAM││
+│  │game    │     │on 1st spin │     │on 3+ scatter │   │        ││
+│  └────────┘     └────────────┘     └──────────────┘   └────────┘│
+│                                                                   │
+│  ┌───────────────────────────────────────────────────────────┐    │
+│  │ STANDALONE — Base game music, each = separate M4A file,    │    │
+│  │ clean Howler.js looping (no micro-gaps)                    │    │
+│  └───────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+</code></pre>
+<h3>6.3 loadType Reference</h3>
+<table>
+<thead>
+<tr>
+<th>loadType</th>
+<th>playa-core Behavior</th>
+<th>Use Case</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><em>(absent)</em></td>
+<td>Loaded with initial game bundle</td>
+<td>UI, reel sounds, loading pool</td>
+</tr>
+<tr>
+<td><code>&quot;A&quot;</code> – <code>&quot;F&quot;</code></td>
+<td>Deferred SubLoader — on demand</td>
+<td>Main pool (A), bonus pool (B)</td>
+</tr>
+<tr>
+<td><code>&quot;Z&quot;</code></td>
+<td>Lazy — loaded on first play</td>
+<td>Rare sounds that may never play</td>
+</tr>
+</tbody></table>
+<h3>6.4 SubLoader Queue &amp; Timing</h3>
+<p>playa-core loads SubLoaders <strong>one at a time</strong> in FIFO order:</p>
+<pre><code>Frame 1: startSubLoader(&quot;A&quot;)  → A begins loading
+Frame 2: startSubLoader(&quot;B&quot;)  → B queued (A still loading)
+...
+Frame N: A completes           → B begins loading
+Frame M: B completes           → queue empty
+</code></pre>
+<p><strong>Critical rule for game developers:</strong></p>
+<pre><code>WRONG: startSubLoader(&quot;B&quot;) on scatter symbol landing on a reel
+       ↑ Scatter can land without triggering bonus (need 3+)
+
+RIGHT: startSubLoader(&quot;B&quot;) in BonusTriggerCommand, AFTER reel
+       evaluation confirms 3+ scatters
+       ↑ Bonus is guaranteed, intro animation buys loading time
+</code></pre>
+<hr>
+<h2>7. Build Pipeline</h2>
+<h3>7.1 Audio Build Flow</h3>
+<pre><code>Source WAVs          buildTiered.js          dist/soundFiles/
+(44.1kHz PCM)  ───→  Groups by tier    ───→  loading.m4a
+                     SHA256 hash cache        main.m4a
+                     Parallel FFmpeg          bonus.m4a
+                                              soundData_*.json
+                                                    │
+                     buildTieredJSON.js              │
+                     Reads soundData_*  ←───────────┘
+                     Reads sounds.json (source of truth)
+                     Generates dist/sounds.json
+</code></pre>
+<p><strong>Key behaviors:</strong></p>
+<ul>
+<li><strong>Incremental builds:</strong> SHA256 hash cache — only changed sounds are rebuilt</li>
+<li><strong>Failed tier safety:</strong> If a tier build fails, its hashes are NOT saved (forces rebuild)</li>
+<li><strong>Size warnings:</strong> <code>maxSizeKB</code> exceedance logs warning, does NOT fail the build</li>
+<li><strong>Validation:</strong> 5 QA checks — M4A existence, command refs, spriteList refs, soundSprite refs, orphans</li>
+</ul>
+<h3>7.2 Deploy Target</h3>
+<pre><code>game-repo/assets/default/default/default/sounds/
+├── sounds.json
+└── soundFiles/
+    ├── loading.m4a
+    ├── main.m4a
+    └── bonus.m4a
+</code></pre>
+<hr>
+<h2>8. IPC Channel Reference</h2>
+<h3>8.1 Project Management</h3>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>open-project</code></td>
+<td>renderer→main</td>
+<td>Dialog picker, returns loaded project</td>
+</tr>
+<tr>
+<td><code>reload-project</code></td>
+<td>renderer→main</td>
+<td>Re-read project from disk</td>
+</tr>
+<tr>
+<td><code>save-sounds-json</code></td>
+<td>renderer→main</td>
+<td>Write sounds.json</td>
+</tr>
+<tr>
+<td><code>save-sprite-config</code></td>
+<td>renderer→main</td>
+<td>Write sprite-config.json</td>
+</tr>
+<tr>
+<td><code>save-settings</code></td>
+<td>renderer→main</td>
+<td>Write settings.json</td>
+</tr>
+<tr>
+<td><code>health-check</code></td>
+<td>renderer→main</td>
+<td>Validate project structure</td>
+</tr>
+<tr>
+<td><code>init-from-template</code></td>
+<td>renderer→main</td>
+<td>Bootstrap from bundled template</td>
+</tr>
+</tbody></table>
+<h3>8.2 Sound Management</h3>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>import-sounds</code></td>
+<td>renderer→main</td>
+<td>Multi-select WAV dialog</td>
+</tr>
+<tr>
+<td><code>delete-sound</code></td>
+<td>renderer→main</td>
+<td>Soft delete to .deleted/</td>
+</tr>
+<tr>
+<td><code>restore-sound</code></td>
+<td>renderer→main</td>
+<td>Restore from .deleted/</td>
+</tr>
+<tr>
+<td><code>list-deleted-sounds</code></td>
+<td>renderer→main</td>
+<td>List .deleted/ contents</td>
+</tr>
+<tr>
+<td><code>analyze-orphans</code></td>
+<td>renderer→main</td>
+<td>Find WAVs not in sounds.json</td>
+</tr>
+<tr>
+<td><code>clean-orphans</code></td>
+<td>renderer→main</td>
+<td>Delete orphan WAVs</td>
+</tr>
+</tbody></table>
+<h3>8.3 Build &amp; Deploy</h3>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>run-script</code></td>
+<td>renderer→main</td>
+<td>Execute npm script (validated name)</td>
+</tr>
+<tr>
+<td><code>run-deploy</code></td>
+<td>renderer→main</td>
+<td>Execute deploy script</td>
+</tr>
+<tr>
+<td><code>clean-dist</code></td>
+<td>renderer→main</td>
+<td>Remove M4A + JSON from dist/</td>
+</tr>
+<tr>
+<td><code>script-output</code></td>
+<td>main→renderer</td>
+<td><strong>Event</strong> — live stdout/stderr streaming</td>
+</tr>
+</tbody></table>
+<h3>8.4 Game Integration</h3>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>pick-game-repo</code></td>
+<td>renderer→main</td>
+<td>Directory picker</td>
+</tr>
+<tr>
+<td><code>configure-game</code></td>
+<td>renderer→main</td>
+<td>Link game repo</td>
+</tr>
+<tr>
+<td><code>get-game-scripts</code></td>
+<td>renderer→main</td>
+<td>Read playa launch scripts</td>
+</tr>
+<tr>
+<td><code>run-game-script</code></td>
+<td>renderer→main</td>
+<td>Spawn game dev server</td>
+</tr>
+<tr>
+<td><code>build-game</code></td>
+<td>renderer→main</td>
+<td>Run yarn build-dev</td>
+</tr>
+<tr>
+<td><code>yarn-install-game</code></td>
+<td>renderer→main</td>
+<td>Run yarn install</td>
+</tr>
+<tr>
+<td><code>kill-game</code></td>
+<td>renderer→main</td>
+<td>Kill game process</td>
+</tr>
+<tr>
+<td><code>pull-game-json</code></td>
+<td>renderer→main</td>
+<td>Copy sounds.json from game</td>
+</tr>
+<tr>
+<td><code>git-pull-game</code></td>
+<td>renderer→main</td>
+<td>Git pull game repo</td>
+</tr>
+<tr>
+<td><code>scan-game-hooks</code></td>
+<td>renderer→main</td>
+<td>Scan TS for soundManager calls</td>
+</tr>
+<tr>
+<td><code>wait-for-port</code></td>
+<td>renderer→main</td>
+<td>Poll TCP port until available</td>
+</tr>
+<tr>
+<td><code>list-glr</code></td>
+<td>renderer→main</td>
+<td>List GLR sessions</td>
+</tr>
+<tr>
+<td><code>launch-local-glr</code></td>
+<td>renderer→main</td>
+<td>Launch with pre-recorded data</td>
+</tr>
+</tbody></table>
+<h3>8.5 Git Operations</h3>
+<table>
+<thead>
+<tr>
+<th>Channel</th>
+<th>Direction</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>git-status</code></td>
+<td>renderer→main</td>
+<td>Branch, status, last 10 commits</td>
+</tr>
+<tr>
+<td><code>git-commit-push</code></td>
+<td>renderer→main</td>
+<td>git add -A → commit → push</td>
+</tr>
+<tr>
+<td><code>game-git-status</code></td>
+<td>renderer→main</td>
+<td>Game repo git status</td>
+</tr>
+<tr>
+<td><code>game-git-create-branch-commit-push</code></td>
+<td>renderer→main</td>
+<td>Branch, commit, push game repo</td>
+</tr>
+<tr>
+<td><code>game-git-create-pr</code></td>
+<td>renderer→main</td>
+<td>Create PR via gh CLI</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>9. Security Model</h2>
+<h3>9.1 Process Isolation</h3>
+<pre><code>Renderer (untrusted)           Main (trusted)
+───────────────────────   ───────────────────────
+contextIsolation: true    All file/process ops
+nodeIntegration: false    IPC handlers validate
+No Node.js APIs           every input before use
+No require/import
+window.api.* only
+</code></pre>
+<h3>9.2 Input Validation</h3>
+<table>
+<thead>
+<tr>
+<th>Attack Vector</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Shell injection via script name</td>
+<td>Regex: <code>/^[a-zA-Z0-9_-]+$/</code></td>
+</tr>
+<tr>
+<td>Path traversal via filename</td>
+<td><code>path.basename()</code> + <code>.wav</code> check + <code>startsWith(sourceDir + path.sep)</code></td>
+</tr>
+<tr>
+<td>Shell injection via git</td>
+<td><code>execFileSync</code> with array args (no shell)</td>
+</tr>
+<tr>
+<td>URL injection</td>
+<td><code>open-url</code> validates <code>http://</code> or <code>https://</code> only</td>
+</tr>
+<tr>
+<td>Process hanging</td>
+<td>Timeout on every subprocess (120s–300s)</td>
+</tr>
+<tr>
+<td>Buffer overflow</td>
+<td><code>maxBuffer: 5MB</code> on all exec calls</td>
+</tr>
+</tbody></table>
+<h3>9.3 Subprocess Strategy</h3>
+<table>
+<thead>
+<tr>
+<th>Function</th>
+<th>Use Case</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>exec()</code></td>
+<td>npm/yarn commands</td>
+<td>Needs shell for PATH resolution</td>
+</tr>
+<tr>
+<td><code>execFileSync</code></td>
+<td>git commands</td>
+<td>Array args prevent injection</td>
+</tr>
+<tr>
+<td><code>spawn()</code></td>
+<td>Long-running processes</td>
+<td>Streaming output, kill support</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>10. Cross-Platform Compatibility</h2>
+<table>
+<thead>
+<tr>
+<th>Concern</th>
+<th>Solution</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Window chrome</td>
+<td><code>hiddenInset</code> (macOS) / <code>titleBarOverlay</code> (Windows)</td>
+</tr>
+<tr>
+<td>Path separators</td>
+<td><code>path.join()</code> everywhere, <code>/[/\\]/</code> regex for display</td>
+</tr>
+<tr>
+<td>Shell commands</td>
+<td><code>exec()</code> for npm, <code>execFileSync</code> for git</td>
+</tr>
+<tr>
+<td>Game browser</td>
+<td>Chrome/Edge detection with fallback</td>
+</tr>
+<tr>
+<td>Drag region</td>
+<td><code>-webkit-app-region: drag</code> (Chromium)</td>
+</tr>
+<tr>
+<td>File URLs</td>
+<td><code>pathToFileURL()</code> for Windows compatibility</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>11. UI Design System</h2>
+<h3>11.1 Visual Language</h3>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>Value</th>
+<th>Usage</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Background</td>
+<td><code>#0a0a14</code></td>
+<td>Primary dark background</td>
+</tr>
+<tr>
+<td>Card BG</td>
+<td><code>rgba(22,22,42,0.65)</code></td>
+<td>Glass morphism cards</td>
+</tr>
+<tr>
+<td>Accent</td>
+<td><code>#8b7cf8</code></td>
+<td>Primary purple accent</td>
+</tr>
+<tr>
+<td>Cyan</td>
+<td><code>#38bdf8</code></td>
+<td>Build/active states</td>
+</tr>
+<tr>
+<td>Green</td>
+<td><code>#4ade80</code></td>
+<td>Success/deploy</td>
+</tr>
+<tr>
+<td>Orange</td>
+<td><code>#fb923c</code></td>
+<td>Warnings</td>
+</tr>
+<tr>
+<td>Danger</td>
+<td><code>#f87171</code></td>
+<td>Errors/delete</td>
+</tr>
+</tbody></table>
+<h3>11.2 Components</h3>
+<ul>
+<li><strong><code>.card</code></strong> — Backdrop blur container with hover glow</li>
+<li><strong><code>.badge</code></strong> — Small colored labels (<code>text-xs</code>)</li>
+<li><strong><code>.btn-primary</code></strong> — Purple gradient with shadow</li>
+<li><strong><code>.btn-ghost</code></strong> — Transparent with border</li>
+<li><strong><code>.input-base</code></strong> — Dark input with accent focus ring</li>
+<li><strong><code>.section-label</code></strong> — Uppercase tracked section titles</li>
+</ul>
+<h3>11.3 Animations</h3>
+<ul>
+<li><strong><code>.anim-fade-up</code></strong> — Page transitions (0.25s)</li>
+<li><strong><code>.anim-fade-in</code></strong> — Element appearance (0.2s)</li>
+<li><strong><code>.anim-pulse-dot</code></strong> — Live indicator (1.5s loop)</li>
+</ul>
+<hr>
+<h2>12. Build &amp; Distribution</h2>
+<h3>12.1 Development</h3>
+<pre><code class="language-bash">npm run dev          # Vite dev server (port 5173) + Electron
+</code></pre>
+<h3>12.2 Production</h3>
+<pre><code class="language-bash">npm run build-win    # → release/SlotAudioManager-Setup.exe (NSIS)
+npm run build-mac    # → release/SlotAudioManager.dmg
+npm run build-all    # Both platforms
+</code></pre>
+<p><strong>Bundled:</strong> <code>main.js</code>, <code>preload.js</code>, <code>dist-renderer/**</code>, <code>template/**</code></p>
+<p><strong>Dependencies:</strong> ALL in <code>devDependencies</code> — electron-builder excludes devDeps from asar, keeping production bundle lean.</p>
+<hr>
+<h2>13. Key Design Decisions</h2>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Rationale</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>No TypeScript</td>
+<td>Rapid iteration, single developer, minimal build overhead</td>
+</tr>
+<tr>
+<td>Always-mounted pages</td>
+<td>Preserves state across navigation (build logs, forms, playback)</td>
+</tr>
+<tr>
+<td>Root sounds.json as source of truth</td>
+<td>User edits are authoritative; build reads, never overwrites</td>
+</tr>
+<tr>
+<td>Auto-deploy after build</td>
+<td>Eliminates manual step, reduces human error</td>
+</tr>
+<tr>
+<td>Isolated browser profile</td>
+<td>Clean game state every launch — no stale cache</td>
+</tr>
+<tr>
+<td><code>structuredClone</code> over spread</td>
+<td>Prevents stale nested reference bugs in React state</td>
+</tr>
+<tr>
+<td>Custom WAV decoder</td>
+<td><code>decodeAudioData</code> crashes Electron for 24/32-bit PCM</td>
+</tr>
+<tr>
+<td>Soft delete (trash)</td>
+<td>Safety net — accidental deletes are recoverable</td>
+</tr>
+<tr>
+<td>Git integration in-app</td>
+<td>Audio engineers stay in one tool, no terminal context-switching</td>
+</tr>
+</tbody></table>
+
+</div>
+
+</body>
+</html>
