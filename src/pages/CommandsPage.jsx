@@ -398,10 +398,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [confirmDeleteList, setConfirmDeleteList] = useState(null);
   const [selected, setSelected] = useState(new Set()); // multi-select for bulk ops
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
-  const [previewCmd, setPreviewCmd] = useState(null); // command name being previewed
+  const [previewCmds, setPreviewCmds] = useState(new Set()); // active preview command names
   const previewCtxRef = useRef(null);
-  const previewSourcesRef = useRef([]);
-  const previewTimersRef = useRef([]);
+  const previewSourcesRef = useRef([]); // { source, cmdName }
+  const previewTimersRef = useRef([]); // { timer, cmdName }
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
@@ -409,7 +409,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
     setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null); setClipboard(null);
     setSelected(new Set()); setConfirmBulkDelete(false);
-    stopPreview();
+    stopAllPreviews();
   }, [project?.path, project?._reloadKey]);
 
   // Clear selection when switching tabs
@@ -568,25 +568,40 @@ export default function CommandsPage({ project, setProject, showToast }) {
   };
 
   // ── Command audio preview ────────────────────────────────────────────────────
-  const stopPreview = () => {
-    previewTimersRef.current.forEach(t => clearTimeout(t));
+  // Stop ALL previews
+  const stopAllPreviews = () => {
+    previewTimersRef.current.forEach(t => clearTimeout(t.timer));
     previewTimersRef.current = [];
-    previewSourcesRef.current.forEach(s => { try { s.stop(); } catch {} });
+    previewSourcesRef.current.forEach(s => { try { s.source.stop(); } catch {} });
     previewSourcesRef.current = [];
     if (previewCtxRef.current) { previewCtxRef.current.close().catch(() => {}); previewCtxRef.current = null; }
-    setPreviewCmd(null);
+    setPreviewCmds(new Set());
+  };
+
+  // Stop ONE command's preview
+  const stopPreviewCmd = (cmdName) => {
+    const timers = previewTimersRef.current.filter(t => t.cmdName === cmdName);
+    timers.forEach(t => clearTimeout(t.timer));
+    previewTimersRef.current = previewTimersRef.current.filter(t => t.cmdName !== cmdName);
+    const sources = previewSourcesRef.current.filter(s => s.cmdName === cmdName);
+    sources.forEach(s => { try { s.source.stop(); } catch {} });
+    previewSourcesRef.current = previewSourcesRef.current.filter(s => s.cmdName !== cmdName);
+    setPreviewCmds(prev => { const next = new Set(prev); next.delete(cmdName); return next; });
+    // Close ctx only if nothing left playing
+    if (previewSourcesRef.current.length === 0 && previewTimersRef.current.length === 0) {
+      if (previewCtxRef.current) { previewCtxRef.current.close().catch(() => {}); previewCtxRef.current = null; }
+    }
   };
 
   const playPreview = async (cmdName) => {
-    if (previewCmd === cmdName) { stopPreview(); return; }
-    stopPreview();
+    // Toggle: if this command is already playing, stop only it
+    if (previewCmds.has(cmdName)) { stopPreviewCmd(cmdName); return; }
     const steps = commands[cmdName];
     if (!Array.isArray(steps) || steps.length === 0) return;
 
-    setPreviewCmd(cmdName);
-    // Preload all WAV files first, then schedule playback
+    setPreviewCmds(prev => new Set(prev).add(cmdName));
     const playSteps = steps.filter(s => s.command === 'Play');
-    if (playSteps.length === 0) { setPreviewCmd(null); return; }
+    if (playSteps.length === 0) { setPreviewCmds(prev => { const n = new Set(prev); n.delete(cmdName); return n; }); return; }
 
     try {
       // Resolve and fetch all WAVs upfront
@@ -613,18 +628,20 @@ export default function CommandsPage({ project, setProject, showToast }) {
           console.error(`Preview load ${wavName}:`, e.message);
         }
       }
-      if (loaded.length === 0) { setPreviewCmd(null); return; }
+      if (loaded.length === 0) { stopPreviewCmd(cmdName); return; }
 
-      // Create single playback context
-      const ctx = new AudioContext();
-      previewCtxRef.current = ctx;
+      // Reuse or create shared AudioContext
+      if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
+        previewCtxRef.current = new AudioContext();
+      }
+      const ctx = previewCtxRef.current;
 
       for (const { step, audioBuffer, wavName } of loaded) {
         const delay = step.delay || 0;
         const volume = step.volume ?? 1;
 
         const timer = setTimeout(() => {
-          if (previewCtxRef.current !== ctx) return;
+          if (!previewCmds.has(cmdName) && !document.querySelector(`[data-preview="${cmdName}"]`)) return;
           try {
             const gain = ctx.createGain();
             gain.gain.value = volume;
@@ -635,22 +652,17 @@ export default function CommandsPage({ project, setProject, showToast }) {
             source.loop = step.loop === -1;
             source.connect(gain);
             source.start(0);
-            previewSourcesRef.current.push(source);
+            previewSourcesRef.current.push({ source, cmdName });
 
             source.onended = () => {
-              const idx = previewSourcesRef.current.indexOf(source);
-              if (idx >= 0) previewSourcesRef.current.splice(idx, 1);
-              if (previewSourcesRef.current.length === 0 && previewCtxRef.current === ctx) stopPreview();
+              previewSourcesRef.current = previewSourcesRef.current.filter(s => s.source !== source);
             };
           } catch (e) {
             console.error(`Preview play ${wavName}:`, e.message);
           }
         }, delay);
-        previewTimersRef.current.push(timer);
+        previewTimersRef.current.push({ timer, cmdName });
       }
-
-      const safetyTimer = setTimeout(() => { if (previewCtxRef.current === ctx) stopPreview(); }, 30000);
-      previewTimersRef.current.push(safetyTimer);
     } catch (e) {
       showToast('Preview failed: ' + e.message, 'error');
       stopPreview();
@@ -996,6 +1008,15 @@ export default function CommandsPage({ project, setProject, showToast }) {
           <button onClick={() => setViewTab('lists')} className={`text-xs font-semibold px-3 py-1.5 rounded-md transition-colors ${viewTab === 'lists' ? 'bg-accent/20 text-accent' : 'text-text-dim hover:text-text-secondary'}`}>
             Sprite Lists
           </button>
+          {previewCmds.size > 0 && (
+            <button
+              onClick={stopAllPreviews}
+              className="btn-ghost text-xs py-1 px-3 text-danger border-danger/30 hover:bg-danger/10"
+              title="Stop all playing previews"
+            >
+              ■ Stop All ({previewCmds.size})
+            </button>
+          )}
         </div>
         {viewTab === 'commands' && (
           <>
@@ -1251,10 +1272,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); playPreview(name); }}
-                  className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors shrink-0 ${previewCmd === name ? 'bg-cyan/15 text-cyan' : 'bg-white/[0.03] text-text-dim hover:text-cyan hover:bg-cyan/10'}`}
-                  title={previewCmd === name ? 'Stop preview' : `Preview "${name}" — play all sounds`}
+                  data-preview={name}
+                  className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors shrink-0 ${previewCmds.has(name) ? 'bg-cyan/15 text-cyan' : 'bg-white/[0.03] text-text-dim hover:text-cyan hover:bg-cyan/10'}`}
+                  title={previewCmds.has(name) ? `Stop "${name}"` : `Preview "${name}"`}
                 >
-                  <span className="text-xs font-bold">{previewCmd === name ? '■' : '▶'}</span>
+                  <span className="text-xs font-bold">{previewCmds.has(name) ? '■' : '▶'}</span>
                 </button>
                 <span className="text-xs text-text-dim shrink-0">{actions.length}</span>
                 {issues.length > 0 && <span className="badge bg-danger-dim text-danger shrink-0">{issues.length} err</span>}
