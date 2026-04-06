@@ -1385,7 +1385,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       {!Array.isArray(st.loop) ? (
                         <>
                           <input type="number" min="-1" step="1" value={st.loop ?? 0} onChange={e => setSt(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))} className="input-base text-xs w-16 text-center" />
-                          <button type="button" onClick={() => setSt(p => ({ ...p, loop: p.items.map(id => ({ [id]: p.loop || 0 })) }))}
+                          <button type="button" onClick={() => setSt(p => ({ ...p, loop: p.items.map(id => ({ [id]: (p.loop && p.loop !== 0) ? p.loop : -1 })) }))}
                             className="text-[10px] text-accent hover:text-accent/80" title="Set different loop count per sprite">per sprite</button>
                         </>
                       ) : (
