@@ -368,6 +368,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
   useEffect(() => { setSelected(new Set()); setConfirmBulkDelete(false); }, [viewTab]);
 
   // Space key: play/stop preview for expanded command
+  const playPreviewRef = useRef(playPreview);
+  playPreviewRef.current = playPreview; // always points to latest
   useEffect(() => {
     const handler = (e) => {
       if (e.code !== 'Space') return;
@@ -375,11 +377,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
       if (!expanded || viewTab !== 'commands') return;
       e.preventDefault();
-      playPreview(expanded);
+      playPreviewRef.current(expanded);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [expanded, viewTab, previewCmd]);
+  }, [expanded, viewTab]);
 
   // Close inline list editor when command expand/collapse changes
   useEffect(() => { setEditListInline(null); setConfirmDeleteCmd(null); setRenameCmd(null); }, [expanded]);
