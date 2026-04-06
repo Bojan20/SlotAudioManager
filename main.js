@@ -2661,16 +2661,9 @@ ipcMain.handle('npm-install', async () => {
 
   let cmd, args, useShell;
   if (hasYarnLock) {
-    const yarnJs = findYarnJs();
-    if (yarnJs) {
-      cmd = process.execPath;
-      args = [yarnJs, 'install', '--network-timeout', '60000'];
-      useShell = false;
-    } else {
-      cmd = 'yarn';
-      args = ['install', '--network-timeout', '60000'];
-      useShell = isWin;
-    }
+    cmd = isWin ? 'yarn.cmd' : 'yarn';
+    args = ['install', '--network-timeout', '60000'];
+    useShell = isWin;
   } else {
     cmd = 'npm';
     args = ['install', '--legacy-peer-deps'];
