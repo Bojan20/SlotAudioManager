@@ -1001,6 +1001,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   </button>
                   <span className="badge bg-purple-dim text-purple text-xs shrink-0" title={`Playback type: ${listType}`}>{listType}</span>
                   {overlap && <span className="text-xs text-text-dim" title="Sounds can overlap when played">overlap</span>}
+                  {list?.loop !== undefined && list?.loop !== 0 && (
+                    <span className="text-xs text-cyan shrink-0" title={Array.isArray(list.loop) ? 'Per-sprite loop' : `Loop: ${list.loop}`}>
+                      {Array.isArray(list.loop) ? 'per-sprite loop' : `loop:${list.loop}`}
+                    </span>
+                  )}
                   <span className="text-xs text-text-dim shrink-0">{items.length}</span>
                   {!referencedLists.has(name) && <span className="badge bg-orange-dim text-orange text-xs shrink-0" title="This sprite list is not referenced by any command">unused</span>}
                 </div>
@@ -1012,6 +1017,9 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       <div key={idx} className="flex items-center gap-2 text-[13px] py-1" style={{ borderBottom: idx < items.length - 1 ? '1px solid rgba(50,50,90,0.1)' : 'none' }}>
                         <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
                         <span className={`font-mono flex-1 truncate ${soundSprites[id] ? 'text-text-primary' : 'text-danger line-through'}`}>{id}</span>
+                        {Array.isArray(list?.loop) && list.loop[idx] && (
+                          <span className="text-cyan text-xs shrink-0" title={`Loop count for this sprite`}>loop:{Object.values(list.loop[idx])[0]}</span>
+                        )}
                       </div>
                     ))}
                     {tags.length > 0 && (
