@@ -2650,14 +2650,28 @@ ipcMain.handle('clean-orphans', async () => {
 ipcMain.handle('npm-install', async () => {
   if (!projectPath) return { error: 'No project open' };
   const cwd = projectPath;
+  const hasYarnLock = fs.existsSync(path.join(cwd, 'yarn.lock'));
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
   delete env.NODE_OPTIONS;
 
-  // Audio repo always uses npm (not yarn) — template scripts are npm-based
-  const cmd = 'npm';
-  const args = ['install', '--legacy-peer-deps'];
-  const useShell = isWin;
+  let cmd, args, useShell;
+  if (hasYarnLock) {
+    const yarnJs = findYarnJs();
+    if (yarnJs) {
+      cmd = process.execPath;
+      args = [yarnJs, 'install', '--network-timeout', '60000'];
+      useShell = false;
+    } else {
+      cmd = 'yarn';
+      args = ['install', '--network-timeout', '60000'];
+      useShell = isWin;
+    }
+  } else {
+    cmd = 'npm';
+    args = ['install', '--legacy-peer-deps'];
+    useShell = isWin;
+  }
 
   return new Promise((resolve) => {
     let output = '';
