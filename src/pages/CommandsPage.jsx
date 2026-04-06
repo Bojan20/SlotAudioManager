@@ -2,6 +2,54 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 
 const COMMANDS = ['Play', 'Stop', 'Fade', 'Set', 'Pause', 'Resume', 'Execute', 'ResetSpriteList'];
 
+// Minimal WAV decoder — same as SoundsPage, avoids decodeAudioData crash on 24/32-bit PCM
+function decodeWavForPreview(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  const tag4 = (o) => String.fromCharCode(view.getUint8(o), view.getUint8(o+1), view.getUint8(o+2), view.getUint8(o+3));
+  if (tag4(0) !== 'RIFF' || tag4(8) !== 'WAVE') throw new Error('Not a valid WAV file');
+  let audioFormat = 0, numChannels = 0, sampleRate = 0, bitsPerSample = 0, dataOffset = -1, dataSize = 0;
+  let pos = 12;
+  while (pos + 8 <= arrayBuffer.byteLength) {
+    const chunkId = tag4(pos);
+    const chunkSize = view.getUint32(pos + 4, true);
+    if (chunkId === 'fmt ' && chunkSize >= 16) {
+      audioFormat = view.getUint16(pos + 8, true);
+      numChannels = view.getUint16(pos + 10, true);
+      sampleRate = view.getUint32(pos + 12, true);
+      bitsPerSample = view.getUint16(pos + 22, true);
+    } else if (chunkId === 'data') {
+      dataOffset = pos + 8;
+      dataSize = chunkSize;
+      break;
+    }
+    pos += 8 + chunkSize + (chunkSize % 2);
+  }
+  if (dataOffset < 0) throw new Error('No data chunk');
+  const numSamples = Math.floor(dataSize / (numChannels * (bitsPerSample / 8)));
+  const ctx = new AudioContext({ sampleRate });
+  const audioBuffer = ctx.createBuffer(numChannels, numSamples, sampleRate);
+  for (let ch = 0; ch < numChannels; ch++) {
+    const channelData = audioBuffer.getChannelData(ch);
+    for (let i = 0; i < numSamples; i++) {
+      const sampleOffset = dataOffset + (i * numChannels + ch) * (bitsPerSample / 8);
+      if (bitsPerSample === 16) {
+        channelData[i] = view.getInt16(sampleOffset, true) / 32768;
+      } else if (bitsPerSample === 24) {
+        const b0 = view.getUint8(sampleOffset), b1 = view.getUint8(sampleOffset+1), b2 = view.getUint8(sampleOffset+2);
+        const val = (b2 << 16) | (b1 << 8) | b0;
+        channelData[i] = (val >= 0x800000 ? val - 0x1000000 : val) / 8388608;
+      } else if (bitsPerSample === 32 && audioFormat === 3) {
+        channelData[i] = view.getFloat32(sampleOffset, true);
+      } else if (bitsPerSample === 32) {
+        channelData[i] = view.getInt32(sampleOffset, true) / 2147483648;
+      } else if (bitsPerSample === 8) {
+        channelData[i] = (view.getUint8(sampleOffset) - 128) / 128;
+      }
+    }
+  }
+  return { audioBuffer, ctx };
+}
+
 function StepForm({ state, setState, soundSprites, spriteLists, commands, onCreateList }) {
   const spriteIds = Object.keys(soundSprites).sort();
   const spriteListIds = Object.keys(spriteLists).sort();
@@ -536,14 +584,14 @@ export default function CommandsPage({ project, setProject, showToast }) {
     if (!Array.isArray(steps) || steps.length === 0) return;
 
     setPreviewCmd(cmdName);
+    // Preload all WAV files first, then schedule playback
+    const playSteps = steps.filter(s => s.command === 'Play');
+    if (playSteps.length === 0) { setPreviewCmd(null); return; }
+
     try {
-      const ctx = new AudioContext();
-      previewCtxRef.current = ctx;
-
-      for (const step of steps) {
-        if (step.command !== 'Play') continue;
-
-        // Resolve WAV filename
+      // Resolve and fetch all WAVs upfront
+      const loaded = [];
+      for (const step of playSteps) {
         let wavName = null;
         if (step.spriteId) {
           wavName = step.spriteId.replace(/^s_/, '');
@@ -554,21 +602,30 @@ export default function CommandsPage({ project, setProject, showToast }) {
           if (target) wavName = target.replace(/^s_/, '');
         }
         if (!wavName) continue;
+        try {
+          const res = await fetch(`audio://local/${encodeURIComponent(wavName + '.wav')}`);
+          if (!res.ok) continue;
+          const buf = await res.arrayBuffer();
+          const { audioBuffer, ctx: wavCtx } = decodeWavForPreview(buf);
+          wavCtx.close().catch(() => {}); // close temp ctx from decoder
+          loaded.push({ step, audioBuffer, wavName, sampleRate: audioBuffer.sampleRate });
+        } catch (e) {
+          console.error(`Preview load ${wavName}:`, e.message);
+        }
+      }
+      if (loaded.length === 0) { setPreviewCmd(null); return; }
 
+      // Create single playback context
+      const ctx = new AudioContext();
+      previewCtxRef.current = ctx;
+
+      for (const { step, audioBuffer, wavName } of loaded) {
         const delay = step.delay || 0;
         const volume = step.volume ?? 1;
 
-        // Schedule play
-        const timer = setTimeout(async () => {
-          if (previewCtxRef.current !== ctx) return; // stale
+        const timer = setTimeout(() => {
+          if (previewCtxRef.current !== ctx) return;
           try {
-            const res = await fetch(`audio://local/${encodeURIComponent(wavName + '.wav')}`);
-            if (!res.ok || previewCtxRef.current !== ctx) return;
-            const buf = await res.arrayBuffer();
-            if (previewCtxRef.current !== ctx) return;
-            const audioBuffer = await ctx.decodeAudioData(buf);
-            if (previewCtxRef.current !== ctx) return;
-
             const gain = ctx.createGain();
             gain.gain.value = volume;
             gain.connect(ctx.destination);
@@ -586,13 +643,12 @@ export default function CommandsPage({ project, setProject, showToast }) {
               if (previewSourcesRef.current.length === 0 && previewCtxRef.current === ctx) stopPreview();
             };
           } catch (e) {
-            console.error(`Preview ${wavName}:`, e.message);
+            console.error(`Preview play ${wavName}:`, e.message);
           }
         }, delay);
         previewTimersRef.current.push(timer);
       }
 
-      // Auto-stop after 30s safety (prevents infinite loops running forever)
       const safetyTimer = setTimeout(() => { if (previewCtxRef.current === ctx) stopPreview(); }, 30000);
       previewTimersRef.current.push(safetyTimer);
     } catch (e) {
