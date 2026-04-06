@@ -51,6 +51,7 @@ const LogLines = ({ lines, maxH = 'max-h-36' }) => lines.length > 0 ? (
 export default function SetupPage({ project, setProject, showToast }) {
   const [initLog, setInitLog] = useState([]);
   const [initializing, setInitializing] = useState(false);
+  const [npmInstalling, setNpmInstalling] = useState(false);
   const [confirmSync, setConfirmSync] = useState(false);
   const [gameInstalling, setGameInstalling] = useState(false);
   const [gameInstallLog, setGameInstallLog] = useState('');
@@ -198,7 +199,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               {!confirmSync && (
                 <ActionBtn
                   onClick={() => setConfirmSync(true)}
-                  disabled={initializing}
+                  disabled={initializing || npmInstalling}
                   loading={initializing}
                   loadingText="Syncing..."
                   idleText="Sync Template"
@@ -244,7 +245,7 @@ export default function SetupPage({ project, setProject, showToast }) {
             <div className="px-5 py-3 border-t border-border/20 flex items-center gap-3">
               <ActionBtn
                 onClick={async () => {
-                  setInitializing(true);
+                  setNpmInstalling(true);
                   setInitLog(prev => [...prev, '', 'Running npm install...']);
                   try {
                     const r = await window.api.npmInstall();
@@ -260,14 +261,14 @@ export default function SetupPage({ project, setProject, showToast }) {
                     setInitLog(prev => [...prev, '✖ ' + e.message]);
                     showToast('npm install failed', 'error');
                   }
-                  setInitializing(false);
+                  setNpmInstalling(false);
                 }}
-                disabled={initializing}
-                loading={initializing}
+                disabled={initializing || npmInstalling}
+                loading={npmInstalling}
                 loadingText="Installing..."
                 idleText="npm install"
                 color="cyan"
-                title="Install audio project dependencies (npm install --legacy-peer-deps)"
+                title="Install audio project dependencies"
               />
               <span className="text-[10px] text-text-dim">Run after Sync if dependencies changed</span>
             </div>
