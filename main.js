@@ -591,6 +591,12 @@ function sanitizeCommandStep(step) {
 
 ipcMain.handle('save-sounds-json', async (event, data) => {
   if (!projectPath) return { error: 'No project open' };
+  // Debug: log spriteList loop values on save
+  if (data?.soundDefinitions?.spriteList) {
+    for (const [k, v] of Object.entries(data.soundDefinitions.spriteList)) {
+      if (v?.loop) console.log(`[save-sounds-json] ${k} loop:`, JSON.stringify(v.loop));
+    }
+  }
   try {
     // Sanitize all command steps on every save
     if (data?.soundDefinitions?.commands) {

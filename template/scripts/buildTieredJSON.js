@@ -339,7 +339,7 @@ async function buildFinalJSON() {
     };
 
     // Write output
-    const formatted = formatJson(JSON.stringify(finalJson));
+    const formatted = formatJson(JSON.stringify(finalJson, null, 2));
     const targetDir = path.dirname(JSONtarget);
     if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
     fs.writeFileSync(JSONtarget, formatted);
