@@ -52,7 +52,8 @@ function copySoundConfigToGame(srcFolder) {
         if (fs.existsSync(json5Dest)) fs.rmSync(json5Dest);
         if (!fs.existsSync(soundsDest)) fs.mkdirSync(soundsDest, { recursive: true });
         console.log("copy from " + jsonSrc + " to " + jsonDest);
-        fs.copyFileSync(jsonSrc, jsonDest);
+        const jsonData = JSON.parse(fs.readFileSync(jsonSrc, "utf8"));
+        fs.writeFileSync(jsonDest, JSON.stringify(jsonData, null, 2), "utf8");
     } else {
         console.log(jsonSrc + " is missing from dist folder, skipping");
     }
