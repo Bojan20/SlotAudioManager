@@ -1883,12 +1883,11 @@ ipcMain.handle('vpn-disconnect', async () => {
 
 ipcMain.handle('vpn-status', async () => {
   try {
-    // Check GP UI status text — non-blocking spawn (was execSync blocking main for 2-8s)
-    const psCmd = `Add-Type -AssemblyName UIAutomationClient;Add-Type -AssemblyName UIAutomationTypes;` +
-      `$r=[System.Windows.Automation.AutomationElement]::RootElement;` +
-      `$w=$r.FindFirst([System.Windows.Automation.TreeScope]::Children,(New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty,'GlobalProtect')));` +
-      `if($w){$a=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition);` +
-      `foreach($e in $a){if($e.Current.Name -eq 'Connected'){Write-Host 'UP';exit}};Write-Host 'DOWN'}else{Write-Host 'DOWN'}`;
+    // Check GlobalProtect VPN via network adapter — works even when GP window is minimized to tray
+    // Method 1: Check if PANGP Virtual Ethernet Adapter is Up
+    // Method 2: Fallback to GP UI Automation if adapter not found
+    const psCmd = `$a=Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object {$_.InterfaceDescription -match 'PANGP|GlobalProtect'};` +
+      `if($a -and ($a | Where-Object Status -eq 'Up')){Write-Host 'UP'}else{Write-Host 'DOWN'}`;
     const output = await new Promise((resolve) => {
       let done = false;
       const finish = (val) => { if (done) return; done = true; resolve(val); };
