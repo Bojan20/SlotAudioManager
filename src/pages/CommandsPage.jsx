@@ -737,7 +737,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const j = structuredClone(project.soundsJson);
     if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
     const entry = { items: cleanItems, type: newList.type, overlap: newList.overlap };
-    if (newList.loop) entry.loop = newList.loop;
+    if (Array.isArray(newList.loop) ? newList.loop.length > 0 : newList.loop) entry.loop = newList.loop;
     if (newList.tags?.length) entry.tags = newList.tags;
     j.soundDefinitions.spriteList[name] = entry;
     const ok = await saveJson(j, `Sprite list "${name}" created`);
@@ -752,7 +752,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const cleanItems = editList.items.filter(Boolean);
     if (!cleanItems.length) { showToast('Add at least one sprite', 'error'); return; }
     const entry = { items: cleanItems, type: editList.type, overlap: editList.overlap };
-    if (editList.loop) entry.loop = editList.loop;
+    if (Array.isArray(editList.loop) ? editList.loop.length > 0 : editList.loop) entry.loop = editList.loop;
     if (editList.tags?.length) entry.tags = editList.tags;
     j.soundDefinitions.spriteList[editList.name] = entry;
     const ok = await saveJson(j, `Sprite list "${editList.name}" updated`);
@@ -766,7 +766,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const j = structuredClone(project.soundsJson);
     if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
     const entry = { items: cleanItems, type: editListInline.type, overlap: editListInline.overlap };
-    if (editListInline.loop) entry.loop = editListInline.loop;
+    if (Array.isArray(editListInline.loop) ? editListInline.loop.length > 0 : editListInline.loop) entry.loop = editListInline.loop;
     if (editListInline.tags?.length) entry.tags = editListInline.tags;
     j.soundDefinitions.spriteList[editListInline.name] = entry;
     const ok = await saveJson(j, `List "${editListInline.name}" updated`);
@@ -1010,7 +1010,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       </div>
                     )}
                     <div className="flex items-center gap-2 pt-1">
-                      <button onClick={() => setEditList({ name, items: [...items], type: listType, overlap, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
+                      <button onClick={() => setEditList({ name, items: [...items], type: listType, overlap, loop: list?.loop ?? 0, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
                       <div className="relative">
                         <button onClick={() => setConfirmDeleteList(confirmDeleteList === name ? null : name)} disabled={saving} className="text-xs text-text-dim hover:text-danger transition-colors" title="Remove this sprite list from sounds.json">Delete</button>
                         {confirmDeleteList === name && (
@@ -1358,8 +1358,19 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     </select>
                   </div>
                   <div>
-                    <label className="section-label mb-1 block" title="How many times each sound loops when played. -1 = infinite, 0 = once">Loop</label>
-                    <input type="number" min="-1" step="1" value={st.loop ?? 0} onChange={e => setSt(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))} className="input-base text-xs w-16 text-center" />
+                    <label className="section-label mb-1 block" title="How many times each sound loops. -1 = infinite, 0 = once. Click 'per sprite' for individual control">Loop</label>
+                    <div className="flex items-center gap-2">
+                      {!Array.isArray(st.loop) ? (
+                        <>
+                          <input type="number" min="-1" step="1" value={st.loop ?? 0} onChange={e => setSt(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))} className="input-base text-xs w-16 text-center" />
+                          <button type="button" onClick={() => setSt(p => ({ ...p, loop: p.items.map(id => ({ [id]: p.loop || 0 })) }))}
+                            className="text-[10px] text-accent hover:text-accent/80" title="Set different loop count per sprite">per sprite</button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={() => setSt(p => ({ ...p, loop: 0 }))}
+                          className="text-[10px] text-accent hover:text-accent/80" title="Use same loop count for all sprites">uniform</button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-end pb-1">
                     <label className="flex items-center gap-2 cursor-pointer" title="Allow multiple sounds from this list to play simultaneously">
@@ -1375,17 +1386,39 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     {st.items.map((id, idx) => (
                       <div key={idx} className="flex items-center gap-2">
                         <span className="text-text-dim text-xs w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
-                        <select value={id} onChange={e => setSt(p => { const items = [...p.items]; items[idx] = e.target.value; return { ...p, items }; })} className="input-base text-xs font-mono flex-1 py-1">
+                        <select value={id} onChange={e => setSt(p => {
+                          const items = [...p.items]; items[idx] = e.target.value;
+                          // Update per-sprite loop key if in array mode
+                          const loop = Array.isArray(p.loop) ? p.loop.map((l, i) => i === idx ? { [e.target.value]: Object.values(l)[0] || 0 } : l) : p.loop;
+                          return { ...p, items, loop };
+                        })} className="input-base text-xs font-mono flex-1 py-1">
                           <option value="">— select —</option>
                           {spriteIds.map(s => <option key={s}>{s}</option>)}
                         </select>
-                        <button onClick={() => setSt(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }))} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove this sprite">
+                        {Array.isArray(st.loop) && (
+                          <input type="number" min="-1" step="1"
+                            value={st.loop[idx] ? Object.values(st.loop[idx])[0] ?? 0 : 0}
+                            onChange={e => setSt(p => {
+                              const loop = [...p.loop];
+                              loop[idx] = { [p.items[idx]]: parseInt(e.target.value) || 0 };
+                              return { ...p, loop };
+                            })}
+                            className="input-base text-xs w-14 text-center shrink-0" title={`Loop count for ${id}: -1=infinite, 0=once`} />
+                        )}
+                        <button onClick={() => setSt(p => {
+                          const items = p.items.filter((_, i) => i !== idx);
+                          const loop = Array.isArray(p.loop) ? p.loop.filter((_, i) => i !== idx) : p.loop;
+                          return { ...p, items, loop };
+                        })} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove this sprite">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => setSt(p => ({ ...p, items: [...p.items, ''] }))} className="text-xs text-accent hover:text-accent/80 transition-colors mt-1.5" title="Add another sprite to this list">
+                  <button onClick={() => setSt(p => ({
+                    ...p, items: [...p.items, ''],
+                    loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop
+                  }))} className="text-xs text-accent hover:text-accent/80 transition-colors mt-1.5" title="Add another sprite to this list">
                     + Add Sprite
                   </button>
                 </div>
