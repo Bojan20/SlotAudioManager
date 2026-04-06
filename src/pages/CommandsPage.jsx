@@ -368,8 +368,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
   useEffect(() => { setSelected(new Set()); setConfirmBulkDelete(false); }, [viewTab]);
 
   // Space key: play/stop preview for expanded command
-  const playPreviewRef = useRef(playPreview);
-  playPreviewRef.current = playPreview; // always points to latest
+  const playPreviewRef = useRef(null);
   useEffect(() => {
     const handler = (e) => {
       if (e.code !== 'Space') return;
@@ -601,6 +600,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
       stopPreview();
     }
   };
+
+  playPreviewRef.current = playPreview;
 
   const saveJson = async (newSoundsJson, successMsg) => {
     setSaving(true);
