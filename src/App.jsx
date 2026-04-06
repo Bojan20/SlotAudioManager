@@ -161,7 +161,7 @@ export default function App() {
     { id: 'sounds',   el: <SoundsPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'sprites',  el: <SpriteConfigPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'commands', el: <CommandsPage project={project} setProject={setProject} showToast={showToast} /> },
-    { id: 'build',    el: <BuildPage project={project} setProject={setProject} reloadProject={reloadProject} showToast={showToast} /> },
+    { id: 'build',    el: <BuildPage project={project} setProject={setProject} showToast={showToast} /> },
     { id: 'git',      el: <GitPage project={project} showToast={showToast} /> },
   ];
 

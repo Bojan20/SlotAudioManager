@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 
-export default function BuildPage({ project, setProject, reloadProject, showToast }) {
+export default function BuildPage({ project, setProject, showToast }) {
   const [running, setRunning] = useState(null);
   const [log, setLog] = useState('');
   const [result, setResult] = useState(null); // { script, ok }
@@ -8,7 +8,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   const [gameRepoPath, setGameRepoPath] = useState('');
   const [loadingGameScripts, setLoadingGameScripts] = useState(false);
   const [gameScriptsError, setGameScriptsError] = useState('');
-  const [autoLaunch, setAutoLaunch] = useState(''); // selected launch script for auto-launch after build
+  const [deploying, setDeploying] = useState(false);
   const [gameStarted, setGameStarted] = useState(false); // stays true after timeout — keeps Kill visible
   const [gameGit, setGameGit] = useState(null); // { branch, files, hasDevelop, releaseBranches }
   const [gameGitLoading, setGameGitLoading] = useState(false);
@@ -55,14 +55,14 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
   // Reset on project change — clear everything
   useEffect(() => {
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
-    setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
+    setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setDeploying(false);
     setGameGit(null); setGameGitBranchName(''); setGameGitCommitMsg(''); setGameGitPrUrl(''); setBuildVersion(null); setBuildChecking(false);
     if (buildVersionTimerRef.current) { clearTimeout(buildVersionTimerRef.current); buildVersionTimerRef.current = null; }
     setAbFiles([]); setAbPlaying(null); stopAbAudio();
     if (project) { loadGameScripts(); }
   }, [project?.path]);
 
-  // Refresh on reload — but preserve autoLaunch, gameGit state
+  // Refresh on reload — preserve gameGit state
   useEffect(() => {
     if (!project?._reloadKey) return;
     setResult(null);
@@ -176,13 +176,6 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       if (r?.error) { setGameScriptsError(r.error); }
       else if (r?.scripts) {
           setGameScripts(r.scripts); setGameRepoPath(r.gameRepoPath || '');
-          // Auto-select first launch script if none selected
-          setAutoLaunch(prev => {
-            if (prev) return prev; // keep existing selection
-            if (r.scripts.length === 0) return '';
-            const launchScripts = r.scripts.filter(s => /^playa\s+launch\b/.test(s.cmd));
-            return launchScripts.length > 0 ? launchScripts[0].name : r.scripts[0].name;
-          });
         }
     } catch (e) { setGameScriptsError(e.message); }
     setLoadingGameScripts(false);
@@ -266,98 +259,19 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       if (stopped()) return;
       if (r?.error) setLog(r.error);
       if (r?.success) {
+        // Selective refresh — only update distInfo and soundsJson, preserve all other state
         const refreshed = await window.api.reloadProject();
         if (stopped()) return;
-        if (refreshed && setProject) { refreshed._reloadKey = Date.now(); setProject(refreshed); }
-
-        const refreshedDistOk = refreshed?.distInfo?.hasDist && refreshed?.distInfo?.hasSoundsJson;
-        const shouldAutoDeploy = !scriptName.includes('validate') && deployScripts.includes('deploy')
-          && !!(refreshed?.gameRepoAbsPath) && (refreshed?.gameRepoExists ?? false) && refreshedDistOk;
-        if (shouldAutoDeploy) {
-          showToast(`${scriptName} passed — deploying...`, 'success');
-          setLog(prev => prev + '\n\n── Deploy ──\n');
-          setRunning('deploy');
-          try {
-            const dr = await window.api.runDeploy('deploy');
-            if (stopped()) return;
-            if (dr?.error) setLog(prev => prev + dr.error);
-            if (!dr?.success) {
-              setResult({ script: 'deploy', ok: false });
-              showToast('Deploy failed', 'error');
-              setRunning(null); return;
-            }
-            setLog(prev => prev + '✔ Deployed\n');
-
-            if (autoLaunch) {
-              setLog(prev => prev + '\n── yarn install ──\n');
-              setRunning('game:install');
-              const yi = await window.api.yarnInstallGame();
-              if (stopped()) return;
-              if (yi?.detectedNode) showToast(`Game uses Node ${yi.detectedNode} (auto-detected)`, 'success');
-              if (!yi?.success) {
-                setLog(prev => prev + `⚠ yarn install failed: ${yi?.error || 'unknown'}\n`);
-              } else {
-                setLog(prev => prev + '✔ Dependencies OK\n');
-              }
-
-              setLog(prev => prev + '\n── yarn build-dev ──\n');
-              setRunning('game:build');
-              const build = await window.api.buildGame();
-              if (stopped()) return;
-              if (build?.detectedNode) {
-                showToast(`Game uses Node ${build.detectedNode} (auto-detected)`, 'success');
-                try { if (reloadProject) { await reloadProject(); } } catch {}
-              }
-              if (build?.error === 'No build-dev script in game package.json') {
-                setLog(prev => prev + 'No build-dev script, skipping...\n');
-              } else if (!build?.success) {
-                setLog(prev => prev + `\n✖ build-dev failed: ${build?.error || 'unknown'}\n`);
-                setResult({ script: scriptName, ok: false });
-                showToast('Game build failed', 'error');
-                setRunning(null); return;
-              } else {
-                setLog(prev => prev + '\n✔ build-dev complete\n');
-              }
-
-              if (stopped()) return;
-              setLog(prev => prev + `\n── Launch: ${autoLaunch} ──\n`);
-              setRunning('game:' + autoLaunch);
-              const lr = await window.api.runGameScript(autoLaunch);
-              if (stopped()) return;
-              if (!lr.success) {
-                setLog(prev => prev + (lr.error || 'Launch failed'));
-                setResult({ script: scriptName, ok: false });
-                showToast('Launch failed', 'error');
-                setRunning(null); return;
-              }
-              setGameStarted(true);
-              setLog(prev => prev + `${lr.output}\n\nWaiting for server on port 8080...`);
-              const port = await window.api.waitForPort({ port: 8080, timeout: 120000 });
-              if (stopped()) return;
-              if (port.ready) {
-                setLog(prev => prev + '\n✔ Server ready! Opening browser...');
-                setResult({ script: scriptName, ok: true });
-                showToast('Build → Deploy → Launch complete!', 'success');
-                window.api.openGameWindow('http://127.0.0.1:8080');
-              } else {
-                setLog(prev => prev + '\nTimeout — server did not respond.');
-                setResult({ script: scriptName, ok: false });
-                showToast('Server timeout', 'error');
-              }
-            } else {
-              setResult({ script: 'deploy', ok: true });
-              showToast('Build + Deploy complete', 'success');
-            }
-          } catch (de) {
-            if (stopped()) return;
-            setLog(prev => prev + '\nError: ' + de.message);
-            setResult({ script: 'deploy', ok: false });
-            showToast('Error', 'error');
-          }
-        } else {
-          setResult({ script: scriptName, ok: true });
-          showToast(`${scriptName} passed`, 'success');
+        if (refreshed && setProject) {
+          setProject(prev => {
+            const next = structuredClone(prev);
+            next.distInfo = refreshed.distInfo;
+            next.soundsJson = refreshed.soundsJson;
+            return next;
+          });
         }
+        setResult({ script: scriptName, ok: true });
+        showToast(`${scriptName} complete`, 'success');
       } else {
         if (stopped()) return;
         setResult({ script: scriptName, ok: false });
@@ -372,6 +286,27 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     if (!stopped()) setRunning(null);
   };
 
+  const runDeployOnly = async () => {
+    setDeploying(true); setLog('── Deploy ──\n'); setResult(null);
+    try {
+      const dr = await window.api.runDeploy('deploy');
+      if (dr?.error) setLog(prev => prev + dr.error);
+      if (dr?.success) {
+        setLog(prev => prev + '✔ Deploy complete\n');
+        setResult({ script: 'deploy', ok: true });
+        showToast('Deploy complete', 'success');
+      } else {
+        setResult({ script: 'deploy', ok: false });
+        showToast('Deploy failed', 'error');
+      }
+    } catch (e) {
+      setLog(prev => prev + '\nError: ' + e.message);
+      setResult({ script: 'deploy', ok: false });
+      showToast('Deploy error', 'error');
+    }
+    setDeploying(false);
+  };
+
 
   const runGameScript = async (scriptName) => {
     abortRef.current = false;
@@ -384,7 +319,6 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
         if (stopped()) return;
         if (build?.detectedNode) {
           showToast(`Game uses Node ${build.detectedNode} (auto-detected)`, 'success');
-          if (reloadProject) { await reloadProject(); }
         }
         if (build?.error === 'No build-dev script in game package.json') {
           setLog(prev => prev + 'No build-dev script found, skipping build step...\n\n');
@@ -477,8 +411,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                     <button
                       key={name}
                       onClick={() => runScript(name)}
-                      disabled={running !== null}
-                      className={running === name ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
+                      disabled={running !== null || deploying}
+                      className={running === name ? 'btn-ghost text-cyan border-cyan/30 cursor-wait text-xs py-1.5 px-3' : (running || deploying) ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
                       title={scripts[name]}
                     >
                       {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan mr-1.5 anim-pulse-dot" />}
@@ -491,22 +425,20 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               )}
             </div>
 
-            {/* Auto-launch dropdown */}
-            {deployTarget && gameScripts.length > 0 && (
+            {/* Deploy button — separate from build */}
+            {deployScripts.includes('deploy') && deployTarget && (
               <div className="flex items-center gap-2 pt-2 border-t border-border/30">
-                <span className="section-label shrink-0">After build</span>
-                <select
-                  value={autoLaunch}
-                  onChange={e => setAutoLaunch(e.target.value)}
-                  disabled={running !== null}
-                  className="input-base text-sm font-mono py-1 px-2 w-auto"
-                  title="Deploy + launch this script automatically after build completes"
+                <button
+                  onClick={runDeployOnly}
+                  disabled={running !== null || deploying || !distInfo?.hasDist || !distInfo?.hasSoundsJson}
+                  className={deploying ? 'btn-primary text-xs py-1.5 px-4 cursor-wait' : 'btn-primary text-xs py-1.5 px-4'}
+                  title={!distInfo?.hasDist ? 'Build first — no dist/ files to deploy' : !distInfo?.hasSoundsJson ? 'Build JSON first — sounds.json missing from dist/' : 'Copy sprites + sounds.json to game repo sounds/ folder'}
                 >
-                  <option value="">Deploy only</option>
-                  {gameScripts.filter(s => /^playa\s+launch\b/.test(s.cmd)).map(s => (
-                    <option key={s.name} value={s.name}>Deploy + Launch: {s.name}</option>
-                  ))}
-                </select>
+                  {deploying && <span className="inline-block w-1.5 h-1.5 rounded-full bg-white mr-1.5 anim-pulse-dot" />}
+                  {deploying ? 'Deploying...' : 'Deploy'}
+                </button>
+                {!distInfo?.hasDist && <span className="text-xs text-text-dim italic">Build first</span>}
+                {distInfo?.hasDist && !distInfo?.hasSoundsJson && <span className="text-xs text-orange italic">sounds.json missing</span>}
               </div>
             )}
 
@@ -527,8 +459,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                   <button
                     key={name}
                     onClick={() => runScript(name)}
-                    disabled={running !== null}
-                    className={running === name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
+                    disabled={running !== null || deploying}
+                    className={running === name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1.5 px-3' : (running || deploying) ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
                     title={scripts[name]}
                   >
                     {running === name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1.5 anim-pulse-dot" />}
@@ -647,7 +579,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
               </button>
               <button
                 onClick={loadGameScripts}
-                disabled={loadingGameScripts || running !== null}
+                disabled={loadingGameScripts || running !== null || deploying}
                 className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
                 title="Reload launch scripts"
               >
@@ -669,7 +601,17 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                     try {
                       const r = await window.api.checkoutGameBranch(branch);
                       if (r?.success && r.project) {
-                        setProject(r.project);
+                        // Selective merge — only update game-repo fields, preserve audio state (spriteConfig, encoder, etc.)
+                        setProject(prev => {
+                          const next = structuredClone(prev);
+                          next.gameRepoBranch = r.project.gameRepoBranch;
+                          next.gameRepoBranches = r.project.gameRepoBranches;
+                          next.gameNodeVersion = r.project.gameNodeVersion;
+                          next.gameRepoExists = r.project.gameRepoExists;
+                          next.gameNodeModulesExists = r.project.gameNodeModulesExists;
+                          next.gameRepoAbsPath = r.project.gameRepoAbsPath;
+                          return next;
+                        });
                         loadGameScripts();
                         showToast(`Switched to ${r.branch}`, 'success');
                       } else {
@@ -678,7 +620,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                     } catch (err) { showToast('Checkout failed', 'error'); }
                     setRunning(null);
                   }}
-                  disabled={running !== null}
+                  disabled={running !== null || deploying}
                   className="input-base text-sm font-mono py-1 px-2 flex-1"
                   title="Select game repo branch — deploy and build-dev will use this branch"
                 >
@@ -713,8 +655,8 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
                     </div>
                     <button
                       onClick={() => runGameScript(name)}
-                      disabled={running !== null}
-                      className={running === 'game:' + name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1.5 px-3' : running ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
+                      disabled={running !== null || deploying}
+                      className={running === 'game:' + name ? 'btn-ghost text-purple border-purple/30 cursor-wait text-xs py-1.5 px-3' : (running || deploying) ? 'btn-ghost text-xs py-1.5 px-3 opacity-40' : 'btn-ghost text-xs py-1.5 px-3'}
                       title={cmd}
                     >
                       {running === 'game:' + name && <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple mr-1 anim-pulse-dot" />}
@@ -837,11 +779,11 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
       </div>
 
       {/* LOG — full width, compact */}
-      {(log || running) && (
+      {(log || running || deploying) && (
         <div className="card p-2.5 shrink-0 space-y-1">
           <div className="flex items-center gap-2">
             <span className="section-label">Output</span>
-            {running && (
+            {(running || deploying) && (
               <span className="flex items-center gap-1 text-xs text-cyan">
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan anim-pulse-dot" />
                 live
