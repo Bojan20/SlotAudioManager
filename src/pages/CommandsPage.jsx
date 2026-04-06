@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 
 const COMMANDS = ['Play', 'Stop', 'Fade', 'Set', 'Pause', 'Resume', 'Execute', 'ResetSpriteList'];
 
