@@ -350,6 +350,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const [confirmDeleteList, setConfirmDeleteList] = useState(null);
   const [selected, setSelected] = useState(new Set()); // multi-select for bulk ops
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [previewCmd, setPreviewCmd] = useState(null); // command name being previewed
+  const previewCtxRef = useRef(null);
+  const previewSourcesRef = useRef([]);
+  const previewTimersRef = useRef([]);
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
@@ -357,6 +361,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
     setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null); setClipboard(null);
     setSelected(new Set()); setConfirmBulkDelete(false);
+    stopPreview();
   }, [project?.path, project?._reloadKey]);
 
   // Clear selection when switching tabs
@@ -497,6 +502,88 @@ export default function CommandsPage({ project, setProject, showToast }) {
       showToast('Save failed: ' + e.message, 'error');
     }
     setSaving(false);
+  };
+
+  // ── Command audio preview ────────────────────────────────────────────────────
+  const stopPreview = () => {
+    previewTimersRef.current.forEach(t => clearTimeout(t));
+    previewTimersRef.current = [];
+    previewSourcesRef.current.forEach(s => { try { s.stop(); } catch {} });
+    previewSourcesRef.current = [];
+    if (previewCtxRef.current) { previewCtxRef.current.close().catch(() => {}); previewCtxRef.current = null; }
+    setPreviewCmd(null);
+  };
+
+  const playPreview = async (cmdName) => {
+    if (previewCmd === cmdName) { stopPreview(); return; }
+    stopPreview();
+    const steps = commands[cmdName];
+    if (!Array.isArray(steps) || steps.length === 0) return;
+
+    setPreviewCmd(cmdName);
+    try {
+      const ctx = new AudioContext();
+      previewCtxRef.current = ctx;
+
+      for (const step of steps) {
+        if (step.command !== 'Play') continue;
+
+        // Resolve WAV filename
+        let wavName = null;
+        if (step.spriteId) {
+          wavName = step.spriteId.replace(/^s_/, '');
+        } else if (step.spriteListId) {
+          const list = spriteLists[step.spriteListId];
+          const items = Array.isArray(list) ? list : list?.items || [];
+          const target = step.spriteToPlay || items[0];
+          if (target) wavName = target.replace(/^s_/, '');
+        }
+        if (!wavName) continue;
+
+        const delay = step.delay || 0;
+        const volume = step.volume ?? 1;
+
+        // Schedule play
+        const timer = setTimeout(async () => {
+          if (previewCtxRef.current !== ctx) return; // stale
+          try {
+            const res = await fetch(`audio://local/${encodeURIComponent(wavName + '.wav')}`);
+            if (!res.ok || previewCtxRef.current !== ctx) return;
+            const buf = await res.arrayBuffer();
+            if (previewCtxRef.current !== ctx) return;
+            const audioBuffer = await ctx.decodeAudioData(buf);
+            if (previewCtxRef.current !== ctx) return;
+
+            const gain = ctx.createGain();
+            gain.gain.value = volume;
+            gain.connect(ctx.destination);
+
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.loop = step.loop === -1;
+            source.connect(gain);
+            source.start(0);
+            previewSourcesRef.current.push(source);
+
+            source.onended = () => {
+              const idx = previewSourcesRef.current.indexOf(source);
+              if (idx >= 0) previewSourcesRef.current.splice(idx, 1);
+              if (previewSourcesRef.current.length === 0 && previewCtxRef.current === ctx) stopPreview();
+            };
+          } catch (e) {
+            console.error(`Preview ${wavName}:`, e.message);
+          }
+        }, delay);
+        previewTimersRef.current.push(timer);
+      }
+
+      // Auto-stop after 30s safety (prevents infinite loops running forever)
+      const safetyTimer = setTimeout(() => { if (previewCtxRef.current === ctx) stopPreview(); }, 30000);
+      previewTimersRef.current.push(safetyTimer);
+    } catch (e) {
+      showToast('Preview failed: ' + e.message, 'error');
+      stopPreview();
+    }
   };
 
   const saveJson = async (newSoundsJson, successMsg) => {
@@ -1088,6 +1175,13 @@ export default function CommandsPage({ project, setProject, showToast }) {
                     <path d="M6 4l8 6-8 6V4z" />
                   </svg>
                   <span className="text-[15px] font-mono truncate">{name}</span>
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); playPreview(name); }}
+                  className={`w-6 h-6 flex items-center justify-center rounded-md transition-colors shrink-0 ${previewCmd === name ? 'bg-cyan/15 text-cyan' : 'bg-white/[0.03] text-text-dim hover:text-cyan hover:bg-cyan/10'}`}
+                  title={previewCmd === name ? 'Stop preview' : `Preview "${name}" — play all sounds`}
+                >
+                  <span className="text-xs font-bold">{previewCmd === name ? '■' : '▶'}</span>
                 </button>
                 <span className="text-xs text-text-dim shrink-0">{actions.length}</span>
                 {issues.length > 0 && <span className="badge bg-danger-dim text-danger shrink-0">{issues.length} err</span>}
