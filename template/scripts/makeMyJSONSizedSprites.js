@@ -375,7 +375,16 @@ async function processSourceSprites() {
                         myNewEntry.startTime = sndSpriteEntries[spriteId][0];
                     }
                 }
-                myNewEntry.duration = duration;
+                // Use padded duration from soundData JSON (includes AAC encoder delay compensation)
+                // — sox gives raw WAV duration which is too short for M4A sprite playback
+                if (audioProcess.process === "audioSprite" && audioFileCount > 0) {
+                    const fn = await getIncrementValue(spriteId);
+                    myNewEntry.duration = sndSpriteEntries[fn][spriteId][1];
+                } else if (audioProcess.process === "audioSprite" && sndSpriteEntries && sndSpriteEntries[spriteId]) {
+                    myNewEntry.duration = sndSpriteEntries[spriteId][1];
+                } else {
+                    myNewEntry.duration = duration;
+                }
                 myNewEntry.tags = originalSprites[entryName] ? originalSprites[entryName].tags || ["SoundEffects"] : ["SoundEffects"];
                 myNewSoundSprites[entryName] = myNewEntry;
                 soundProcessCount--;
