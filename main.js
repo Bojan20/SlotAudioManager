@@ -1089,6 +1089,7 @@ ipcMain.handle('health-check', async () => {
 // Initialize from built-in template — one click, OVERWRITES everything from our app
 // Our app is the single source of truth for scripts, configs, and dependencies
 ipcMain.handle('init-from-template', async (event, { skipConfigs = false } = {}) => {
+  console.log('[init-from-template] start, skipConfigs=' + skipConfigs);
   if (!projectPath) return { error: 'No project open' };
   const tplPath = getTemplatePath();
   if (!fs.existsSync(tplPath)) return { error: 'Built-in template not found' };
@@ -1796,6 +1797,7 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
 
 // Git pull in game repo
 ipcMain.handle('git-pull-game', async () => {
+  console.log('[git-pull-game] start');
   if (!projectPath) return { error: 'No project open' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   if (!settings?.gameProjectPath) return { error: 'Game repo not configured' };
@@ -2648,9 +2650,11 @@ ipcMain.handle('clean-orphans', async () => {
 });
 
 ipcMain.handle('npm-install', async () => {
+  console.log('[npm-install] start');
   if (!projectPath) return { error: 'No project open' };
   const cwd = projectPath;
   const hasYarnLock = fs.existsSync(path.join(cwd, 'yarn.lock'));
+  console.log('[npm-install] cwd=' + cwd + ' hasYarnLock=' + hasYarnLock);
   const send = (d) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', d); };
   const env = { ...process.env, NODE_TLS_REJECT_UNAUTHORIZED: '0' };
   delete env.NODE_OPTIONS;
@@ -2673,17 +2677,20 @@ ipcMain.handle('npm-install', async () => {
     useShell = isWin;
   }
 
+  console.log('[npm-install] cmd=' + cmd + ' args=' + args.join(' ') + ' shell=' + useShell);
   return new Promise((resolve) => {
     let output = '';
     const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], shell: useShell, env });
-    const timer = setTimeout(() => { child.kill(); resolve({ success: false, error: 'Install timeout (4 min)', output }); }, 240000);
+    console.log('[npm-install] spawned pid=' + child.pid);
+    const timer = setTimeout(() => { console.log('[npm-install] TIMEOUT 4min'); child.kill(); resolve({ success: false, error: 'Install timeout (4 min)', output }); }, 240000);
     child.stdout.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.stderr.on('data', d => { const s = d.toString(); output += s; send(s); });
     child.on('close', (code) => {
       clearTimeout(timer);
+      console.log('[npm-install] close code=' + code);
       resolve({ success: code === 0, output, project: code === 0 ? loadProject(cwd) : null });
     });
-    child.on('error', (e) => { clearTimeout(timer); resolve({ success: false, output: output || e.message, error: e.message }); });
+    child.on('error', (e) => { clearTimeout(timer); console.log('[npm-install] error: ' + e.message); resolve({ success: false, output: output || e.message, error: e.message }); });
   });
 });
 
