@@ -166,14 +166,14 @@ for (const file of normalFiles) {
         duration: spriteData.duration
     };
 
-    // Preserve tags from template; standalone/streaming sounds get Music tag, everything else gets SFX tag
-    const isMusicSound = standaloneSounds.includes(soundName) || streamingSounds.has(soundName);
-    newEntry.tags = origEntry.tags || (isMusicSound ? spriteConfig.musicTags || ["Music"] : spriteConfig.sfxTags || ["SoundEffects"]);
-
-    // Preserve overlap from template
+    // Preserve overlap from template (must come before tags in output JSON)
     if (origEntry.overlap !== undefined) {
         newEntry.overlap = origEntry.overlap;
     }
+
+    // Preserve tags from template; standalone/streaming sounds get Music tag, everything else gets SFX tag
+    const isMusicSound = standaloneSounds.includes(soundName) || streamingSounds.has(soundName);
+    newEntry.tags = origEntry.tags || (isMusicSound ? spriteConfig.musicTags || ["Music"] : spriteConfig.sfxTags || ["SoundEffects"]);
 
     newSoundSprites[entryName] = newEntry;
 }
@@ -224,17 +224,15 @@ async function processSpriteListFile(file) {
                         const spriteEntryName = 's_' + spriteNames[i];
                         const origEntry = originalSprites[spriteEntryName] || {};
 
-                        newSoundSprites[spriteEntryName] = {
+                        const slEntry = {
                             soundId: soundId,
                             spriteId: spriteNames[i],
                             startTime: startTimes[i],
-                            duration: durations[i],
-                            tags: origEntry.tags || ["SoundEffects"]
+                            duration: durations[i]
                         };
-
-                        if (origEntry.overlap !== undefined) {
-                            newSoundSprites[spriteEntryName].overlap = origEntry.overlap;
-                        }
+                        if (origEntry.overlap !== undefined) slEntry.overlap = origEntry.overlap;
+                        slEntry.tags = origEntry.tags || ["SoundEffects"];
+                        newSoundSprites[spriteEntryName] = slEntry;
                     }
                 }
             } catch (e) {
