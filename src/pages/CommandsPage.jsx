@@ -142,9 +142,9 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
                 <button type="button" onClick={() => setCreatingList({ name: '', items: ['', ''], type: 'random', overlap: true })}
                   className="btn-ghost text-xs py-1 w-full" title="No sprite lists yet — create one">+ Create Sprite List</button>
               )}
-              {state.spriteListId && !creatingList && spriteLists[state.spriteListId] && (
+              {state.spriteListId && !creatingList && spriteLists[state.spriteListId] && state.command === 'Play' && (
                 <div className="mt-1.5">
-                  <label className="section-label mb-1 block" title="Play/stop a specific sprite from the list instead of next in sequence">Sprite To Play</label>
+                  <label className="section-label mb-1 block" title="Force a specific sprite from the list instead of next in sequence/random">Sprite To Play</label>
                   <select
                     value={state.spriteToPlay || ''}
                     onChange={e => setState(m => ({ ...m, spriteToPlay: e.target.value }))}
@@ -533,7 +533,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     // Target: spriteId or spriteListId (all target-based commands support both)
     if (s.targetType === 'list' && s.spriteListId) {
       step.spriteListId = s.spriteListId;
-      if (s.spriteToPlay) step.spriteToPlay = s.spriteToPlay;
+      if (s.command === 'Play' && s.spriteToPlay) step.spriteToPlay = s.spriteToPlay;
     } else if (s.spriteId) {
       step.spriteId = s.spriteId;
     }
