@@ -86,6 +86,15 @@ const _defaultEnc = { bitrate: 64, channels: 2, samplerate: 44100, encoder: 'nat
 if (!encoding.sfx) encoding.sfx = { ..._defaultEnc };
 if (!encoding.music) encoding.music = { ..._defaultEnc };
 
+// Cache music-tagged sounds for per-tier encoding selection
+const _musicTags = new Set(spriteConfig.musicTags || ['Music']);
+const _originalSprites = JSON.parse(fs.readFileSync(settings.JSONtemplate || 'sounds.json', 'utf8')).soundDefinitions?.soundSprites || {};
+const _musicSounds = new Set();
+for (const [k, v] of Object.entries(_originalSprites)) {
+    if (v?.tags?.some(t => _musicTags.has(t))) _musicSounds.add(path.basename(k).replace(/^s_/, ''));
+}
+if (_musicSounds.size > 0) console.log(`Music-tagged sounds (use music encoding): ${_musicSounds.size}`);
+
 // Log encoding settings so user can verify bitrate + encoder per category
 if (encoding) {
   for (const [key, enc] of Object.entries(encoding)) {
@@ -263,7 +272,9 @@ console.log("=".repeat(50));
 function buildOne(build, index, total) {
     return new Promise((resolve) => {
         const isStandalone = build.type === 'standalone' || build.type === 'streaming';
-        const enc = isStandalone ? encoding.music : encoding.sfx;
+        // Choose encoding by tag: if ANY sound in this build has a Music tag, use music encoding
+        const hasMusicSound = !isStandalone && build.files.some(f => _musicSounds.has(path.basename(f, '.wav')));
+        const enc = (isStandalone || hasMusicSound) ? encoding.music : encoding.sfx;
         const gap = isStandalone ? 0 : spriteConfig.spriteGap;
         const typeLabel = build.type === 'streaming' ? 'Streaming' : build.type === 'standalone' ? 'Standalone' : 'Sprite';
 
