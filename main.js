@@ -1432,7 +1432,7 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       const yarnJs = findYarnJs();
       if (yarnJs) {
         const nodeDir = gameNodeCache[gameRepoPath] && gameNodeCache[gameRepoPath] !== 'system' ? gameNodeCache[gameRepoPath] : null;
-        const nodeExe = nodeDir ? path.join(nodeDir, isWin ? 'node.exe' : 'bin/node') : process.execPath;
+        const nodeExe = nodeDir ? path.join(nodeDir, isWin ? 'node.exe' : 'bin/node') : (isWin ? 'node.exe' : 'node');
         child = spawn(nodeExe, [yarnJs, scriptName], {
           cwd: gameRepoPath,
           stdio: ['ignore', 'pipe', 'pipe'],
