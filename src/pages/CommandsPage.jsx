@@ -604,72 +604,104 @@ export default function CommandsPage({ project, setProject, showToast }) {
 
     previewCmdsRef.current.add(cmdName);
     setPreviewCmds(prev => new Set(prev).add(cmdName));
-    const playSteps = steps.filter(s => s.command === 'Play');
-    if (playSteps.length === 0) { stopPreviewCmd(cmdName); return; }
 
     try {
-      // Resolve and fetch all WAVs upfront
-      const loaded = [];
-      for (const step of playSteps) {
-        let wavName = null;
-        if (step.spriteId) {
-          wavName = step.spriteId.replace(/^s_/, '');
-        } else if (step.spriteListId) {
-          const list = spriteLists[step.spriteListId];
-          const items = Array.isArray(list) ? list : list?.items || [];
-          const target = step.spriteToPlay || items[0];
-          if (target) wavName = target.replace(/^s_/, '');
-        }
-        if (!wavName) continue;
+    // Resolve target spriteId for any step
+    const resolveTarget = (step) => {
+      if (step.spriteId) return step.spriteId;
+      if (step.spriteListId) {
+        const list = spriteLists[step.spriteListId];
+        const items = Array.isArray(list) ? list : list?.items || [];
+        return step.spriteToPlay || items[0] || null;
+      }
+      return null;
+    };
+
+    // Preload WAVs for Play steps only
+    const wavCache = {}; // spriteId → audioBuffer
+    for (const step of steps) {
+      if (step.command !== 'Play') continue;
+      const target = resolveTarget(step);
+      if (!target || wavCache[target]) continue;
+      const wavName = target.replace(/^s_/, '');
+      try {
+        const res = await fetch(`audio://local/${encodeURIComponent(wavName + '.wav')}`);
+        if (!res.ok) continue;
+        const buf = await res.arrayBuffer();
+        const { audioBuffer, ctx: wavCtx } = decodeWavForPreview(buf);
+        wavCtx.close().catch(() => {});
+        wavCache[target] = audioBuffer;
+      } catch (e) {
+        console.error(`Preview load ${wavName}:`, e.message);
+      }
+    }
+
+    // Reuse or create shared AudioContext
+    if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
+      previewCtxRef.current = new AudioContext();
+    }
+    const ctx = previewCtxRef.current;
+
+    // Schedule ALL steps — Play, Stop, Fade, Pause, Resume
+    for (const step of steps) {
+      const delay = step.delay || 0;
+      const target = resolveTarget(step);
+      const cmd = (step.command || '').toLowerCase();
+
+      const timer = setTimeout(() => {
+        if (!previewCmdsRef.current.has(cmdName)) return;
         try {
-          const res = await fetch(`audio://local/${encodeURIComponent(wavName + '.wav')}`);
-          if (!res.ok) continue;
-          const buf = await res.arrayBuffer();
-          const { audioBuffer, ctx: wavCtx } = decodeWavForPreview(buf);
-          wavCtx.close().catch(() => {}); // close temp ctx from decoder
-          loaded.push({ step, audioBuffer, wavName, sampleRate: audioBuffer.sampleRate });
-        } catch (e) {
-          console.error(`Preview load ${wavName}:`, e.message);
-        }
-      }
-      if (loaded.length === 0) { stopPreviewCmd(cmdName); return; }
-
-      // Reuse or create shared AudioContext
-      if (!previewCtxRef.current || previewCtxRef.current.state === 'closed') {
-        previewCtxRef.current = new AudioContext();
-      }
-      const ctx = previewCtxRef.current;
-
-      for (const { step, audioBuffer, wavName } of loaded) {
-        const delay = step.delay || 0;
-        const volume = step.volume ?? 1;
-
-        const timer = setTimeout(() => {
-          if (!previewCmdsRef.current.has(cmdName)) return; // command was stopped
-          try {
+          if (cmd === 'play' && target && wavCache[target]) {
+            const volume = step.volume ?? 1;
             const gain = ctx.createGain();
             gain.gain.value = volume;
             gain.connect(ctx.destination);
 
             const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
+            source.buffer = wavCache[target];
             source.loop = step.loop === -1;
             source.connect(gain);
             source.start(0);
-            previewSourcesRef.current.push({ source, cmdName });
+            previewSourcesRef.current.push({ source, cmdName, target, gain });
 
             source.onended = () => {
               previewSourcesRef.current = previewSourcesRef.current.filter(s => s.source !== source);
             };
-          } catch (e) {
-            console.error(`Preview play ${wavName}:`, e.message);
+          } else if (cmd === 'stop' && target) {
+            // Stop all active sources matching this target across ALL commands
+            const toStop = previewSourcesRef.current.filter(s => s.target === target);
+            toStop.forEach(s => { try { s.source.stop(); } catch {} });
+            previewSourcesRef.current = previewSourcesRef.current.filter(s => s.target !== target);
+          } else if (cmd === 'stop' && !target) {
+            // Stop without target — stop all sources from this command? No — in playa, Stop with spriteListId stops all in that list
+            // For preview: stop all from the spriteListId
+            if (step.spriteListId) {
+              const list = spriteLists[step.spriteListId];
+              const items = new Set(Array.isArray(list) ? list : list?.items || []);
+              const toStop = previewSourcesRef.current.filter(s => items.has(s.target));
+              toStop.forEach(s => { try { s.source.stop(); } catch {} });
+              previewSourcesRef.current = previewSourcesRef.current.filter(s => !items.has(s.target));
+            }
+          } else if (cmd === 'fade' && target) {
+            const duration = (step.duration || 500) / 1000;
+            const targetVol = step.volume ?? 0;
+            const toFade = previewSourcesRef.current.filter(s => s.target === target);
+            toFade.forEach(s => {
+              if (s.gain) {
+                s.gain.gain.linearRampToValueAtTime(targetVol, ctx.currentTime + duration);
+                if (targetVol === 0) setTimeout(() => { try { s.source.stop(); } catch {} }, duration * 1000 + 50);
+              }
+            });
           }
-        }, delay);
-        previewTimersRef.current.push({ timer, cmdName });
-      }
+        } catch (e) {
+          console.error(`Preview ${cmd} ${target}:`, e.message);
+        }
+      }, delay);
+      previewTimersRef.current.push({ timer, cmdName });
+    }
     } catch (e) {
       showToast('Preview failed: ' + e.message, 'error');
-      stopPreview();
+      stopPreviewCmd(cmdName);
     }
   };
 
