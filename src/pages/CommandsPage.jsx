@@ -737,7 +737,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const j = structuredClone(project.soundsJson);
     if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
     const entry = { items: cleanItems, type: newList.type, overlap: newList.overlap };
-    if (Array.isArray(newList.loop) ? newList.loop.length > 0 : newList.loop) entry.loop = newList.loop;
+    const loopVal = Array.isArray(newList.loop)
+      ? newList.loop.filter((_, i) => Boolean(newList.items[i]))
+      : newList.loop;
+    if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
     if (newList.tags?.length) entry.tags = newList.tags;
     j.soundDefinitions.spriteList[name] = entry;
     const ok = await saveJson(j, `Sprite list "${name}" created`);
@@ -752,7 +755,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const cleanItems = editList.items.filter(Boolean);
     if (!cleanItems.length) { showToast('Add at least one sprite', 'error'); return; }
     const entry = { items: cleanItems, type: editList.type, overlap: editList.overlap };
-    if (Array.isArray(editList.loop) ? editList.loop.length > 0 : editList.loop) entry.loop = editList.loop;
+    // Sync loop array with filtered items — remove entries for deleted sprites
+    const loopVal = Array.isArray(editList.loop)
+      ? editList.loop.filter((_, i) => Boolean(editList.items[i]))
+      : editList.loop;
+    if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
     if (editList.tags?.length) entry.tags = editList.tags;
     j.soundDefinitions.spriteList[editList.name] = entry;
     const ok = await saveJson(j, `Sprite list "${editList.name}" updated`);
@@ -766,7 +773,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const j = structuredClone(project.soundsJson);
     if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
     const entry = { items: cleanItems, type: editListInline.type, overlap: editListInline.overlap };
-    if (Array.isArray(editListInline.loop) ? editListInline.loop.length > 0 : editListInline.loop) entry.loop = editListInline.loop;
+    const loopVal = Array.isArray(editListInline.loop)
+      ? editListInline.loop.filter((_, i) => Boolean(editListInline.items[i]))
+      : editListInline.loop;
+    if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
     if (editListInline.tags?.length) entry.tags = editListInline.tags;
     j.soundDefinitions.spriteList[editListInline.name] = entry;
     const ok = await saveJson(j, `List "${editListInline.name}" updated`);
