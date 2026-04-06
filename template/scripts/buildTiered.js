@@ -218,13 +218,31 @@ for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
         continue;
     }
 
-    buildQueue.push({
-        type: 'sprite',
-        name: tierName,
-        tierConfig,
-        files: sortedSounds.map(s => sourceSndFiles + s + '.wav'),
-        outputName: `${gameName}_${tierName}`
-    });
+    // Split tier by tag: Music-tagged sounds get their own sprite with music encoding
+    const sfxSounds = sortedSounds.filter(s => !_musicSounds.has(s));
+    const musicSoundsInTier = sortedSounds.filter(s => _musicSounds.has(s));
+
+    if (sfxSounds.length > 0) {
+        buildQueue.push({
+            type: 'sprite',
+            name: tierName,
+            tierConfig,
+            files: sfxSounds.map(s => sourceSndFiles + s + '.wav'),
+            outputName: `${gameName}_${tierName}`,
+            encType: 'sfx'
+        });
+    }
+    if (musicSoundsInTier.length > 0) {
+        buildQueue.push({
+            type: 'sprite',
+            name: tierName + '_music',
+            tierConfig,
+            files: musicSoundsInTier.map(s => sourceSndFiles + s + '.wav'),
+            outputName: `${gameName}_${tierName}_music`,
+            encType: 'music'
+        });
+    }
+    // If tier has ONLY sfx or ONLY music, single sprite (no split needed — handled above)
 }
 
 const existingStandalone = standaloneSounds.filter(s => allWavFiles.includes(s));
@@ -272,9 +290,9 @@ console.log("=".repeat(50));
 function buildOne(build, index, total) {
     return new Promise((resolve) => {
         const isStandalone = build.type === 'standalone' || build.type === 'streaming';
-        // Choose encoding by tag: if ANY sound in this build has a Music tag, use music encoding
-        const hasMusicSound = !isStandalone && build.files.some(f => _musicSounds.has(path.basename(f, '.wav')));
-        const enc = (isStandalone || hasMusicSound) ? encoding.music : encoding.sfx;
+        // Encoding: music for standalone/streaming/music-tagged splits, sfx for everything else
+        const useMusic = isStandalone || build.encType === 'music';
+        const enc = useMusic ? encoding.music : encoding.sfx;
         const gap = isStandalone ? 0 : spriteConfig.spriteGap;
         const typeLabel = build.type === 'streaming' ? 'Streaming' : build.type === 'standalone' ? 'Standalone' : 'Sprite';
 

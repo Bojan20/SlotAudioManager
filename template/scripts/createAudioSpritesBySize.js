@@ -1,8 +1,16 @@
 const audiosprite = require('./customAudioSprite');
 const fs = require('fs');
-const pathToFFmpeg = require('ffmpeg-static');
+const path = require('path');
+
+// Use FDK ffmpeg from app when sprite-config encoder is 'fdk', otherwise fall back to ffmpeg-static
+const _fdkPath = process.env.FFMPEG_FDK_PATH;
+const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
+const _fdkExists = _fdkPath && fs.existsSync(_fdkPath);
+const _anyFdk = _fdkExists && Object.values(spriteConfig?.encoding || {}).some(e => (e.encoder || spriteConfig?.encoder) === 'fdk');
+const pathToFFmpeg = _anyFdk ? _fdkPath : require('ffmpeg-static');
 
 console.log("pathToFFmpeg ->", pathToFFmpeg);
+if (_anyFdk) console.log("(FDK binary — per-category encoder selection)");
 
 const settings = JSON.parse(fs.readFileSync("settings.json"));
 const audioSettings = new Map(Object.entries(settings || {}));
@@ -15,16 +23,25 @@ const outDir = '././dist/soundFiles/';
 fs.rmSync(distDir, { recursive: true, force: true });
 fs.mkdirSync(outDir, { recursive: true });
 
-// Read sprite-config for encoding, standalone, and streaming
-const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
+// Read encoding settings
 const sfxEnc = spriteConfig?.encoding?.sfx || {};
 const musicEnc = spriteConfig?.encoding?.music || {};
 const standaloneSounds = new Set(spriteConfig?.standalone?.sounds || []);
 const streamingSounds = new Set(spriteConfig?.streaming?.sounds || []);
 
-// Separate files: standalone music / streaming music / sprite SFX
+// Detect Music-tagged sounds from sounds.json
+const _musicTags = new Set(spriteConfig?.musicTags || ['Music']);
+const _soundsJson = (() => { try { return JSON.parse(fs.readFileSync(settings.JSONtemplate || 'sounds.json', 'utf8')); } catch { return {}; } })();
+const _originalSprites = _soundsJson.soundDefinitions?.soundSprites || {};
+const _musicSounds = new Set();
+for (const [k, v] of Object.entries(_originalSprites)) {
+    if (v?.tags?.some(t => _musicTags.has(t))) _musicSounds.add(k.replace(/^s_/, ''));
+}
+
+// Separate files: standalone / streaming / sprite-sfx / sprite-music (by tag)
 const allFiles = fs.readdirSync(sourceSndFiles).filter(f => f.endsWith('.wav')).sort();
-const spriteFiles = [];
+const spriteSfxFiles = [];
+const spriteMusicFiles = [];
 const musicFiles = [];
 const streamingFiles = [];
 
@@ -34,62 +51,83 @@ for (const f of allFiles) {
         streamingFiles.push(f);
     } else if (standaloneSounds.has(name)) {
         musicFiles.push(f);
+    } else if (_musicSounds.has(name)) {
+        spriteMusicFiles.push(f);
     } else {
-        spriteFiles.push(f);
+        spriteSfxFiles.push(f);
     }
 }
 
-const totalStandalone = musicFiles.length + streamingFiles.length;
-if (totalStandalone > 0) {
-    console.log(`\nSprite: ${spriteFiles.length} sounds (${sfxEnc.channels === 1 ? 'mono' : 'stereo'} ${sfxEnc.bitrate || 64}kbps ${sfxEnc.samplerate || 44100}Hz)`);
-    if (musicFiles.length > 0) console.log(`Standalone: ${musicFiles.length} sounds (${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEnc.bitrate || 128}kbps ${musicEnc.samplerate || 44100}Hz)`);
-    if (streamingFiles.length > 0) console.log(`Streaming: ${streamingFiles.length} sounds (${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEnc.bitrate || 128}kbps ${musicEnc.samplerate || 44100}Hz) — HTML5 Audio, loadType S`);
-    console.log('');
-} else {
-    console.log(`\nAll ${spriteFiles.length} sounds in sprites (${sfxEnc.channels === 1 ? 'mono' : 'stereo'} ${sfxEnc.bitrate || 64}kbps ${sfxEnc.samplerate || 44100}Hz)\n`);
-}
+// Encoder labels
+const sfxEncLabel = ((sfxEnc.encoder || 'native') === 'fdk' && _fdkExists) ? 'FDK' : 'native';
+const musicEncLabel = ((musicEnc.encoder || 'native') === 'fdk' && _fdkExists) ? 'FDK' : 'native';
 
-// === SPRITE FILES — chunked by size ===
-const spritePaths = spriteFiles.map(f => sourceSndFiles + f);
-const audioArrays = [];
+console.log(`\nSprite SFX: ${spriteSfxFiles.length} sounds (${sfxEnc.bitrate || 64}kbps ${sfxEnc.channels === 1 ? 'mono' : 'stereo'} ${sfxEncLabel})`);
+if (spriteMusicFiles.length > 0) console.log(`Sprite Music: ${spriteMusicFiles.length} sounds (${musicEnc.bitrate || 64}kbps ${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEncLabel})`);
+if (musicFiles.length > 0) console.log(`Standalone: ${musicFiles.length} sounds (${musicEnc.bitrate || 128}kbps ${musicEncLabel})`);
+if (streamingFiles.length > 0) console.log(`Streaming: ${streamingFiles.length} sounds (${musicEnc.bitrate || 128}kbps ${musicEncLabel})`);
+console.log('');
 
-let count = 0;
-let totalFileSize = 0;
-const remaining = [...spritePaths];
-while (remaining.length > 0 && remaining[count] !== undefined) {
-    let fileSize = fs.statSync(remaining[count]).size / (1024 * 1024);
-    totalFileSize += fileSize;
-    console.log(" file names => " + remaining[count] + " file sizes =>  " + fileSize + " totalFileSize =>  " + totalFileSize);
-    if (totalFileSize >= 30) {
-        if (count === 0) count = 1;
-        audioArrays.push(remaining.splice(0, count));
-        count = 0;
-        totalFileSize = 0;
-    } else {
-        count++;
-        if (remaining[count] === undefined) {
-            audioArrays.push(remaining.splice(0, count));
-            break;
+// === CHUNK BY SIZE — separate SFX and Music sprites ===
+function chunkBySize(files, maxMB) {
+    const paths = files.map(f => sourceSndFiles + f);
+    const chunks = [];
+    let count = 0, totalSize = 0;
+    const remaining = [...paths];
+    while (remaining.length > 0 && remaining[count] !== undefined) {
+        const fileSize = fs.statSync(remaining[count]).size / (1024 * 1024);
+        totalSize += fileSize;
+        if (totalSize >= maxMB) {
+            if (count === 0) count = 1;
+            chunks.push(remaining.splice(0, count));
+            count = 0; totalSize = 0;
+        } else {
+            count++;
+            if (remaining[count] === undefined) { chunks.push(remaining.splice(0, count)); break; }
         }
     }
+    return chunks;
 }
 
 const pathArray = gameProjectPath.split(/[/\\]/);
 const gameName = pathArray[pathArray.length - 1];
 
-var opts = {
+// SFX sprites — sfx encoding
+const sfxChunks = chunkBySize(spriteSfxFiles, 30);
+const sfxEncEncoder = sfxEnc.encoder || 'native';
+const sfxUseNative = !((sfxEncEncoder === 'fdk') && _fdkExists);
+const sfxOpts = {
     output: outDir + gameName + "_audioSprite",
-    format: 'howler2',
-    export: 'm4a',
-    bitrate: sfxEnc.bitrate || 64,
-    channels: sfxEnc.channels || 2,
-    samplerate: sfxEnc.samplerate || 44100,
+    format: 'howler2', export: 'm4a',
+    bitrate: sfxEnc.bitrate || 64, channels: sfxEnc.channels || 2, samplerate: sfxEnc.samplerate || 44100,
+    useNativeAac: sfxUseNative,
     logger: { debug: console.log, info: console.log, log: console.log }
 };
 
-for (let i = 0; i < audioArrays.length; i++) {
-    console.log(audioArrays[i] + " audio file creation" + (i + 1));
-    createAudioSprite(audioArrays[i], i + 1, opts);
+let spriteNumber = 1;
+for (let i = 0; i < sfxChunks.length; i++) {
+    console.log(`SFX sprite ${spriteNumber} — ${sfxChunks[i].length} files (${sfxEnc.bitrate || 64}kbps ${sfxEncLabel})`);
+    createAudioSprite(sfxChunks[i], spriteNumber, sfxOpts);
+    spriteNumber++;
+}
+
+// Music sprites — music encoding (separate from SFX)
+if (spriteMusicFiles.length > 0) {
+    const musicChunks = chunkBySize(spriteMusicFiles, 30);
+    const musicEncEncoder = musicEnc.encoder || 'native';
+    const musicUseNative = !((musicEncEncoder === 'fdk') && _fdkExists);
+    const musicOpts = {
+        output: outDir + gameName + "_audioSprite",
+        format: 'howler2', export: 'm4a',
+        bitrate: musicEnc.bitrate || 64, channels: musicEnc.channels || 2, samplerate: musicEnc.samplerate || 44100,
+        useNativeAac: musicUseNative,
+        logger: { debug: console.log, info: console.log, log: console.log }
+    };
+    for (let i = 0; i < musicChunks.length; i++) {
+        console.log(`Music sprite ${spriteNumber} — ${musicChunks[i].length} files (${musicEnc.bitrate || 64}kbps ${musicEncLabel})`);
+        createAudioSprite(musicChunks[i], spriteNumber, musicOpts);
+        spriteNumber++;
+    }
 }
 
 // === STANDALONE MUSIC — individual M4A files (included in manifest) ===
