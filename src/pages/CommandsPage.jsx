@@ -72,8 +72,8 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
                 >List</button>
               </div>
             </div>
-            {state.targetType === 'list' ? (
-              creatingList ? (
+            {state.targetType === 'list' ? (<>
+              {creatingList ? (
                 <div className="space-y-2.5 border border-accent/20 rounded-xl p-3 bg-accent/[0.03]">
                   {/* Row 1: List name — full width */}
                   <input type="text" value={creatingList.name} onChange={e => setCreatingList(p => ({ ...p, name: e.target.value }))}
@@ -141,8 +141,24 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               ) : (
                 <button type="button" onClick={() => setCreatingList({ name: '', items: ['', ''], type: 'random', overlap: true })}
                   className="btn-ghost text-xs py-1 w-full" title="No sprite lists yet — create one">+ Create Sprite List</button>
-              )
-            ) : (
+              )}
+              {state.spriteListId && !creatingList && spriteLists[state.spriteListId] && (
+                <div className="mt-1.5">
+                  <label className="section-label mb-1 block" title="Play/stop a specific sprite from the list instead of next in sequence">Sprite To Play</label>
+                  <select
+                    value={state.spriteToPlay || ''}
+                    onChange={e => setState(m => ({ ...m, spriteToPlay: e.target.value }))}
+                    className="input-base text-xs w-full font-mono"
+                  >
+                    <option value="">— auto (next in list) —</option>
+                    {(Array.isArray(spriteLists[state.spriteListId])
+                      ? spriteLists[state.spriteListId]
+                      : spriteLists[state.spriteListId]?.items || []
+                    ).map(id => <option key={id} value={id}>{id}</option>)}
+                  </select>
+                </div>
+              )}
+            </>) : (
               <select
                 value={state.spriteId}
                 onChange={e => setState(m => ({ ...m, spriteId: e.target.value }))}
@@ -267,7 +283,7 @@ function emptyStep(overrides = {}) {
   return {
     command: 'Play', commandId: '', spriteId: '', spriteListId: '',
     targetType: 'sprite', volume: 1, delay: '', loop: false,
-    pan: '', duration: '', cancelDelay: false, rate: '',
+    pan: '', duration: '', cancelDelay: false, rate: '', spriteToPlay: '',
     ...overrides,
   };
 }
@@ -287,6 +303,7 @@ function stepFromAction(action, soundSprites) {
     cancelDelay: action.cancelDelay === 'true' || action.cancelDelay === true,
     rate: action.rate ?? '',
     spriteOverlap: soundSprites?.[action.spriteId]?.overlap ?? false,
+    spriteToPlay: action.spriteToPlay || '',
   };
 }
 
@@ -516,6 +533,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     // Target: spriteId or spriteListId (all target-based commands support both)
     if (s.targetType === 'list' && s.spriteListId) {
       step.spriteListId = s.spriteListId;
+      if (s.spriteToPlay) step.spriteToPlay = s.spriteToPlay;
     } else if (s.spriteId) {
       step.spriteId = s.spriteId;
     }
@@ -1176,6 +1194,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                           {action.pan !== undefined && action.pan !== 0 && <span className="text-text-dim text-xs">pan:{action.pan}</span>}
                           {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
                           {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
+                          {action.spriteToPlay && <span className="text-green text-xs font-mono">{action.spriteToPlay}</span>}
                           {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
                           {action.spriteId && soundSprites[action.spriteId]?.overlap && <span className="text-purple text-xs">overlap</span>}
 
