@@ -1259,8 +1259,12 @@ export default function CommandsPage({ project, setProject, showToast }) {
                               </label>
                               <div className="flex items-center gap-1 shrink-0">
                                 <span className="text-xs text-text-dim">Loop:</span>
-                                <input type="number" min="-1" step="1" value={editListInline.loop ?? 0} onChange={e => setEditListInline(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))}
-                                  className="input-base text-xs py-0.5 w-12 text-center" title="Loop count (-1 = infinite)" />
+                                {Array.isArray(editListInline.loop) ? (
+                                  <span className="text-xs text-accent" title="Per-sprite loop — edit via Edit button">per-sprite</span>
+                                ) : (
+                                  <input type="number" min="-1" step="1" value={editListInline.loop ?? 0} onChange={e => setEditListInline(p => ({ ...p, loop: parseInt(e.target.value) || 0 }))}
+                                    className="input-base text-xs py-0.5 w-12 text-center" title="Loop count (-1 = infinite)" />
+                                )}
                               </div>
                             </div>
 
@@ -1417,7 +1421,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   </div>
                   <button onClick={() => setSt(p => ({
                     ...p, items: [...p.items, ''],
-                    loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop
+                    loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop // key updated on sprite select
                   }))} className="text-xs text-accent hover:text-accent/80 transition-colors mt-1.5" title="Add another sprite to this list">
                     + Add Sprite
                   </button>
