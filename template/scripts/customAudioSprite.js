@@ -190,23 +190,19 @@ module.exports = function(ffmpegPath, files, opts, fileNumber, callback) {
             var extraDuration = Math.max(0, opts.minlength - originalDuration)
             var duration = originalDuration + extraDuration
 
-            // AAC encoder delay (~2048 samples ≈ 46ms @ 44.1kHz) shifts decoded audio forward
-            // in the M4A. Howler.js stops at startTime+duration but actual audio hasn't finished.
-            // Extend duration into the gap by the full gap amount — the gap exists precisely as
-            // a buffer zone between sounds. This ensures Howler never cuts a sound short.
-            // For looping sprites the extra silence at the end is inaudible (<50ms).
-            var safetyPad = opts.gap
             json.spritemap[name] = {
                 start: offsetCursor,
-                end: offsetCursor + duration + safetyPad,
+                end: offsetCursor + duration,
                 loop: name === opts.autoplay || opts.loop.indexOf(name) !== -1
             }
             offsetCursor += originalDuration
 
-            var delta = 0;
+            var delta = Math.ceil(duration) - duration;
 
-            if (!opts.ignorerounding && opts.gap >= 1) {
-                delta = Math.ceil(duration) - duration;
+            if (opts.ignorerounding) {
+                opts.logger.info('Ignoring nearest second silence gap rounding');
+                extraDuration = 0;
+                delta = 0;
             }
 
             appendSilence(extraDuration + delta + opts.gap, dest, cb)
