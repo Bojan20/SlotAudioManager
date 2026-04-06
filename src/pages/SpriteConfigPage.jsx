@@ -307,7 +307,7 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
 
   // Reset measurement when sounds or encoding change
   const enc = isStandalone
-    ? config?.encoding?.music || { bitrate: 128, channels: 2, samplerate: 44100 }
+    ? config?.encoding?.music || { bitrate: 64, channels: 2, samplerate: 44100 }
     : config?.encoding?.sfx || { bitrate: 64, channels: 1, samplerate: 44100 };
   const encKey = `${enc.bitrate}-${enc.channels}-${enc.samplerate}-${enc.keepOriginal}`;
   const soundsKey = sounds.join(',');

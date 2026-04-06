@@ -64,8 +64,8 @@ const musicEncLabel = ((musicEnc.encoder || 'native') === 'fdk' && _fdkExists) ?
 
 console.log(`\nSprite SFX: ${spriteSfxFiles.length} sounds (${sfxEnc.bitrate || 64}kbps ${sfxEnc.channels === 1 ? 'mono' : 'stereo'} ${sfxEncLabel})`);
 if (spriteMusicFiles.length > 0) console.log(`Sprite Music: ${spriteMusicFiles.length} sounds (${musicEnc.bitrate || 64}kbps ${musicEnc.channels === 1 ? 'mono' : 'stereo'} ${musicEncLabel})`);
-if (musicFiles.length > 0) console.log(`Standalone: ${musicFiles.length} sounds (${musicEnc.bitrate || 128}kbps ${musicEncLabel})`);
-if (streamingFiles.length > 0) console.log(`Streaming: ${streamingFiles.length} sounds (${musicEnc.bitrate || 128}kbps ${musicEncLabel})`);
+if (musicFiles.length > 0) console.log(`Standalone: ${musicFiles.length} sounds (${musicEnc.bitrate || 64}kbps ${musicEncLabel})`);
+if (streamingFiles.length > 0) console.log(`Streaming: ${streamingFiles.length} sounds (${musicEnc.bitrate || 64}kbps ${musicEncLabel})`);
 console.log('');
 
 // === CHUNK BY SIZE — separate SFX and Music sprites ===
@@ -136,7 +136,7 @@ if (musicFiles.length > 0) {
     const musicOpts = {
         format: 'howler2',
         export: 'm4a',
-        bitrate: musicEnc.bitrate || 128,
+        bitrate: musicEnc.bitrate || 64,
         channels: musicEnc.channels || 2,
         samplerate: musicEnc.samplerate || 44100,
         logger: { debug: console.log, info: console.log, log: console.log }
@@ -158,7 +158,7 @@ if (streamingFiles.length > 0) {
     const streamOpts = {
         format: 'howler2',
         export: 'm4a',
-        bitrate: musicEnc.bitrate || 128,
+        bitrate: musicEnc.bitrate || 64,
         channels: musicEnc.channels || 2,
         samplerate: musicEnc.samplerate || 44100,
         logger: { debug: () => {}, info: console.log, log: console.log }
