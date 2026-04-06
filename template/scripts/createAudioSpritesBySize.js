@@ -96,10 +96,12 @@ const gameName = pathArray[pathArray.length - 1];
 const sfxChunks = chunkBySize(spriteSfxFiles, 30);
 const sfxEncEncoder = sfxEnc.encoder || 'native';
 const sfxUseNative = !((sfxEncEncoder === 'fdk') && _fdkExists);
+const spriteGap = spriteConfig?.spriteGap ?? 0.05;
 const sfxOpts = {
     output: outDir + gameName + "_audioSprite",
     format: 'howler2', export: 'm4a',
     bitrate: sfxEnc.bitrate || 64, channels: sfxEnc.channels || 2, samplerate: sfxEnc.samplerate || 44100,
+    gap: spriteGap,
     useNativeAac: sfxUseNative,
     logger: { debug: console.log, info: console.log, log: console.log }
 };
@@ -120,6 +122,7 @@ if (spriteMusicFiles.length > 0) {
         output: outDir + gameName + "_audioSprite",
         format: 'howler2', export: 'm4a',
         bitrate: musicEnc.bitrate || 64, channels: musicEnc.channels || 2, samplerate: musicEnc.samplerate || 44100,
+        gap: spriteGap,
         useNativeAac: musicUseNative,
         logger: { debug: console.log, info: console.log, log: console.log }
     };

@@ -40,10 +40,13 @@ const pathArray = gameProjectPath.split("/");
 const gameName = pathArray[pathArray.length - 1];
 
 
+const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
+
 var opts = {
     output: outDir + gameName + "_audioSprite",
     format: 'howler2',
     export: 'm4a',
+    gap: spriteConfig?.spriteGap ?? 0.05,
     logger: {
         debug: console.log,
         info: console.log,
