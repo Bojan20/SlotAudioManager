@@ -2213,6 +2213,8 @@ ipcMain.handle('open-game-window', async (event, url) => {
     '--ignore-certificate-errors',
     '--hide-crash-restore-bubble',
     '--disable-session-crashed-bubble',
+    // Allow audio autoplay without user gesture — fresh profile has no engagement score
+    '--autoplay-policy=no-user-gesture-required',
     // Block IGT/wagerworks servers — fail fast (NXDOMAIN) instead of hanging without VPN
     '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND',
     `--user-data-dir=${profileDir}`,
