@@ -87,26 +87,11 @@ export default function SetupPage({ project, setProject, showToast }) {
       if (r.success) {
         if (r.project) setProject(r.project);
         showToast('Template synced!', 'success');
-        setInitLog(prev => [...prev, '', 'Running npm install...']);
-        try {
-          const nr = await window.api.npmInstall();
-          if (nr.success) {
-            if (nr.project) setProject(nr.project);
-            setInitLog(prev => [...prev, '✔ Dependencies installed']);
-            showToast('Sync complete — ready to build!', 'success');
-          } else {
-            setInitLog(prev => [...prev, '✖ npm install failed — run manually from terminal if needed']);
-            showToast('npm install failed — scripts synced OK, deps may need manual install', 'error');
-          }
-        } catch (e2) {
-          setInitLog(prev => [...prev, '✖ npm install error: ' + e2.message]);
-          showToast('npm install failed — scripts synced OK', 'error');
-        }
       } else {
-        showToast(r.error || 'Init failed', 'error');
+        showToast(r.error || 'Sync failed', 'error');
       }
     } catch (e) {
-      showToast('Init failed: ' + e.message, 'error');
+      showToast('Sync failed: ' + e.message, 'error');
     }
     setInitializing(false);
   };
