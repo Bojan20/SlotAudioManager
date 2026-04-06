@@ -172,6 +172,9 @@ function tierNeedsRebuild(tierName, sounds) {
     if (configChanged) return true;
     const outputPath = outDir + `${gameName}_${tierName}.m4a`;
     if (!fs.existsSync(outputPath)) return true;
+    // Also check music split sprite — if any sound has Music tag but music sprite missing, rebuild
+    const hasMusicSplit = sounds.some(s => _musicSounds.has(s));
+    if (hasMusicSplit && !fs.existsSync(outDir + `${gameName}_${tierName}_music.m4a`)) return true;
     const cachedKey = sounds.map(s => cache[s]).join('|');
     return key !== cachedKey;
 }

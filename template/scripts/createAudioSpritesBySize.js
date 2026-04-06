@@ -133,12 +133,15 @@ if (spriteMusicFiles.length > 0) {
 // === STANDALONE MUSIC — individual M4A files (included in manifest) ===
 if (musicFiles.length > 0) {
     console.log('\n── Building standalone music ──');
+    const musicEncEncoder = musicEnc.encoder || 'native';
+    const standaloneUseNative = !((musicEncEncoder === 'fdk') && _fdkExists);
     const musicOpts = {
         format: 'howler2',
         export: 'm4a',
         bitrate: musicEnc.bitrate || 64,
         channels: musicEnc.channels || 2,
         samplerate: musicEnc.samplerate || 44100,
+        useNativeAac: standaloneUseNative,
         logger: { debug: console.log, info: console.log, log: console.log }
     };
     for (const f of musicFiles) {
@@ -155,12 +158,15 @@ if (musicFiles.length > 0) {
 // === STREAMING MUSIC — individual M4A files (manifest loadType "S", loaded via HTML5 Audio) ===
 if (streamingFiles.length > 0) {
     console.log('\n── Building streaming music (HTML5 Audio, loadType S) ──');
+    const streamEncEncoder = musicEnc.encoder || 'native';
+    const streamUseNative = !((streamEncEncoder === 'fdk') && _fdkExists);
     const streamOpts = {
         format: 'howler2',
         export: 'm4a',
         bitrate: musicEnc.bitrate || 64,
         channels: musicEnc.channels || 2,
         samplerate: musicEnc.samplerate || 44100,
+        useNativeAac: streamUseNative,
         logger: { debug: () => {}, info: console.log, log: console.log }
     };
     for (const f of streamingFiles) {
