@@ -18,32 +18,27 @@ const JSONtemplate = audioSettings.get('JSONtemplate');
 const JSONtarget = audioSettings.get('JSONtarget');
 const fileType = "json";
 
-// Count only sprite soundData files (soundData1.json, soundData2.json, ...) — NOT standalone ones
-const distFiles = fs.readdirSync("././dist/soundFiles/");
-const spriteDataFiles = distFiles.filter(f => /^soundData\d+\.json$/.test(f)).sort();
-const standaloneDataFiles = distFiles.filter(f => /^soundData_.+\.json$/.test(f));
-const audioFileCount = spriteDataFiles.length;
-console.log(" Sprite chunks: " + audioFileCount + ", Standalone: " + standaloneDataFiles.length);
+const audioFileCount = fs.readdirSync("././dist/soundFiles/").length/2;
+console.log(" File Count =>  "+audioFileCount);
 
 if (audioProcess.process === "audioSprite") {
     let sndFilesData;
-    if(audioFileCount > 0) {
+    if(audioFileCount !== undefined && audioFileCount > 0) {
         sndFilesData = [];
         sndDataEntries = [];
         sndSpriteEntries = [];
         for(let i=0; i<audioFileCount; i++) {
-            const dataFile = "dist/soundFiles/soundData"+(i+1) +".json";
-            console.log(" path - "+ dataFile);
-            sndFilesData[i] = JSON.parse(fs.readFileSync(dataFile));
+            console.log(" path - "+ "dist/soundFiles/soundData"+(i+1) +".json");
+            sndFilesData[i] = JSON.parse(fs.readFileSync("dist/soundFiles/soundData"+(i+1) +".json"));
             sndDataEntries[i] = new Map(Object.entries(sndFilesData[i] || {}));
             sndSpriteEntries[i] = sndDataEntries[i].get("sprite");
+            console.log(" sndSpriteEntries => " + sndSpriteEntries[i]);
+
         }
     } else {
-        try {
-            const sndData = JSON.parse(fs.readFileSync("dist/soundFiles/soundData.json"));
-            sndDataEntries = new Map(Object.entries(sndData || {}));
-            sndSpriteEntries = sndDataEntries.get("sprite");
-        } catch {}
+        const sndData = JSON.parse(fs.readFileSync("dist/soundFiles/soundData.json"));
+        sndDataEntries = new Map(Object.entries(sndData || {}));
+        sndSpriteEntries = sndDataEntries.get("sprite");
     }
 
 } else if (audioProcess.process === "audio") {
@@ -91,7 +86,7 @@ function finishProcessOrignalJson() {
             obj[key] = myNewSpriteLists[key];
             return obj;
         }, {}
-    );*/ //new commented 
+    );*/ //new commented
     myNewSoundDefinitions.soundSprites = Object.keys(myNewSoundSprites).sort().reduce(
         (obj, key) => {
             obj[key] = myNewSoundSprites[key];
@@ -125,16 +120,6 @@ function formatJson(input) {
         .replace(/"soundSprites":/g, '\n"soundSprites":\n')
 }
 
-// Read sprite-config for standalone sounds, streaming sounds, and loadType
-const spriteConfig = (() => { try { return JSON.parse(fs.readFileSync('sprite-config.json', 'utf8')); } catch { return null; } })();
-const standaloneSounds = new Set(spriteConfig?.standalone?.sounds || []);
-const streamingSounds = new Set(spriteConfig?.streaming?.sounds || []);
-const standaloneSubLoaderId = spriteConfig?.standalone?.subLoaderId || null;
-
-// gameName for stripping prefix from M4A filenames (e.g. "myGame_BaseMusic" → "BaseMusic")
-const _gameProjectPath = audioSettings.get('gameProjectPath') || '';
-const _gameName = _gameProjectPath.split(/[/\\]/).pop() || '';
-
 function processSourceManifest() {
     console.log("creating manifest");
     let sourceDir;
@@ -157,20 +142,13 @@ function processSourceManifest() {
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else if (element.endsWith(".m4a")) {
             let id = element.substring(0, element.length - 4);
-            const baseName = _gameName && id.startsWith(_gameName + '_') ? id.slice(_gameName.length + 1) : id;
-            const isStreaming = streamingSounds.has(baseName) || streamingSounds.has(id);
             let src = [];
             let entry = {};
             src.push(exportSoundsDirectoryName + "/" + id + ".m4a");
             entry.id = id;
             entry.src = src;
-            if (isStreaming) {
-                entry.loadType = "S";
-                console.log("Streaming manifest: " + id + " (loadType S)");
-            } else {
-                console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
-            }
             myNewSoundManifest.push(entry);
+            console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
         } else {
             console.log("problem with file " + element + " not ending with .wav");
         }
@@ -261,73 +239,22 @@ function processSpriteList(element) {
 
 async function processSourceSprites() {
     fs.readdirSync(SourceSoundDirectory).forEach(async element => {
-        // Skip standalone and streaming sounds — they have their own M4A, no sprite timing
-        const baseName = element.replace('.wav', '');
-        if (streamingSounds.has(baseName)) {
-            console.log("Processing streaming sprite: " + baseName + " (HTML5 Audio, loadType S)");
-            // Add streaming sprite entry with full duration from soundData
-            // soundId points to first non-streaming manifest entry so setSounds() doesn't crash
-            const sdFileStr = "dist/soundFiles/soundData_" + baseName + ".json";
-            if (fs.existsSync(sdFileStr)) {
-                try {
-                    const sd = JSON.parse(fs.readFileSync(sdFileStr, 'utf8'));
-                    const sprite = sd.sprite || {};
-                    const spriteKey = Object.keys(sprite)[0];
-                    if (spriteKey) {
-                        const entryName = "s_" + baseName;
-                        myNewSoundSprites[entryName] = {
-                            soundId: baseName,
-                            spriteId: baseName,
-                            startTime: sprite[spriteKey][0] || 0,
-                            duration: sprite[spriteKey][1] || 0,
-                            tags: originalSprites[entryName]?.tags || ["Music"],
-                            overlap: originalSprites[entryName]?.overlap ?? false,
-                        };
-                    }
-                } catch (e) { console.log("  Warning: could not read " + sdFileStr); }
-            }
-            return;
-        }
-        if (standaloneSounds.has(baseName)) {
-            console.log("Skipping standalone: " + baseName);
-            // Add standalone sprite entry with full duration from soundData
-            const sdFile = "dist/soundFiles/soundData_" + baseName + ".json";
-            if (fs.existsSync(sdFile)) {
-                try {
-                    const sd = JSON.parse(fs.readFileSync(sdFile, 'utf8'));
-                    const sprite = sd.sprite || {};
-                    const spriteKey = Object.keys(sprite)[0];
-                    if (spriteKey) {
-                        const entryName = "s_" + baseName;
-                        myNewSoundSprites[entryName] = {
-                            soundId: baseName,
-                            spriteId: baseName,
-                            startTime: sprite[spriteKey][0] || 0,
-                            duration: sprite[spriteKey][1] || 0,
-                            tags: originalSprites[entryName]?.tags || ["Music"],
-                            overlap: originalSprites[entryName]?.overlap ?? false,
-                        };
-                    }
-                } catch (e) { console.log("  Warning: could not read " + sdFile); }
-            }
-            return;
-        }
         if (element.endsWith("_SL.wav")) {
             processSpriteList(element);
         } else if (element.endsWith(".wav")) {
             let soundId;
             let entryName;
-            let spriteId;           
+            let spriteId;
             if (audioProcess.process === "audio") {
                 soundId = element.substring(0, element.length - 4);
                 entryName = "s_" + soundId;
             } else if (audioProcess.process === "audioSprite") {
                 if(audioFileCount > 0 ) {
-                    spriteId = element.substring(0, element.length - 4);                    
-                    let srcPath;                    
+                    spriteId = element.substring(0, element.length - 4);
+                    let srcPath;
                     const fileNum = await getIncrementValue(spriteId);
                     //console.log(" fileNum =>  " + fileNum + " srcPath =>" + sndDataEntries[fileNum].get("src")[0]);
-                    srcPath = sndDataEntries[fileNum].get("src")[0];                    
+                    srcPath = sndDataEntries[fileNum].get("src")[0];
                     let srcWords = srcPath.split("/");
                     soundId = srcWords[4].substring(0, srcWords[4].length - 4);
                     entryName = "s_" + spriteId;
@@ -338,12 +265,12 @@ async function processSourceSprites() {
                     let srcWords = srcPath.split("/");
                     soundId = srcWords[4].substring(0, srcWords[4].length - 4);
                     entryName = "s_" + spriteId;
-                }                
+                }
             }
             let myNewEntry = (originalSprites[entryName] || {});
             let duration = 0;
             let startTime = 0;
-            soundProcessCount++;            
+            soundProcessCount++;
             console.log("Processing Sprite " + soundProcessCount + " File: " + element );
             sox.identify(SourceSoundDirectory + '/' + element, async function(err, results) {
                 /* results looks like:
@@ -356,10 +283,10 @@ async function processSourceSprites() {
                   sampleRate: 44100,
                 }
                 */
-                duration = Math.round(results.sampleCount * 100000 / results.sampleRate) / 100;                
+                duration = Math.round(results.sampleCount * 100000 / results.sampleRate) / 100;
                 let increment1 = 0;
                 //console.log("SourceSoundDirectory" + SourceSoundDirectory + "element" + element + " duration - " + duration + " Increment = " + increment1);
-                myNewEntry.soundId = soundId;                
+                myNewEntry.soundId = soundId;
                 if (audioProcess.process === "audio") {
                     myNewEntry.spriteId = "s_"+ soundId;
                     myNewEntry.startTime = startTime;
@@ -371,12 +298,16 @@ async function processSourceSprites() {
                         myNewEntry.startTime = sndSpriteEntries[filenumber][spriteId][0];
 
                     } else {
-                        myNewEntry.spriteId = spriteId;        
+                        myNewEntry.spriteId = spriteId;
                         myNewEntry.startTime = sndSpriteEntries[spriteId][0];
                     }
                 }
                 myNewEntry.duration = duration;
-                myNewEntry.tags = originalSprites[entryName] ? originalSprites[entryName].tags || ["SoundEffects"] : ["SoundEffects"];
+                // Auto-detect Music tag by sound name — loops and music except coin/spins/rollup loops
+                const sName = (spriteId || soundId || '');
+                const isMusic = /Music|MusicLoop|BigWinLoop|BigWinEnd|BigWinIntro|BonusGameEnd/i.test(sName) && !/Coin|Spins|Rollup|Counter|CoinShower|Amb/i.test(sName);
+                const defaultTag = isMusic ? ["Music"] : ["SoundEffects"];
+                myNewEntry.tags = originalSprites[entryName] ? originalSprites[entryName].tags || defaultTag : defaultTag;
                 myNewSoundSprites[entryName] = myNewEntry;
                 soundProcessCount--;
                 if (soundProcessCount <= 0) {

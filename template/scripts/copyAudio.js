@@ -125,7 +125,8 @@ if (!fs.existsSync(path.join(gameProjectPath, "assets"))) {
     }
     copySoundConfigToGame(distFolder);
     copySoundsToGame(distSoundFolder);
-    copyBGMModule();
+    // BGM module copy disabled — developer manages BGMStreamingInit.ts manually
+    // copyBGMModule();
 }
 
 // Also copy to game's dist/ folder so local playa launch (no VPN) picks up our audio.
