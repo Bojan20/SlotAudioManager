@@ -180,14 +180,14 @@ function isPortFree(port) {
   });
 }
 
-// Wait until port is free, max maxMs milliseconds
-function waitPortFree(port, maxMs = 5000) {
+// Wait until port is free, max maxMs milliseconds. Returns true if free, false if timeout.
+function waitPortFree(port, maxMs = 15000) {
   return new Promise(resolve => {
     const start = Date.now();
     const check = async () => {
-      if (await isPortFree(port)) return resolve();
-      if (Date.now() - start >= maxMs) return resolve(); // timeout — proceed anyway
-      setTimeout(check, 200);
+      if (await isPortFree(port)) return resolve(true);
+      if (Date.now() - start >= maxMs) return resolve(false); // timeout
+      setTimeout(check, 300);
     };
     check();
   });
@@ -195,9 +195,10 @@ function waitPortFree(port, maxMs = 5000) {
 
 // Kill all processes listening on a given port, then wait for OS to release it
 async function killPort(port) {
+  // Phase 1: find and kill PIDs
   await new Promise(resolve => {
     if (isWin) {
-      exec('netstat -ano', { timeout: 8000 }, (err, stdout) => {
+      exec('netstat -ano', { timeout: 8000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout) => {
         if (err || !stdout) return resolve();
         const pids = new Set();
         for (const line of stdout.split('\n')) {
@@ -217,8 +218,10 @@ async function killPort(port) {
       exec(`lsof -ti :${port} | xargs kill -9 2>/dev/null; true`, () => resolve());
     }
   });
-  // Aktivno čeka dok OS ne oslobodi port (max 5s)
-  await waitPortFree(port, 5000);
+  // Phase 2: wait for OS to release port (up to 15s — Windows TIME_WAIT can take 10s+)
+  const freed = await waitPortFree(port, 15000);
+  if (!freed) console.log(`[killPort] WARNING: port ${port} still in use after 15s`);
+  return freed;
 }
 
 // ── Async git helper — non-blocking replacement for execFileSync('git', ...) ──
@@ -1379,14 +1382,27 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
     // Kill any existing tracked game process
     if (gameProcess && !gameProcess.killed) {
       try {
-        if (isWin) { exec(`taskkill /F /T /PID ${gameProcess.pid}`, () => {}); }
-        else { gameProcess.kill('SIGTERM'); }
+        if (isWin) {
+          await new Promise(resolve => exec(`taskkill /F /T /PID ${gameProcess.pid}`, () => resolve()));
+        } else {
+          gameProcess.kill('SIGTERM');
+        }
       } catch {}
       gameProcess = null;
     }
     // Kill whatever is on port 8080 (handles app restarts / stale processes)
-    await killPort(8080);
     const send = (line) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('script-output', line); };
+    send('Freeing port 8080...\n');
+    const portFreed = await killPort(8080);
+    if (!portFreed) {
+      send('⚠ Port 8080 still in use — retrying...\n');
+      await killPort(8080); // second attempt
+      const finalCheck = await isPortFree(8080);
+      if (!finalCheck) {
+        send('✖ Port 8080 blocked — close the process manually or click Free Port\n');
+        return { success: false, error: 'Port 8080 still in use after kill attempts' };
+      }
+    }
 
     // Read script command — if it calls playa, resolve binary directly (avoids yarn PATH issues on Windows)
     const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
