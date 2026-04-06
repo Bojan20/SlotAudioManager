@@ -2230,18 +2230,33 @@ ipcMain.handle('open-game-window', async (event, url) => {
 // Poll TCP port until available, then resolve (for waiting on dev servers)
 ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
   if (!port || typeof port !== 'number' || port < 1 || port > 65535) return { error: 'Invalid port' };
-  const tcpNet = require('net');
+  const http = require('http');
   return new Promise((resolve) => {
     const start = Date.now();
+    let done = false;
+    const finish = (result) => { if (done) return; done = true; resolve(result); };
+    const retry = () => {
+      if (done) return;
+      if (!mainWindow || mainWindow.isDestroyed()) return finish({ ready: false, error: 'Window closed' });
+      if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
+      setTimeout(check, 1500);
+    };
     const check = () => {
-      const client = tcpNet.createConnection(port, '127.0.0.1');
-      client.on('connect', () => { client.destroy(); resolve({ ready: true }); });
-      client.on('error', () => {
-        client.destroy();
-        if (Date.now() - start > timeout) return resolve({ ready: false, error: 'Timeout' });
-        if (!mainWindow || mainWindow.isDestroyed()) return resolve({ ready: false, error: 'Window closed' });
-        setTimeout(check, 1500);
+      if (done) return;
+      if (!mainWindow || mainWindow.isDestroyed()) return finish({ ready: false, error: 'Window closed' });
+      if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
+      let handled = false;
+      const once = (fn) => { if (handled) return; handled = true; fn(); };
+      // HTTP GET — ensures server is actually serving content, not just TCP port open
+      const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
+        res.resume();
+        once(() => {
+          if (res.statusCode >= 200 && res.statusCode < 400) finish({ ready: true });
+          else retry();
+        });
       });
+      req.on('error', () => once(retry));
+      req.setTimeout(3000, () => { req.destroy(); });
     };
     check();
   });
