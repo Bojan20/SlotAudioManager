@@ -421,7 +421,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
     const handler = (e) => {
       if (e.code !== 'Space') return;
       const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (!expanded || viewTab !== 'commands') return;
       e.preventDefault();
       playPreviewRef.current(expanded);
