@@ -304,7 +304,7 @@ function initProjectOnOpen(dirPath) {
         if (s.spriteListId && !lists[s.spriteListId] && !s.spriteId) { const m = findNearest(s.spriteListId, listKeys); if (m) { s.spriteListId = m; fixed = true; } }
       }
     }
-    if (fixed) { try { fs.writeFileSync(path.join(dirPath, 'sounds.json'), JSON.stringify(soundsJson, null, 2)); } catch {} }
+    if (fixed) { try { fs.writeFileSync(path.join(dirPath, 'sounds.json'), formatSoundsJson(JSON.stringify(soundsJson, null, 2))); } catch {} }
   }
   // Ensure .gitattributes
   const gitattrsPath = path.join(dirPath, '.gitattributes');
@@ -543,6 +543,19 @@ ipcMain.handle('save-sprite-config', async (event, config) => {
   }
 });
 
+// Format sounds.json with readable section breaks (matches buildTieredJSON.js formatJson)
+function formatSoundsJson(json) {
+  return json
+    .replace(/]},/g, ']},\n')
+    .replace(/}],/g, '}],\n')
+    .replace(/},"/g, '},\n"')
+    .replace(/"soundManifest":/g, '\n"soundManifest":\n')
+    .replace(/"soundDefinitions":/g, '\n"soundDefinitions":\n')
+    .replace(/"commands":/g, '\n"commands":\n')
+    .replace(/"spriteList":/g, '\n"spriteList":\n')
+    .replace(/"soundSprites":/g, '\n"soundSprites":\n');
+}
+
 // Sanitize command steps — fix known type bugs before writing to disk
 function sanitizeCommandStep(step) {
   const s = { ...step };
@@ -619,7 +632,7 @@ ipcMain.handle('save-sounds-json', async (event, data) => {
     }
     const filePath = path.join(projectPath, 'sounds.json');
     const prev = fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : null;
-    const next = JSON.stringify(data, null, 2);
+    const next = formatSoundsJson(JSON.stringify(data, null, 2));
     fs.writeFileSync(filePath, next);
     if (prev !== null) pushUndo(filePath, prev, next);
     return { success: true };
@@ -1441,7 +1454,7 @@ ipcMain.handle('pull-game-json', async () => {
     // Read, parse, re-format with 2-space indent (game repo has compact IGT format)
     const raw = fs.readFileSync(gameSoundsJson, 'utf8');
     const parsed = JSON.parse(raw);
-    fs.writeFileSync(dest, JSON.stringify(parsed, null, 2));
+    fs.writeFileSync(dest, formatSoundsJson(JSON.stringify(parsed, null, 2)));
     return { success: true, source: gameSoundsJson, project: loadProject(projectPath) };
   } catch (e) {
     return { error: e.message };

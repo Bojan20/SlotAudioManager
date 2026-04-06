@@ -52,6 +52,7 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     return () => window.api.offScriptOutput(handler);
   }, []);
 
+  // Reset on project change — clear everything
   useEffect(() => {
     setLog(''); setResult(null); setRunning(null); setGameStarted(false);
     setGameScripts([]); setGameRepoPath(''); setGameScriptsError(''); setAutoLaunch('');
@@ -59,7 +60,14 @@ export default function BuildPage({ project, setProject, reloadProject, showToas
     if (buildVersionTimerRef.current) { clearTimeout(buildVersionTimerRef.current); buildVersionTimerRef.current = null; }
     setAbFiles([]); setAbPlaying(null); stopAbAudio();
     if (project) { loadGameScripts(); }
-  }, [project?.path, project?._reloadKey]);
+  }, [project?.path]);
+
+  // Refresh on reload — but preserve autoLaunch, gameGit state
+  useEffect(() => {
+    if (!project?._reloadKey) return;
+    setLog(''); setResult(null); setRunning(null);
+    if (project) { loadGameScripts(); }
+  }, [project?._reloadKey]);
 
   // VPN status polling — check every 30s, only when a project with game repo is open
   useEffect(() => {
