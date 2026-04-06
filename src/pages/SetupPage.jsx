@@ -203,7 +203,7 @@ export default function SetupPage({ project, setProject, showToast }) {
                   loadingText="Syncing..."
                   idleText="Sync Template"
                   color="accent"
-                  title="Overwrite scripts and configs from bundled template, then run npm install"
+                  title="Overwrite scripts and configs from bundled template"
                 />
               )}
             </div>
@@ -228,7 +228,7 @@ export default function SetupPage({ project, setProject, showToast }) {
               <div className="px-5 py-4 flex-1 flex items-start">
                 <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-bg-primary/30 border border-border/20">
                   <svg className="w-3.5 h-3.5 text-text-dim/50 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <p className="text-[11px] text-text-dim leading-relaxed">Overwrites scripts, configs, and dependencies from the bundled template. Runs <span className="font-mono text-text-secondary">npm install</span> automatically after sync.</p>
+                  <p className="text-[11px] text-text-dim leading-relaxed">Overwrites scripts, configs, and dependencies from the bundled template. Run <span className="font-mono text-text-secondary">npm install</span> separately after sync if dependencies changed.</p>
                 </div>
               </div>
             )}
@@ -239,6 +239,38 @@ export default function SetupPage({ project, setProject, showToast }) {
                 <LogLines lines={initLog} maxH="max-h-32" />
               </div>
             )}
+
+            {/* npm install — separate from sync */}
+            <div className="px-5 py-3 border-t border-border/20 flex items-center gap-3">
+              <ActionBtn
+                onClick={async () => {
+                  setInitializing(true);
+                  setInitLog(prev => [...prev, '', 'Running npm install...']);
+                  try {
+                    const r = await window.api.npmInstall();
+                    if (r?.success) {
+                      if (r.project) setProject(r.project);
+                      setInitLog(prev => [...prev, '✔ Dependencies installed']);
+                      showToast('npm install complete', 'success');
+                    } else {
+                      setInitLog(prev => [...prev, '✖ npm install failed: ' + (r?.error || 'unknown')]);
+                      showToast('npm install failed', 'error');
+                    }
+                  } catch (e) {
+                    setInitLog(prev => [...prev, '✖ ' + e.message]);
+                    showToast('npm install failed', 'error');
+                  }
+                  setInitializing(false);
+                }}
+                disabled={initializing}
+                loading={initializing}
+                loadingText="Installing..."
+                idleText="npm install"
+                color="cyan"
+                title="Install audio project dependencies (npm install --legacy-peer-deps)"
+              />
+              <span className="text-[10px] text-text-dim">Run after Sync if dependencies changed</span>
+            </div>
           </div>
 
         </div>
