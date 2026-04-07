@@ -314,9 +314,10 @@ function initProjectOnOpen(dirPath) {
   if (!fs.existsSync(gitattrsPath)) {
     try { fs.writeFileSync(gitattrsPath, '* text=auto\n*.wav binary\n*.m4a binary\n*.mp3 binary\n*.ogg binary\n'); } catch {}
   }
-  // Auto-detect game repo — persist to disk
+  // Auto-detect game repo — persist to disk (also re-detect if current path is broken)
   const settings = readJsonSafe(path.join(dirPath, 'settings.json'));
-  if (!settings?.gameProjectPath) {
+  const currentGamePath = settings?.gameProjectPath ? path.resolve(dirPath, settings.gameProjectPath) : null;
+  if (!settings?.gameProjectPath || (currentGamePath && !fs.existsSync(currentGamePath))) {
     const folderName = path.basename(dirPath);
     const audioMatch = folderName.match(/^(.+)-audio(?:-\w+)?$/);
     if (audioMatch) {
@@ -375,9 +376,10 @@ function loadProject(dirPath) {
   data.spriteConfig = readJsonSafe(path.join(dirPath, 'sprite-config.json'));
   data.soundsJson = readJsonSafe(path.join(dirPath, 'sounds.json'));
 
-  // Auto-detect game repo if not configured — convention: {name}-audio[-howler] → {name}-game in same parent
+  // Auto-detect game repo if not configured or current path is broken — convention: {name}-audio[-howler] → {name}-game in same parent
   // Read-only detection: sets data.settings in memory but does NOT write to disk
-  if (!data.settings?.gameProjectPath) {
+  const currentGameAbs = data.settings?.gameProjectPath ? path.resolve(dirPath, data.settings.gameProjectPath) : null;
+  if (!data.settings?.gameProjectPath || (currentGameAbs && !fs.existsSync(currentGameAbs))) {
     const folderName = path.basename(dirPath);
     const audioMatch = folderName.match(/^(.+)-audio(?:-\w+)?$/);
     if (audioMatch) {
