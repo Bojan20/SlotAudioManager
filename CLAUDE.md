@@ -327,6 +327,7 @@ Patterns are priority-ordered (first match wins), derived from analysis of all I
 - Remove empty commands from sounds.json automatically — user must manually delete via Commands page
 - Unmount/remount pages on navigation — all pages are always-mounted with `display:none`
 - Put `electron`, `electron-builder`, `react`, `react-dom` in `dependencies` — they belong in `devDependencies`
+- **NIKAD ručno menjati fajlove u game repou** (src/ts/, assets/, dist/, package.json) — SVE promene u game repou moraju ići ISKLJUČIVO kroz aplikaciju ili kroz skripte koje aplikacija pokreće. Ako nešto treba da se promeni u igri, napravi to u skripti (npr. deployStreaming.js) pa neka skripta sama uradi promenu. Nikad `sed`, `echo >`, `node -e` direktno na game repo fajlovima.
 
 ## QA Review Roles
 

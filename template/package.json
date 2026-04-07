@@ -12,6 +12,7 @@
     "build": "node scripts/buildTiered.js && node scripts/buildTieredJSON.js && node scripts/generateBGMModule.js",
     "build-validate": "node scripts/validateBuild.js",
     "deploy": "node scripts/copyAudio.js",
+    "deploy-streaming": "node scripts/deployStreaming.js",
     "compare-encoders": "node scripts/compareEncoders.js"
   },
   "repository": {

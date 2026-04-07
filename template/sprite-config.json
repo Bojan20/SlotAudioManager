@@ -28,8 +28,9 @@
     "sounds": []
   },
   "streaming": {
-    "description": "Background music — built as M4A but NOT in soundManifest. Game loads via HTML5 Audio (streams from disk, ~3 MB RAM instead of ~40 MB). Auto-generates BGMStreaming.ts for game developer.",
-    "sounds": []
+    "description": "Background music — built as individual M4A, manifest gets loadType 'S'. deployStreaming.js generates BGMStreamingInit.ts that creates HTML5 Audio Howl instances (~3 MB RAM instead of ~40 MB per track). Auto-patches game main.ts — zero developer involvement.",
+    "sounds": [],
+    "autoPlay": []
   },
   "encoding": {
     "sfx": {
