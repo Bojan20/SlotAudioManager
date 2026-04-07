@@ -43,29 +43,16 @@ function copySoundConfigToGame(srcFolder) {
     console.log("source sound json file path - " + srcFolder);
 
     const jsonSrc = path.join(srcFolder, "sounds.json");
-    const json5Src = path.join(srcFolder, "sounds.json5");
     const jsonDest = path.join(soundsDest, "sounds.json");
-    const json5Dest = path.join(soundsDest, "sounds.json5");
 
     if (fs.existsSync(jsonSrc)) {
         if (fs.existsSync(jsonDest)) fs.rmSync(jsonDest);
-        if (fs.existsSync(json5Dest)) fs.rmSync(json5Dest);
         if (!fs.existsSync(soundsDest)) fs.mkdirSync(soundsDest, { recursive: true });
         console.log("copy from " + jsonSrc + " to " + jsonDest);
         const jsonData = JSON.parse(fs.readFileSync(jsonSrc, "utf8"));
         fs.writeFileSync(jsonDest, JSON.stringify(jsonData, null, 2), "utf8");
     } else {
         console.log(jsonSrc + " is missing from dist folder, skipping");
-    }
-
-    if (fs.existsSync(json5Src)) {
-        if (fs.existsSync(jsonDest)) fs.rmSync(jsonDest);
-        if (fs.existsSync(json5Dest)) fs.rmSync(json5Dest);
-        if (!fs.existsSync(soundsDest)) fs.mkdirSync(soundsDest, { recursive: true });
-        console.log("copy from " + json5Src + " to " + json5Dest);
-        fs.copyFileSync(json5Src, json5Dest);
-    } else {
-        console.log(json5Src + " is missing from dist folder, skipping");
     }
 }
 
@@ -145,7 +132,7 @@ if (fs.existsSync(distGameSoundsBase)) {
         // IndexLoader.load('sounds.json') fetches the hashed file and returns data["sounds.json"],
         // so the file must be wrapped: { "sounds.json": <actual data> }
         fs.readdirSync(distGameSoundsBase)
-            .filter(f => f !== "sounds.json" && (f.endsWith(".json") || f.endsWith(".json5")) && !fs.lstatSync(path.join(distGameSoundsBase, f)).isDirectory())
+            .filter(f => f !== "sounds.json" && f.endsWith(".json") && !fs.lstatSync(path.join(distGameSoundsBase, f)).isDirectory())
             .forEach(f => {
                 const dest = path.join(distGameSoundsBase, f);
                 console.log("overwrite dist hashed sounds: " + dest);
