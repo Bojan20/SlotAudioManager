@@ -26,7 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync, execFileSync } = require('child_process');
+const { execSync, execFile } = require('child_process');
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // 1. READ CONFIGS
@@ -142,10 +142,17 @@ const channels = musicEnc.channels || 2;
 const samplerate = musicEnc.samplerate || 44100;
 const sox = require('sox');
 
-// SHA-256 cache for streaming tracks — skip unchanged
+// SHA-256 cache — includes encoding settings so bitrate/channels changes trigger rebuild
 const streamCacheFile = path.join('.', 'dist', '.streaming-cache.json');
-function loadStreamCache() { try { return JSON.parse(fs.readFileSync(streamCacheFile, 'utf8')); } catch { return {}; } }
-function saveStreamCache(c) { try { fs.writeFileSync(streamCacheFile, JSON.stringify(c, null, 2)); } catch {} }
+const encSettingsKey = bitrate + '|' + channels + '|' + samplerate;
+function loadStreamCache() {
+    try {
+        const c = JSON.parse(fs.readFileSync(streamCacheFile, 'utf8'));
+        if (c._encSettings !== encSettingsKey) { console.log('  Encoding settings changed — rebuilding all'); return {}; }
+        return c;
+    } catch { return {}; }
+}
+function saveStreamCache(c) { c._encSettings = encSettingsKey; try { fs.writeFileSync(streamCacheFile, JSON.stringify(c, null, 2)); } catch {} }
 function sha256(fp) { const h = crypto.createHash('sha256'); h.update(fs.readFileSync(fp)); return h.digest('hex'); }
 
 function getWavDurationMs(wavPath) {
@@ -161,38 +168,40 @@ function getWavDurationMs(wavPath) {
     });
 }
 
+// True parallel encode — execFile (async callback) not execFileSync
 function encodeOne(name, wavPath, m4aPath) {
     return new Promise((resolve) => {
-        // Get duration first (async)
         getWavDurationMs(wavPath).then(durationMs => {
-            try {
-                execFileSync(pathToFFmpeg, [
-                    '-y', '-i', wavPath,
-                    '-c:a', 'aac', '-b:a', bitrate + 'k',
-                    '-ac', String(channels), '-ar', String(samplerate),
-                    '-movflags', '+faststart',
-                    m4aPath
-                ], { timeout: 120000, maxBuffer: 5 * 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe'] });
-
-                if (!fs.existsSync(m4aPath) || fs.statSync(m4aPath).size === 0) {
-                    console.error('  ❌ ' + name + ': M4A empty or missing after encode');
+            execFile(pathToFFmpeg, [
+                '-y', '-i', wavPath,
+                '-c:a', 'aac', '-b:a', bitrate + 'k',
+                '-ac', String(channels), '-ar', String(samplerate),
+                '-movflags', '+faststart',
+                m4aPath
+            ], { timeout: 120000, maxBuffer: 5 * 1024 * 1024 }, (error) => {
+                if (error) {
+                    console.error('  ❌ ' + name + ': ' + error.message);
+                    // Clean up partial M4A on failure
+                    try { if (fs.existsSync(m4aPath)) fs.unlinkSync(m4aPath); } catch {}
                     resolve(null);
                     return;
                 }
-
+                if (!fs.existsSync(m4aPath) || fs.statSync(m4aPath).size === 0) {
+                    console.error('  ❌ ' + name + ': M4A empty or missing after encode');
+                    try { if (fs.existsSync(m4aPath)) fs.unlinkSync(m4aPath); } catch {}
+                    resolve(null);
+                    return;
+                }
                 const sizeKB = Math.round(fs.statSync(m4aPath).size / 1024);
                 resolve({ name, m4aName: name + '.m4a', durationMs, sizeKB });
-            } catch (e) {
-                console.error('  ❌ ' + name + ': ' + e.message);
-                resolve(null);
-            }
+            });
         });
     });
 }
 
 async function buildStreamingTracks() {
     const prevCache = loadStreamCache();
-    const newCache = {};
+    const successCache = {};
     const tracks = [];
     const encodeJobs = [];
 
@@ -202,17 +211,16 @@ async function buildStreamingTracks() {
         if (!fs.existsSync(wavPath)) { console.log('  ⚠ ' + name + '.wav not found'); continue; }
 
         const hash = sha256(wavPath);
-        newCache[name] = hash;
         const m4aPath = path.join(outDir, name + '.m4a');
 
         if (prevCache[name] === hash && fs.existsSync(m4aPath) && fs.statSync(m4aPath).size > 0) {
-            // Cached — reuse existing M4A, just get duration
             const durationMs = await getWavDurationMs(wavPath);
             const sizeKB = Math.round(fs.statSync(m4aPath).size / 1024);
             console.log('  · ' + name + ' (cached, ' + sizeKB + 'KB)');
             tracks.push({ name, m4aName: name + '.m4a', durationMs, sizeKB });
+            successCache[name] = hash;
         } else {
-            encodeJobs.push({ name, wavPath, m4aPath });
+            encodeJobs.push({ name, wavPath, m4aPath, hash });
         }
     }
 
@@ -223,18 +231,25 @@ async function buildStreamingTracks() {
             encodeJobs.map(j => encodeOne(j.name, j.wavPath, j.m4aPath))
         );
         const encodeMs = Date.now() - encodeStart;
-        for (const r of results) {
+        for (let i = 0; i < results.length; i++) {
+            const r = results[i];
             if (r) {
                 console.log('  ✓ ' + r.name + ' (' + r.sizeKB + 'KB, ' + (r.durationMs / 1000).toFixed(1) + 's)');
                 tracks.push(r);
+                successCache[r.name] = encodeJobs[i].hash;
             }
         }
         console.log('  Encoded in ' + (encodeMs / 1000).toFixed(1) + 's');
     }
 
-    // Save cache only after all encodes succeed
-    if (tracks.length === streamingSounds.length) {
-        saveStreamCache(newCache);
+    // Save cache — only includes successfully encoded/cached tracks
+    saveStreamCache(successCache);
+
+    // Validate ALL required tracks exist
+    const missing = streamingSounds.filter(name => !tracks.some(t => t.name === name));
+    if (missing.length > 0) {
+        console.error('❌ Missing streaming tracks: ' + missing.join(', '));
+        console.error('   Build will continue with ' + tracks.length + '/' + streamingSounds.length + ' tracks');
     }
 
     return tracks;
