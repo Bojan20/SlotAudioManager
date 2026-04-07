@@ -171,7 +171,7 @@ async function main() {
     // - Minimum safe gap = 1 AAC frame (1024 samples = 23ms at 44100Hz)
     // - 50ms gap + no rounding = no wasted silence
     // - For 99 sounds: saves ~150s of silence = ~900KB on final M4A at 48kbps
-    const gap = 0.05;
+    const gap = spriteConfig?.spriteGap !== undefined ? spriteConfig.spriteGap : 0.05;
 
     const sfxOpts = {
         output: path.join(outDir, gameName + '_audioSprite'),
