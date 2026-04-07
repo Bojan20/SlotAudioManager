@@ -525,35 +525,32 @@ function setupGaplessLoop(howl: Howl, spriteId: string, durationMs: number): voi
 function setupVisibilityHandler(player: any): void {
     const musicIds = MUSIC.map(n => "s_" + n);
     const wasPlaying = new Map<string, number>(); // spriteId → volume before pause
-    const FADE_MS = 120;
+    const FADE_MS = 30;
+    let fadeTimer: any = null;
 
     document.addEventListener("visibilitychange", () => {
+        // Cancel pending fade/pause from rapid tab switching
+        if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
+
         if (document.hidden) {
-            // Tab hidden — fade out then pause (no pop/crackle)
             wasPlaying.clear();
             for (const sid of musicIds) {
                 const sp = player._soundSprites?.get(sid);
                 if (sp?._isPlaying) {
                     wasPlaying.set(sid, sp._volume);
                     sp.fade({ volume: 0, duration: FADE_MS });
-                    setTimeout(() => { sp.pause(); }, FADE_MS + 20);
+                    fadeTimer = setTimeout(() => { sp.pause(); fadeTimer = null; }, FADE_MS + 10);
                 }
             }
-            if (wasPlaying.size > 0) log("tab hidden — fading out", wasPlaying.size, "tracks");
         } else {
-            // Tab visible — resume then fade in (no pop/crackle)
             for (const [sid, vol] of wasPlaying) {
                 const sp = player._soundSprites?.get(sid);
                 if (sp && !sp._isPlaying) {
                     sp._volume = 0;
                     sp.resume();
-                    setTimeout(() => {
-                        const cur = player._soundSprites?.get(sid);
-                        if (cur?._isPlaying) cur.fade({ volume: vol, duration: FADE_MS });
-                    }, 20);
+                    sp.fade({ volume: vol, duration: FADE_MS });
                 }
             }
-            if (wasPlaying.size > 0) log("tab visible — fading in", wasPlaying.size, "tracks");
             wasPlaying.clear();
         }
     });
