@@ -25,7 +25,8 @@ export default function BuildPage({ project, setProject, showToast }) {
   const [abPlaying, setAbPlaying] = useState(null); // 'native_Name' or 'fdk_Name'
   const logRef = useRef(null);
   const abortRef = useRef(false);
-  const abCtxRef = useRef(null);
+  // Cleanup A/B audio on unmount
+  useEffect(() => () => { try { const s = abSourceRef.current; if (s) { s.onended = null; s.onerror = null; s.pause(); s.src = ''; } } catch {} }, []);
   const abSourceRef = useRef(null);
   const abIdRef = useRef(0);
   const buildVersionTimerRef = useRef(null);
@@ -200,9 +201,16 @@ export default function BuildPage({ project, setProject, showToast }) {
   // ── A/B encoder audio playback ──────────────────────────────────────────────
   const stopAbAudio = () => {
     abIdRef.current++;
-    try { abSourceRef.current?.stop(); } catch {}
+    try {
+      const src = abSourceRef.current;
+      if (src) {
+        src.onended = null;
+        src.onerror = null;
+        src.pause();
+        src.src = '';
+      }
+    } catch {}
     abSourceRef.current = null;
-    if (abCtxRef.current) { abCtxRef.current.close().catch(() => {}); abCtxRef.current = null; }
     setAbPlaying(null);
   };
 
@@ -211,24 +219,20 @@ export default function BuildPage({ project, setProject, showToast }) {
     stopAbAudio();
     const playId = ++abIdRef.current;
     try {
-      const res = await fetch(`audio://test/${encodeURIComponent(filename)}`);
-      if (abIdRef.current !== playId) return; // stale — user clicked another
-      if (!res.ok) { showToast('Could not load audio: ' + res.status, 'error'); return; }
-      const arrayBuffer = await res.arrayBuffer();
-      if (abIdRef.current !== playId) return; // stale
-      const ctx = new AudioContext();
-      const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-      if (abIdRef.current !== playId) { ctx.close().catch(() => {}); return; } // stale
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      source.onended = () => { if (abSourceRef.current === source) stopAbAudio(); };
-      abCtxRef.current = ctx;
-      abSourceRef.current = source;
+      // Use HTML5 Audio element — decodeAudioData can crash renderer on some M4A formats
+      const url = `audio://test/${encodeURIComponent(filename)}`;
+      const audio = new Audio(url);
+      audio.onended = () => { if (abIdRef.current === playId) stopAbAudio(); };
+      audio.onerror = () => {
+        if (abIdRef.current !== playId) return;
+        showToast('Playback error: could not decode ' + filename, 'error');
+        stopAbAudio();
+      };
+      abSourceRef.current = audio;
       setAbPlaying(filename);
-      source.start(0);
+      await audio.play();
     } catch (e) {
-      if (abIdRef.current !== playId) return; // stale
+      if (abIdRef.current !== playId) return;
       showToast('Playback error: ' + e.message, 'error');
       stopAbAudio();
     }
