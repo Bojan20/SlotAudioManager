@@ -958,6 +958,9 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const handleSaveEditList = async () => {
     if (saving) return;
     if (!editList?.name) return;
+    const newName = editList.name.trim();
+    if (!newName) { showToast('Name cannot be empty', 'error'); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(newName)) { showToast('Name can only contain letters, numbers, _ and -', 'error'); return; }
     const j = structuredClone(project.soundsJson);
     if (!j.soundDefinitions.spriteList) j.soundDefinitions.spriteList = {};
     const cleanItems = editList.items.filter(Boolean);
@@ -969,8 +972,25 @@ export default function CommandsPage({ project, setProject, showToast }) {
       : editList.loop;
     if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
     if (editList.tags?.length) entry.tags = editList.tags;
-    j.soundDefinitions.spriteList[editList.name] = entry;
-    const ok = await saveJson(j, `Sprite list "${editList.name}" updated`);
+
+    // Rename: if name changed, delete old key and update all command references
+    const origName = (editList._originalName || editList.name || '').trim();
+    if (newName !== origName) {
+      if (j.soundDefinitions.spriteList[newName]) { showToast('List "' + newName + '" already exists', 'error'); return; }
+      delete j.soundDefinitions.spriteList[origName];
+      // Update spriteListId references in all commands
+      if (j.soundDefinitions.commands) {
+        for (const steps of Object.values(j.soundDefinitions.commands)) {
+          if (!Array.isArray(steps)) continue;
+          for (const s of steps) {
+            if (s && s.spriteListId === origName) s.spriteListId = newName;
+          }
+        }
+      }
+    }
+
+    j.soundDefinitions.spriteList[newName] = entry;
+    const ok = await saveJson(j, newName !== origName ? `Sprite list renamed "${origName}" → "${newName}"` : `Sprite list "${newName}" updated`);
     if (ok) setEditList(null);
   };
 
@@ -1245,7 +1265,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       </div>
                     )}
                     <div className="flex items-center gap-2 pt-1">
-                      <button onClick={() => setEditList({ name, items: [...items], type: listType, overlap, loop: list?.loop ?? 0, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
+                      <button onClick={() => setEditList({ name, _originalName: name, items: [...items], type: listType, overlap, loop: list?.loop ?? 0, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
                       <div className="relative">
                         <button onClick={() => setConfirmDeleteList(confirmDeleteList === name ? null : name)} disabled={saving} className="text-xs text-text-dim hover:text-danger transition-colors" title="Remove this sprite list from sounds.json">Delete</button>
                         {confirmDeleteList === name && (
@@ -1586,16 +1606,14 @@ export default function CommandsPage({ project, setProject, showToast }) {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSt(null)} onKeyDown={e => { if (e.key === 'Escape') setSt(null); }}>
             <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[520px] max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
               <div className="p-5 border-b border-border">
-                <h3 className="text-sm font-bold text-text-primary">{isNew ? 'New Sprite List' : `Edit: ${st.name}`}</h3>
+                <h3 className="text-sm font-bold text-text-primary">{isNew ? 'New Sprite List' : `Edit: ${st._originalName || st.name}`}</h3>
               </div>
               <div className="p-5 space-y-4 flex-1 overflow-y-auto">
-                {isNew && (
-                  <div>
-                    <label className="section-label mb-1 block">List Name</label>
-                    <input type="text" value={st.name} onChange={e => setSt(p => ({ ...p, name: e.target.value }))}
-                      placeholder="e.g. sl_VOPreCog" className="input-base text-xs font-mono w-full" maxLength={100} autoFocus />
-                  </div>
-                )}
+                <div>
+                  <label className="section-label mb-1 block">List Name</label>
+                  <input type="text" value={st.name} onChange={e => setSt(p => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g. sl_VOPreCog" className="input-base text-xs font-mono w-full" maxLength={100} autoFocus={isNew} />
+                </div>
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <label className="section-label mb-1 block">Type</label>
@@ -1672,7 +1690,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
               </div>
               <div className="p-4 border-t border-border flex gap-2 justify-end">
                 <button onClick={() => setSt(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
-                <button onClick={handleSave} disabled={saving || (isNew && !st.name.trim()) || st.items.filter(Boolean).length === 0}
+                <button onClick={handleSave} disabled={saving || !st.name.trim() || st.items.filter(Boolean).length === 0}
                   className="btn-primary text-xs px-4 py-2 disabled:opacity-40">
                   {saving ? 'Saving...' : isNew ? 'Create List' : 'Save Changes'}
                 </button>
