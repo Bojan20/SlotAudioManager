@@ -186,23 +186,17 @@ async function main() {
         logger: { debug: () => {}, info: console.log, log: console.log }
     };
 
+    // Build all jobs (SFX + Music) — collect for parallel execution
+    const buildJobs = []; // { spriteNum, files, opts, type }
     let spriteNumber = 1;
-    const spriteData = []; // { spriteNum, soundData }
 
     console.log('\n── Building SFX sprites (' + (sfxEnc.bitrate || 64) + 'kbps, ' + (sfxEnc.channels || 2) + 'ch) ──');
     for (let i = 0; i < sfxChunks.length; i++) {
-        console.log('SFX sprite ' + spriteNumber + ' — ' + sfxChunks[i].length + ' files');
-        try {
-            const data = await buildSprite(sfxChunks[i], spriteNumber, sfxOpts);
-            spriteData.push({ spriteNum: spriteNumber, soundData: data });
-        } catch (e) {
-            console.error('❌ SFX sprite ' + spriteNumber + ' failed:', e.message || e);
-            process.exit(1);
-        }
+        console.log('  SFX sprite ' + spriteNumber + ' — ' + sfxChunks[i].length + ' files');
+        buildJobs.push({ spriteNum: spriteNumber, files: sfxChunks[i], opts: sfxOpts, type: 'SFX' });
         spriteNumber++;
     }
 
-    // ── Build Music sprites ──
     if (musicFiles.length > 0) {
         const musicChunks = chunkBySize(musicFiles, 30);
         const musicEncEncoder = musicEnc.encoder || 'native';
@@ -223,21 +217,38 @@ async function main() {
 
         console.log('\n── Building Music sprites (' + (musicEnc.bitrate || 64) + 'kbps, ' + (musicEnc.channels || 2) + 'ch) ──');
         for (let i = 0; i < musicChunks.length; i++) {
-            console.log('Music sprite ' + spriteNumber + ' — ' + musicChunks[i].length + ' files');
-            try {
-                const data = await buildSprite(musicChunks[i], spriteNumber, musicOpts);
-                spriteData.push({ spriteNum: spriteNumber, soundData: data });
-            } catch (e) {
-                console.error('❌ Music sprite ' + spriteNumber + ' failed:', e.message || e);
-                process.exit(1);
-            }
+            console.log('  Music sprite ' + spriteNumber + ' — ' + musicChunks[i].length + ' files');
+            buildJobs.push({ spriteNum: spriteNumber, files: musicChunks[i], opts: musicOpts, type: 'Music' });
             spriteNumber++;
         }
     }
 
-    // Validate all M4A files exist
+    // Execute all builds in parallel — ffmpeg instances run concurrently
     const totalSprites = spriteNumber - 1;
-    console.log('\n── Validating M4A output ──');
+    console.log('\n── Building ' + totalSprites + ' sprites in parallel ──');
+    const buildStart = Date.now();
+
+    const spriteData = [];
+    const results = await Promise.allSettled(
+        buildJobs.map(job =>
+            buildSprite(job.files, job.spriteNum, job.opts)
+                .then(data => ({ spriteNum: job.spriteNum, soundData: data, type: job.type }))
+        )
+    );
+
+    for (let i = 0; i < results.length; i++) {
+        if (results[i].status === 'rejected') {
+            console.error('❌ Sprite ' + buildJobs[i].spriteNum + ' (' + buildJobs[i].type + ') failed:', results[i].reason?.message || results[i].reason);
+            process.exit(1);
+        }
+        spriteData.push(results[i].value);
+    }
+
+    const buildMs = Date.now() - buildStart;
+    console.log('  All ' + totalSprites + ' sprites built in ' + (buildMs / 1000).toFixed(1) + 's');
+
+    // Validate all M4A files exist + per-sprite size report
+    console.log('\n── M4A Output ──');
     for (let i = 1; i <= totalSprites; i++) {
         const m4a = path.join(outDir, gameName + '_audioSprite' + i + '.m4a');
         if (!fs.existsSync(m4a)) {
@@ -245,7 +256,8 @@ async function main() {
             process.exit(1);
         }
         const sizeKB = Math.round(fs.statSync(m4a).size / 1024);
-        console.log('  ✓ audioSprite' + i + '.m4a — ' + sizeKB + ' KB');
+        const job = buildJobs[i - 1];
+        console.log('  ' + (sizeKB > 2000 ? '⚠' : '✓') + ' audioSprite' + i + '.m4a — ' + sizeKB + ' KB (' + job.type + ', ' + job.files.length + ' sounds)' + (sizeKB > 2000 ? ' — LARGE' : ''));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
