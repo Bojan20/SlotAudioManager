@@ -340,12 +340,14 @@ function registerHtml5(name: string, url: string, player: any): Promise<boolean>
 
         log("loading:", name);
 
+        // Sprite duration set to 24h — prevents Howler's setTimeout from stopping the sound.
+        // Native <audio>.loop handles seamless looping at the codec level instead.
         const howl = new Howl({
             src: [url],
             html5: true,
             preload: true,
             format: ["m4a"],
-            sprite: { [spriteId]: [soundDef.startTime || 0, soundDef.duration || 0] }
+            sprite: { [spriteId]: [0, 86400000] }
         });
 
         howl.once("load", () => {
@@ -366,10 +368,10 @@ function registerHtml5(name: string, url: string, player: any): Promise<boolean>
             // Sync tag state — if user already muted Music, apply to this sprite
             syncTagState(player, spriteId);
 
-            // Gapless loop — seek before end instead of stop/restart
-            setupGaplessLoop(howl, spriteId, soundDef.duration || 0);
+            // Native browser loop — <audio>.loop = true, no Howler timeout
+            enableNativeLoop(howl, spriteId);
 
-            log("\\u2713", name, "— HTML5 ready (gapless loop)");
+            log("\\u2713", name, "— HTML5 ready (native loop)");
             resolve(true);
         });
 
@@ -468,47 +470,23 @@ function replayMissedCommands(player: any): void {
 // ─── Gapless Loop ────────────────────────────────────────────────────────────
 
 /**
- * Howler sprite loop has a gap: sprite expires → stop → seek(0) → play → gap.
- * Fix: monitor position, seek to 0 BEFORE the end so audio never stops.
- * The browser does a seamless seek on the <audio> element — no gap.
+ * Enable native browser looping on the <audio> element.
+ *
+ * Problem: Howler sprite loop uses setTimeout(duration) → stop → seek(0) → play.
+ * This JavaScript-driven cycle has a ~20-50ms gap and can cause pops.
+ *
+ * Solution: set <audio>.loop = true directly. The browser loops at the codec
+ * level — zero JavaScript in the loop transition, sample-accurate, no gap.
+ *
+ * To prevent Howler from stopping the sound when sprite "expires", we create
+ * the Howl with a very long sprite duration (24h). Howler's timeout never
+ * fires, and the browser's native loop handles everything.
  */
-function setupGaplessLoop(howl: Howl, spriteId: string, durationMs: number): void {
-    const LEAD_MS = 150;  // seek this many ms before end
-    const POLL_MS = 30;
-    let intervalId: any = null;
-
-    function startMonitor(): void {
-        if (intervalId) return;
-        intervalId = setInterval(() => {
-            const snd = (howl as any)._sounds?.find((x: any) => x._sprite === spriteId);
-            if (!snd || snd._paused || !snd._node) {
-                stopMonitor();
-                return;
-            }
-            // Get position in ms from the <audio> element directly (more accurate than Howler)
-            const posSec: number = snd._node.currentTime || 0;
-            const posMs = posSec * 1000;
-            if (posMs > 0 && durationMs - posMs <= LEAD_MS) {
-                // Seek to beginning before audio reaches end — seamless
-                snd._node.currentTime = 0;
-            }
-        }, POLL_MS);
-    }
-
-    function stopMonitor(): void {
-        if (intervalId) { clearInterval(intervalId); intervalId = null; }
-    }
-
-    howl.on("play", startMonitor);
-    howl.on("stop", stopMonitor);
-    howl.on("pause", stopMonitor);
-    howl.on("end", () => {
-        // Safety: if monitor missed the seek, restart immediately
-        stopMonitor();
-        const sp = ((soundManager as any)?.player as any)?._soundSprites?.get(spriteId);
-        if (sp?._loop === -1 && !sp._isPlaying) {
-            sp.play();
-            startMonitor();
+function enableNativeLoop(howl: Howl, spriteId: string): void {
+    howl.on("play", () => {
+        const snd = (howl as any)._sounds?.find((x: any) => x._sprite === spriteId);
+        if (snd?._node && !snd._node.loop) {
+            snd._node.loop = true;
         }
     });
 }
@@ -524,34 +502,50 @@ function setupGaplessLoop(howl: Howl, spriteId: string, durationMs: number): voi
  */
 function setupVisibilityHandler(player: any): void {
     const musicIds = MUSIC.map(n => "s_" + n);
-    const wasPlaying = new Map<string, number>(); // spriteId → volume before pause
+    const savedState = new Map<string, { volume: number; position: number }>();
     const FADE_MS = 30;
     let fadeTimer: any = null;
 
     document.addEventListener("visibilitychange", () => {
-        // Cancel pending fade/pause from rapid tab switching
         if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
 
         if (document.hidden) {
-            wasPlaying.clear();
+            savedState.clear();
             for (const sid of musicIds) {
                 const sp = player._soundSprites?.get(sid);
-                if (sp?._isPlaying) {
-                    wasPlaying.set(sid, sp._volume);
-                    sp.fade({ volume: 0, duration: FADE_MS });
-                    fadeTimer = setTimeout(() => { sp.pause(); fadeTimer = null; }, FADE_MS + 10);
-                }
+                if (!sp?._isPlaying) continue;
+
+                // Save position directly from <audio> element
+                const snd = (sp._howl as any)?._sounds?.find((x: any) => x._sprite === sid);
+                const pos = snd?._node?.currentTime || 0;
+                savedState.set(sid, { volume: sp._volume, position: pos });
+
+                sp.fade({ volume: 0, duration: FADE_MS });
+                fadeTimer = setTimeout(() => {
+                    sp.pause();
+                    fadeTimer = null;
+                }, FADE_MS + 10);
             }
         } else {
-            for (const [sid, vol] of wasPlaying) {
+            for (const [sid, state] of savedState) {
                 const sp = player._soundSprites?.get(sid);
-                if (sp && !sp._isPlaying) {
-                    sp._volume = 0;
-                    sp.resume();
-                    sp.fade({ volume: vol, duration: FADE_MS });
+                if (!sp || sp._isPlaying) continue;
+
+                sp._volume = 0;
+                sp.resume();
+
+                // Restore position — browser may have reset it
+                const snd = (sp._howl as any)?._sounds?.find((x: any) => x._sprite === sid);
+                if (snd?._node) {
+                    const drift = Math.abs(snd._node.currentTime - state.position);
+                    if (drift > 0.5) {
+                        snd._node.currentTime = state.position;
+                    }
                 }
+
+                sp.fade({ volume: state.volume, duration: FADE_MS });
             }
-            wasPlaying.clear();
+            savedState.clear();
         }
     });
 }
