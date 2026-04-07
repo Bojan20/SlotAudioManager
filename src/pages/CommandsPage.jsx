@@ -63,7 +63,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
   const isFade = cmd === 'Fade';
   const isStop = cmd === 'Stop';
   const showVolume = ['Play', 'Fade', 'Set'].includes(cmd);
-  const showDelay = ['Play', 'Stop', 'Fade', 'Pause', 'Resume'].includes(cmd);
+  const showDelay = ['Play', 'Stop', 'Fade', 'Pause', 'Resume', 'ResetSpriteList'].includes(cmd);
   const showRate = ['Play', 'Set'].includes(cmd);
 
   return (
@@ -286,7 +286,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
       )}
 
       {/* Row 3: checkboxes — only if at least one checkbox would be visible */}
-      {!isExecute && !isResetSpriteList && (showDelay || (state.spriteId && soundSprites[state.spriteId])) && (
+      {!isExecute && (showDelay || (state.spriteId && soundSprites[state.spriteId])) && (
         <div className="flex items-center gap-4">
           {isPlay && (
             <label className="flex items-center gap-2 cursor-pointer">

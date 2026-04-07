@@ -1028,6 +1028,148 @@ ipcMain.handle('restore-sound', async (event, filename) => {
   return { success: true, project: loadProject(projectPath) };
 });
 
+ipcMain.handle('rename-sound', async (event, { oldName, newName }) => {
+  if (!projectPath) return { error: 'No project open' };
+  if (!oldName || !newName || typeof oldName !== 'string' || typeof newName !== 'string') return { error: 'Invalid names' };
+  const trimmed = newName.trim();
+  if (!trimmed) return { error: 'Name cannot be empty' };
+  if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) return { error: 'Name can only contain letters, numbers, _ and -' };
+  if (trimmed.startsWith('s_') || trimmed.startsWith('sl_')) return { error: 'Name cannot start with s_ or sl_' };
+  if (oldName === trimmed) return { success: true }; // no-op, not an error
+
+  const sourceDir = path.join(projectPath, 'sourceSoundFiles');
+  const oldPath = path.join(sourceDir, oldName + '.wav');
+  const newPath = path.join(sourceDir, trimmed + '.wav');
+  if (!oldPath.startsWith(sourceDir + path.sep) || !newPath.startsWith(sourceDir + path.sep)) return { error: 'Invalid path' };
+  if (!fs.existsSync(oldPath)) return { error: oldName + '.wav not found' };
+  if (fs.existsSync(newPath)) return { error: trimmed + '.wav already exists' };
+
+  // Save original JSON content for rollback
+  const soundsPath = path.join(projectPath, 'sounds.json');
+  const scPath = path.join(projectPath, 'sprite-config.json');
+  const prevSoundsRaw = fs.existsSync(soundsPath) ? fs.readFileSync(soundsPath, 'utf8') : null;
+  const prevScRaw = fs.existsSync(scPath) ? fs.readFileSync(scPath, 'utf8') : null;
+
+  try {
+    // 1. Rename WAV file
+    fs.renameSync(oldPath, newPath);
+
+    // 2. Rename in .deleted/ if exists
+    const trashDir = path.join(sourceDir, '.deleted');
+    const oldTrash = path.join(trashDir, oldName + '.wav');
+    if (fs.existsSync(oldTrash)) {
+      const newTrash = path.join(trashDir, trimmed + '.wav');
+      if (!fs.existsSync(newTrash)) fs.renameSync(oldTrash, newTrash);
+    }
+
+    // 3. Update sounds.json — soundSprites, commands, spriteList
+    const soundsJson = prevSoundsRaw ? JSON.parse(prevSoundsRaw) : null;
+    if (soundsJson) {
+      const oldKey = 's_' + oldName;
+      const newKey = 's_' + trimmed;
+      const oldListKey = 'sl_' + oldName;
+      const newListKey = 'sl_' + trimmed;
+
+      // soundSprites: rename key + update spriteId
+      if (soundsJson.soundDefinitions?.soundSprites) {
+        const sprites = soundsJson.soundDefinitions.soundSprites;
+        if (sprites[oldKey]) {
+          const entry = sprites[oldKey];
+          entry.spriteId = trimmed;
+          sprites[newKey] = entry;
+          delete sprites[oldKey];
+        }
+      }
+
+      // commands: update spriteId and spriteListId references in all steps
+      if (soundsJson.soundDefinitions?.commands) {
+        const cmds = soundsJson.soundDefinitions.commands;
+        for (const steps of Object.values(cmds)) {
+          if (!Array.isArray(steps)) continue;
+          for (const s of steps) {
+            if (!s) continue;
+            if (s.spriteId === oldKey) s.spriteId = newKey;
+            if (s.spriteListId === oldKey) s.spriteListId = newKey;
+            if (s.spriteListId === oldListKey) s.spriteListId = newListKey;
+          }
+        }
+      }
+
+      // spriteList: rename keys + update items arrays
+      if (soundsJson.soundDefinitions?.spriteList) {
+        const lists = soundsJson.soundDefinitions.spriteList;
+        // Rename items inside all lists
+        for (const list of Object.values(lists)) {
+          if (!list) continue;
+          const items = Array.isArray(list) ? list : list.items;
+          if (!Array.isArray(items)) continue;
+          for (let i = 0; i < items.length; i++) {
+            if (items[i] === oldKey) items[i] = newKey;
+          }
+        }
+        // Rename spriteList key itself (sl_OldName → sl_NewName)
+        if (lists[oldListKey]) {
+          lists[newListKey] = lists[oldListKey];
+          delete lists[oldListKey];
+        }
+      }
+
+      const nextSounds = formatSoundsJson(JSON.stringify(soundsJson, null, 2));
+      fs.writeFileSync(soundsPath, nextSounds);
+      pushUndo(soundsPath, prevSoundsRaw, nextSounds);
+    }
+
+    // 4. Update sprite-config.json — all tier sounds arrays
+    const spriteConfig = prevScRaw ? JSON.parse(prevScRaw) : null;
+    if (spriteConfig) {
+      let changed = false;
+
+      // Tiers: sprites.loading.sounds, sprites.main.sounds, etc.
+      if (spriteConfig.sprites) {
+        for (const tier of Object.values(spriteConfig.sprites)) {
+          if (!tier?.sounds) continue;
+          const idx = tier.sounds.indexOf(oldName);
+          if (idx !== -1) { tier.sounds[idx] = trimmed; changed = true; }
+        }
+      }
+
+      // Standalone
+      if (spriteConfig.standalone?.sounds) {
+        const idx = spriteConfig.standalone.sounds.indexOf(oldName);
+        if (idx !== -1) { spriteConfig.standalone.sounds[idx] = trimmed; changed = true; }
+      }
+
+      // Streaming
+      if (spriteConfig.streaming?.sounds) {
+        const idx = spriteConfig.streaming.sounds.indexOf(oldName);
+        if (idx !== -1) { spriteConfig.streaming.sounds[idx] = trimmed; changed = true; }
+      }
+
+      // Streaming autoPlay
+      if (spriteConfig.streaming?.autoPlay) {
+        const idx = spriteConfig.streaming.autoPlay.indexOf(oldName);
+        if (idx !== -1) { spriteConfig.streaming.autoPlay[idx] = trimmed; changed = true; }
+      }
+
+      if (changed) {
+        const nextSc = JSON.stringify(spriteConfig, null, 2);
+        fs.writeFileSync(scPath, nextSc);
+        pushUndo(scPath, prevScRaw, nextSc);
+      }
+    }
+
+    return { success: true, project: loadProject(projectPath) };
+  } catch (e) {
+    // Full rollback — WAV + both JSON files
+    if (fs.existsSync(newPath) && !fs.existsSync(oldPath)) {
+      try { fs.renameSync(newPath, oldPath); } catch {}
+    }
+    if (prevSoundsRaw) { try { fs.writeFileSync(soundsPath, prevSoundsRaw); } catch {} }
+    if (prevScRaw) { try { fs.writeFileSync(scPath, prevScRaw); } catch {} }
+    return { error: 'Rename failed: ' + e.message };
+  }
+});
+
 ipcMain.handle('list-deleted-sounds', async () => {
   if (!projectPath) return { files: [] };
   const trashDir = path.join(projectPath, 'sourceSoundFiles', '.deleted');
@@ -1411,6 +1553,14 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
     const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
     const scriptCmd = (gamePkg?.scripts?.[scriptName] || '').trim();
     const startsWithPlaya = /^playa\s/.test(scriptCmd);
+
+    // Clear webpack cache before playa launch — ensures fresh assets, no stale audio
+    if (startsWithPlaya) {
+      const webpackCache = path.join(gameRepoPath, 'node_modules', '.cache');
+      if (fs.existsSync(webpackCache)) {
+        try { fs.rmSync(webpackCache, { recursive: true, force: true }); send('Cleared webpack cache\n'); } catch {}
+      }
+    }
 
     let child;
     if (startsWithPlaya) {

@@ -128,7 +128,7 @@ function processSourceManifest() {
     } else if (audioProcess.process === "audioSprite") {
         sourceDir = DestinationAudioSpriteDirectory;
     }
-    fs.readdirSync(sourceDir).forEach(element => {
+    fs.readdirSync(sourceDir).filter(f => f.endsWith('.wav') || f.endsWith('.m4a')).forEach(element => {
         let myNewEntry = {};
         if (element.endsWith(".wav")) {
             let id = element.substring(0, element.length - 4);
@@ -140,7 +140,7 @@ function processSourceManifest() {
             entry.src = src;
             myNewSoundManifest.push(entry);
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
-        } else if (element.endsWith(".m4a")) {
+        } else {
             let id = element.substring(0, element.length - 4);
             let src = [];
             let entry = {};
@@ -149,8 +149,6 @@ function processSourceManifest() {
             entry.src = src;
             myNewSoundManifest.push(entry);
             console.log("Processcing manifest entry " + entry.src + " File: " + entry.id);
-        } else {
-            console.log("problem with file " + element + " not ending with .wav");
         }
     });
 }
@@ -238,10 +236,10 @@ function processSpriteList(element) {
 }
 
 async function processSourceSprites() {
-    fs.readdirSync(SourceSoundDirectory).forEach(async element => {
+    fs.readdirSync(SourceSoundDirectory).filter(f => f.endsWith('.wav')).forEach(async element => {
         if (element.endsWith("_SL.wav")) {
             processSpriteList(element);
-        } else if (element.endsWith(".wav")) {
+        } else {
             let soundId;
             let entryName;
             let spriteId;
@@ -316,8 +314,6 @@ async function processSourceSprites() {
             });
 
 
-        } else {
-            console.log("problem with file " + element + " not ending with .wav, skipping");
         }
     });
 }

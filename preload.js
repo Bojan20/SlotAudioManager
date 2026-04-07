@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('api', {
   readAudioFile: (filename) => ipcRenderer.invoke('read-audio-file', filename),
   deleteSound: (filename) => ipcRenderer.invoke('delete-sound', filename),
   restoreSound: (filename) => ipcRenderer.invoke('restore-sound', filename),
+  renameSound: (oldName, newName) => ipcRenderer.invoke('rename-sound', { oldName, newName }),
   listDeletedSounds: () => ipcRenderer.invoke('list-deleted-sounds'),
   // Template & health
   healthCheck: () => ipcRenderer.invoke('health-check'),

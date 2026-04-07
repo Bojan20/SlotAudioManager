@@ -94,6 +94,9 @@ export default function SoundsPage({ project, setProject, showToast }) {
   const [addModal, setAddModal] = useState(null); // null | { name, tags, overlap, saving }
   const [bulkAdd, setBulkAdd] = useState(null); // null | { tags, overlap, saving }
   const [selectedSound, setSelectedSound] = useState(null); // sound name for usage panel
+  const [renaming, setRenaming] = useState(null); // null | sound name being renamed
+  const [renameValue, setRenameValue] = useState('');
+  const [renameError, setRenameError] = useState('');
   const ctxRef = useRef(null);
   const sourceRef = useRef(null);
   const playStartRef = useRef(0);  // ctx.currentTime when playback started
@@ -330,6 +333,30 @@ export default function SoundsPage({ project, setProject, showToast }) {
       showToast('Restore failed: ' + e.message, 'error');
     }
     setRestoring(null);
+  };
+
+  const handleRename = async (oldName) => {
+    const newName = renameValue.trim();
+    if (!newName || newName === oldName) { setRenaming(null); setRenameError(''); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(newName)) { setRenameError('Only letters, numbers, _ and -'); return; }
+    if (newName.startsWith('s_') || newName.startsWith('sl_')) { setRenameError('Cannot start with s_ or sl_'); return; }
+    if ((project?.sounds || []).some(s => s.name === newName)) { setRenameError('Name already exists'); return; }
+    if (playing) stopAudio(); // stop playback if active
+    try {
+      const result = await window.api.renameSound(oldName, newName);
+      if (result?.success && result?.project) {
+        setProject(result.project);
+        showToast(`Renamed: ${oldName} → ${newName}`, 'success');
+        if (selectedSound === oldName) setSelectedSound(newName);
+        setRenaming(null);
+        setRenameValue('');
+        setRenameError('');
+      } else {
+        setRenameError(result?.error || 'Rename failed');
+      }
+    } catch (e) {
+      setRenameError('Failed: ' + e.message);
+    }
   };
 
   if (!project) {
@@ -621,12 +648,28 @@ export default function SoundsPage({ project, setProject, showToast }) {
                 )}
               </div>
 
-              <span
-                className={`text-sm font-mono whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer transition-colors ${selectedSound === s.name ? 'text-accent' : 'text-text-primary hover:text-accent'}`}
-                style={{ maxWidth: '320px' }}
-                onClick={() => setSelectedSound(selectedSound === s.name ? null : s.name)}
-                title="Click to see where this sound is used"
-              >{s.name}</span>
+              {renaming === s.name ? (
+                <div className="flex items-center gap-1" style={{ maxWidth: '320px' }}>
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => { setRenameValue(e.target.value); setRenameError(''); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleRename(s.name); if (e.key === 'Escape') { setRenaming(null); setRenameError(''); } }}
+                    onBlur={() => { if (!renameError) setTimeout(() => { setRenaming(r => r === s.name ? null : r); setRenameError(''); }, 200); }}
+                    className={`input-base text-sm font-mono py-0.5 px-1.5 w-full ${renameError ? '!border-danger' : ''}`}
+                    title={renameError || 'Enter to save, Esc to cancel'}
+                  />
+                  {renameError && <span className="text-[10px] text-danger whitespace-nowrap">{renameError}</span>}
+                </div>
+              ) : (
+                <span
+                  className={`text-sm font-mono whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer transition-colors ${selectedSound === s.name ? 'text-accent' : 'text-text-primary hover:text-accent'}`}
+                  style={{ maxWidth: '320px' }}
+                  onClick={() => setSelectedSound(selectedSound === s.name ? null : s.name)}
+                  onDoubleClick={() => { setRenaming(s.name); setRenameValue(s.name); setRenameError(''); }}
+                  title="Click: usage · Double-click: rename"
+                >{s.name}</span>
+              )}
 
               {inJson
                 ? (() => {
@@ -672,16 +715,27 @@ export default function SoundsPage({ project, setProject, showToast }) {
 
               <span className="text-sm text-text-secondary text-right tabular-nums font-mono whitespace-nowrap">{s.sizeKB} KB</span>
 
-              <button
-                onClick={() => handleDelete(s.filename)}
-                disabled={deleting === s.filename}
-                className="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-lg text-danger hover:bg-danger-dim transition-all"
-                title="Move to Trash"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => { setRenaming(s.name); setRenameValue(s.name); setRenameError(''); }}
+                  className="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-lg text-text-dim hover:text-accent hover:bg-accent/10 transition-all"
+                  title="Rename"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => handleDelete(s.filename)}
+                  disabled={deleting === s.filename}
+                  className="opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-lg text-danger hover:bg-danger-dim transition-all"
+                  title="Move to Trash"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
 
               {/* Waveform + Seek */}
               {isPlaying && waveform?.filename === s.filename && waveform.peaks && (

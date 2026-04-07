@@ -21,7 +21,7 @@ fs.mkdirSync(outDir, { recursive: true });
 
 const allFiles = fs.readdirSync(sourceSndFiles).filter(f => f.endsWith('.wav'));
 
-const pathArray = gameProjectPath.split("/");
+const pathArray = gameProjectPath.split(/[/\\]/);
 const gameName = pathArray[pathArray.length - 1];
 
 // Read encoding settings from sprite-config.json
