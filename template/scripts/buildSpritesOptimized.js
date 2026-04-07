@@ -165,6 +165,14 @@ async function main() {
     const sfxEncEncoder = sfxEnc.encoder || 'native';
     const sfxUseNative = !((sfxEncEncoder === 'fdk') && fdkExists);
 
+    // Gap optimization (hardcoded — does not affect other scripts):
+    // - customAudioSprite default: gap=1s + Math.ceil rounding = ~1.5s silence per sound
+    // - Web Audio AudioBufferSourceNode.start(0, offset, duration) is sample-accurate
+    // - Minimum safe gap = 1 AAC frame (1024 samples = 23ms at 44100Hz)
+    // - 50ms gap + no rounding = no wasted silence
+    // - For 99 sounds: saves ~150s of silence = ~900KB on final M4A at 48kbps
+    const gap = 0.05;
+
     const sfxOpts = {
         output: path.join(outDir, gameName + '_audioSprite'),
         format: 'howler2',
@@ -173,6 +181,8 @@ async function main() {
         channels: sfxEnc.channels || 2,
         samplerate: sfxEnc.samplerate || 44100,
         useNativeAac: sfxUseNative,
+        gap: gap,
+        ignorerounding: 1,
         logger: { debug: () => {}, info: console.log, log: console.log }
     };
 
@@ -206,6 +216,8 @@ async function main() {
             channels: musicEnc.channels || 2,
             samplerate: musicEnc.samplerate || 44100,
             useNativeAac: musicUseNative,
+            gap: gap,
+            ignorerounding: 1,
             logger: { debug: () => {}, info: console.log, log: console.log }
         };
 
@@ -370,10 +382,22 @@ async function main() {
     console.log('\n══════════════════════════════════════════════════');
     console.log('  BUILD COMPLETE');
     console.log('══════════════════════════════════════════════════\n');
+    // Calculate total M4A size
+    let totalSizeKB = 0;
+    for (let i = 1; i <= totalSprites; i++) {
+        totalSizeKB += Math.round(fs.statSync(path.join(outDir, gameName + '_audioSprite' + i + '.m4a')).size / 1024);
+    }
+    // Estimate savings vs default gap (1s + rounding ≈ 1.5s avg per sound)
+    const soundCount = Object.keys(sortedSprites).length;
+    const savedSilenceSec = soundCount * 1.5 - soundCount * gap;
+    const savedKB = Math.round(savedSilenceSec * ((sfxEnc.bitrate || 64) / 8));
+
     console.log('  Sprites:       ' + totalSprites + ' (' + sfxChunks.length + ' SFX + ' + (totalSprites - sfxChunks.length) + ' Music)');
-    console.log('  SoundSprites:  ' + Object.keys(sortedSprites).length);
+    console.log('  SoundSprites:  ' + soundCount);
     console.log('  SpriteLists:   ' + Object.keys(originalSpriteLists).length);
     console.log('  Commands:      ' + Object.keys(originalCommands).length);
+    console.log('  Total size:    ' + totalSizeKB + ' KB (' + (totalSizeKB / 1024).toFixed(1) + ' MB)');
+    console.log('  Gap:           ' + (gap * 1000) + 'ms (no rounding) — ~' + savedKB + ' KB saved vs default 1s gap');
     if (soxFailCount > 0) console.log('  ⚠ Sox failures: ' + soxFailCount + ' (used sprite map fallback)');
     console.log('');
 }
