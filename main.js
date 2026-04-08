@@ -2357,7 +2357,9 @@ ipcMain.handle('open-game-window', async (event, url) => {
     catch { await new Promise(r => setTimeout(r, 500)); }
   }
 
-  const child = spawn(browserPath, [
+  // Only block IGT servers for local GLR launches (127.0.0.1) — not for VPN server launches
+  const isLocal = url.includes('127.0.0.1') || url.includes('localhost');
+  const chromeArgs = [
     '--new-window',
     '--no-first-run',
     '--no-default-browser-check',
@@ -2367,13 +2369,14 @@ ipcMain.handle('open-game-window', async (event, url) => {
     '--ignore-certificate-errors',
     '--hide-crash-restore-bubble',
     '--disable-session-crashed-bubble',
-    // Allow audio autoplay without user gesture — fresh profile has no engagement score
     '--autoplay-policy=no-user-gesture-required',
-    // Block IGT/wagerworks servers — fail fast (NXDOMAIN) instead of hanging without VPN
-    '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND',
     `--user-data-dir=${profileDir}`,
     url,
-  ], { detached: false, stdio: 'ignore' });
+  ];
+  if (isLocal) {
+    chromeArgs.splice(-2, 0, '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND');
+  }
+  const child = spawn(browserPath, chromeArgs, { detached: false, stdio: 'ignore' });
 
   gameBrowserProcess = child;
   child.once('exit', () => { if (gameBrowserProcess === child) gameBrowserProcess = null; });
