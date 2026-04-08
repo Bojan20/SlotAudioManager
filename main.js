@@ -1549,18 +1549,14 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       }
     }
 
+    // Wait for Windows TIME_WAIT to expire — port may show free but kernel hasn't released it
+    send('Waiting for port release...\n');
+    await new Promise(r => setTimeout(r, 3000));
+
     // Read script command — if it calls playa, resolve binary directly (avoids yarn PATH issues on Windows)
     const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
     const scriptCmd = (gamePkg?.scripts?.[scriptName] || '').trim();
     const startsWithPlaya = /^playa\s/.test(scriptCmd);
-
-    // Clear webpack cache before playa launch — ensures fresh assets, no stale audio
-    if (startsWithPlaya) {
-      const webpackCache = path.join(gameRepoPath, 'node_modules', '.cache');
-      if (fs.existsSync(webpackCache)) {
-        try { fs.rmSync(webpackCache, { recursive: true, force: true }); send('Cleared webpack cache\n'); } catch {}
-      }
-    }
 
     let child;
     if (startsWithPlaya) {
