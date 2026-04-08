@@ -299,8 +299,8 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">Loop</span>
             </label>
           )}
-          {showDelay && (
-            <label className="flex items-center gap-2 cursor-pointer" title="Cancel any pending delayed command for this sprite">
+          {isPlay && showDelay && (
+            <label className="flex items-center gap-2 cursor-pointer" title="If sprite is NOT playing when delay expires, skip this Play (don't start it)">
               <input
                 type="checkbox"
                 checked={state.cancelDelay}
@@ -758,7 +758,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
       if (!isNaN(r)) step.rate = r;
     }
     if (s.command === 'Play' && s.loop) step.loop = -1;
-    if (['Play', 'Stop', 'Fade', 'Pause', 'Resume'].includes(s.command) && s.cancelDelay) step.cancelDelay = true;
+    if (s.command === 'Play' && s.cancelDelay) step.cancelDelay = true;
 
     return step;
   };
