@@ -306,10 +306,12 @@ async function main() {
         const prevDist = JSON.parse(fs.readFileSync(JSONtarget, 'utf8'));
         soundManifest = prevDist.soundManifest || [];
         soundSprites = prevDist.soundDefinitions?.soundSprites || {};
-        // Update tags/overlap from template (user may have changed tags)
+        // Update tags/overlap from template + sanitize startTime/duration (fix legacy floats)
         Object.keys(soundSprites).forEach(key => {
             if (originalSprites[key]?.tags) soundSprites[key].tags = originalSprites[key].tags;
             if (originalSprites[key]?.overlap !== undefined) soundSprites[key].overlap = originalSprites[key].overlap;
+            soundSprites[key].startTime = Math.round(soundSprites[key].startTime || 0);
+            soundSprites[key].duration = Math.round(soundSprites[key].duration || 0);
         });
         console.log('  Reusing ' + soundManifest.length + ' sprites from previous build');
     } else {
@@ -335,10 +337,10 @@ async function main() {
                 if (name === '__default') { /* skip */ }
                 else {
                     const entryName = 's_' + name;
-                    const startTime = timings[0];
+                    const startTime = Math.round(timings[0]);
 
                     const wavPath = path.join(sourceDir, name + '.wav');
-                    let duration = timings[1];
+                    let duration = Math.round(timings[1]);
                     if (fs.existsSync(wavPath)) {
                         const soxDur = await getSoxDuration(wavPath);
                         if (soxDur !== null) {

@@ -2340,17 +2340,13 @@ ipcMain.handle('open-game-window', async (event, url) => {
     const oldPid = gameBrowserProcess.pid;
     gameBrowserProcess = null;
     if (isWin && oldPid) {
-      exec(`taskkill /F /T /PID ${oldPid}`, () => {});
+      await new Promise(resolve => exec(`taskkill /F /T /PID ${oldPid}`, () => resolve()));
     } else { try { process.kill(oldPid, 'SIGTERM'); } catch {} }
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 2000));
   }
 
-  // Isolated profile — wiped on every launch for clean game state (no stale localStorage/SW cache)
-  const profileDir = path.join(app.getPath('temp'), 'slot-audio-glr');
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try { if (fs.existsSync(profileDir)) fs.rmSync(profileDir, { recursive: true, force: true }); break; }
-    catch { await new Promise(r => setTimeout(r, 500)); }
-  }
+  // Fresh random profile every launch — guarantees no stale SW/audio cache
+  const profileDir = path.join(app.getPath('temp'), 'slot-audio-' + Date.now());
 
   // Only block IGT servers for local GLR launches (127.0.0.1) — not for VPN server launches
   const isLocal = url.includes('127.0.0.1') || url.includes('localhost');
