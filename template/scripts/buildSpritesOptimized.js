@@ -361,13 +361,70 @@ async function main() {
     console.log('  ✓ All soundSprites reference valid manifest IDs');
     console.log('  ✓ ' + Object.keys(sortedSprites).length + ' sprites validated');
 
+    // ── Clean broken references — remove commands/spriteList items for deleted sounds ──
+    const validSpriteIds = new Set(Object.keys(sortedSprites));
+    const validListIds = new Set(Object.keys(originalSpriteLists));
+    let cleanedCount = 0;
+
+    // Clean spriteList items — remove references to sprites that don't exist
+    const cleanedSpriteLists = {};
+    Object.entries(originalSpriteLists).forEach(([listName, list]) => {
+        if (!list) return;
+        const items = Array.isArray(list) ? list : (list.items || []);
+        const cleanItems = items.filter(id => {
+            if (validSpriteIds.has(id)) return true;
+            console.log('  🗑 spriteList ' + listName + ': removed ' + id + ' (deleted)');
+            cleanedCount++;
+            return false;
+        });
+        if (cleanItems.length > 0) {
+            if (Array.isArray(list)) {
+                cleanedSpriteLists[listName] = cleanItems;
+            } else {
+                cleanedSpriteLists[listName] = { ...list, items: cleanItems };
+            }
+        } else {
+            console.log('  🗑 spriteList ' + listName + ': removed entirely (empty)');
+            cleanedCount++;
+        }
+    });
+
+    // Clean commands — remove steps that reference non-existent sprites/lists
+    const cleanedCommands = {};
+    Object.entries(originalCommands).forEach(([cmdName, steps]) => {
+        if (!Array.isArray(steps)) { cleanedCommands[cmdName] = steps; return; }
+        const cleanSteps = steps.filter(s => {
+            if (!s) return false;
+            if (s.spriteId && !validSpriteIds.has(s.spriteId)) {
+                console.log('  🗑 command ' + cmdName + ': removed step → ' + s.spriteId + ' (deleted)');
+                cleanedCount++;
+                return false;
+            }
+            if (s.spriteListId && !cleanedSpriteLists[s.spriteListId] && !validSpriteIds.has(s.spriteListId)) {
+                console.log('  🗑 command ' + cmdName + ': removed step → ' + s.spriteListId + ' (deleted)');
+                cleanedCount++;
+                return false;
+            }
+            return true;
+        });
+        if (cleanSteps.length > 0) {
+            cleanedCommands[cmdName] = cleanSteps;
+        } else {
+            // Keep empty command array — don't delete command name (game may reference it)
+            cleanedCommands[cmdName] = [];
+        }
+    });
+
+    if (cleanedCount > 0) console.log('  Cleaned ' + cleanedCount + ' broken references');
+    else console.log('  ✓ No broken references');
+
     // Assemble final JSON
     const outputJson = {
         soundManifest: soundManifest,
         soundDefinitions: {
             soundSprites: sortedSprites,
-            spriteList: originalSpriteLists,
-            commands: originalCommands
+            spriteList: cleanedSpriteLists,
+            commands: cleanedCommands
         }
     };
 
