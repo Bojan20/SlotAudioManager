@@ -140,19 +140,12 @@ if (fs.existsSync(distGameSoundsBase)) {
             });
     }
 
-    // Copy audio sprite files — clean old files first, then copy unhashed AND overwrite hashed
+    // Copy audio sprite files — map hashed first, clean old, then copy with hashed overwrite
     if (fs.existsSync(distSoundFolder)) {
         if (!fs.existsSync(distGameSoundFiles)) {
             fs.mkdirSync(distGameSoundFiles, { recursive: true });
         }
-        // Clean ALL old M4A files from dist/soundFiles/ — prevents stale files from different game names
-        if (fs.existsSync(distGameSoundFiles)) {
-            fs.readdirSync(distGameSoundFiles).filter(f => f.endsWith('.m4a')).forEach(f => {
-                fs.rmSync(path.join(distGameSoundFiles, f));
-            });
-            console.log("cleaned old M4A from dist/soundFiles/");
-        }
-        // Build map of existing hashed files in game dist: baseName → [hashedFile1, ...]
+        // Build map of existing hashed files BEFORE cleaning (need hash names for overwrite)
         const existingFiles = fs.existsSync(distGameSoundFiles) ? fs.readdirSync(distGameSoundFiles) : [];
         const hashedMap = {};
         for (const f of existingFiles) {
@@ -165,21 +158,32 @@ if (fs.existsSync(distGameSoundsBase)) {
             }
         }
 
-        fs.readdirSync(distSoundFolder).forEach(element => {
-            const filePath = path.join(distSoundFolder, element);
-            if (!element.startsWith(".") && fs.existsSync(filePath) && !fs.lstatSync(filePath).isDirectory()) {
-                // Copy with original unhashed name
-                const destFile = path.join(distGameSoundFiles, element);
-                console.log("copy to dist: " + element + " -> " + destFile);
-                fs.copyFileSync(filePath, destFile);
+        // Build set of new file names for stale cleanup
+        const newFiles = new Set(fs.readdirSync(distSoundFolder).filter(f => !f.startsWith('.') && !fs.lstatSync(path.join(distSoundFolder, f)).isDirectory()));
 
-                // Also overwrite any hashed versions so webpack-loaded paths get our audio
-                if (hashedMap[element]) {
-                    for (const hashedName of hashedMap[element]) {
-                        const hashedDest = path.join(distGameSoundFiles, hashedName);
-                        console.log("overwrite hashed: " + element + " -> " + hashedName);
-                        fs.copyFileSync(filePath, hashedDest);
-                    }
+        // Clean stale M4A — remove old hashed files that don't match any new file name
+        existingFiles.filter(f => f.endsWith('.m4a')).forEach(f => {
+            const m = f.match(/^(.+)\.([a-f0-9]{6,})(\.[^.]+)$/);
+            const baseName = m ? m[1] + m[3] : f;
+            if (!newFiles.has(baseName)) {
+                fs.rmSync(path.join(distGameSoundFiles, f));
+                console.log("removed stale: " + f);
+            }
+        });
+
+        newFiles.forEach(element => {
+            const filePath = path.join(distSoundFolder, element);
+            // Copy with original unhashed name
+            const destFile = path.join(distGameSoundFiles, element);
+            console.log("copy to dist: " + element + " -> " + destFile);
+            fs.copyFileSync(filePath, destFile);
+
+            // Also overwrite any hashed versions so webpack-loaded paths get our audio
+            if (hashedMap[element]) {
+                for (const hashedName of hashedMap[element]) {
+                    const hashedDest = path.join(distGameSoundFiles, hashedName);
+                    console.log("overwrite hashed: " + element + " -> " + hashedName);
+                    fs.copyFileSync(filePath, hashedDest);
                 }
             }
         });
