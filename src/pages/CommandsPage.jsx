@@ -221,7 +221,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
       </div>
 
       {/* Row 2: numeric fields */}
-      {!isExecute && !isResetSpriteList && (
+      {!isExecute && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {showVolume && (
             <div>
@@ -286,7 +286,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
       )}
 
       {/* Row 3: checkboxes — only if at least one checkbox would be visible */}
-      {!isExecute && (showDelay || (state.spriteId && soundSprites[state.spriteId])) && (
+      {!isExecute && !isResetSpriteList && (showDelay || (state.spriteId && soundSprites[state.spriteId])) && (
         <div className="flex items-center gap-4">
           {isPlay && (
             <label className="flex items-center gap-2 cursor-pointer">

@@ -317,7 +317,10 @@ export default function BuildPage({ project, setProject, showToast }) {
     setRunning('game:' + scriptName); setLog(''); setResult(null);
     const stopped = () => abortRef.current;
     try {
-      if (scriptName !== 'build-dev') {
+      // playa launch scripts include webpack build internally — skip our build-dev
+      // Only run build-dev explicitly when user clicks build-dev button
+      const isPlayaLaunch = gameScripts.find(s => s.name === scriptName)?.cmd?.startsWith('playa ');
+      if (scriptName !== 'build-dev' && !isPlayaLaunch) {
         setLog('── yarn build-dev ──\n');
         const build = await window.api.buildGame();
         if (stopped()) return;

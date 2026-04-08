@@ -201,6 +201,18 @@ export default function App() {
           </div>
         )}
 
+        {/* ── Undo / Redo ── */}
+        {project && (
+          <div className="flex items-center justify-center gap-1 px-4 pb-3">
+            <button onClick={handleUndo} disabled={!canUndo} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${canUndo ? 'text-text-dim hover:text-accent hover:bg-accent/10' : 'text-white/10 cursor-not-allowed'}`} title="Undo (sounds.json / sprite-config.json)">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" /></svg>
+            </button>
+            <button onClick={handleRedo} disabled={!canRedo} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-all ${canRedo ? 'text-text-dim hover:text-accent hover:bg-accent/10' : 'text-white/10 cursor-not-allowed'}`} title="Redo">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4" /></svg>
+            </button>
+          </div>
+        )}
+
         {/* ── Navigation ── */}
         <nav className="flex-1 overflow-y-auto" style={{ padding: '4px 14px 16px 14px' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
