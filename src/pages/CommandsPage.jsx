@@ -971,6 +971,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
       ? editList.loop.filter((_, i) => Boolean(editList.items[i]))
       : editList.loop;
     if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
+    // Sync pan array with filtered items
+    const panVal = Array.isArray(editList.pan)
+      ? editList.pan.filter((_, i) => Boolean(editList.items[i]))
+      : editList.pan;
+    if (Array.isArray(panVal) ? panVal.length > 0 : panVal) entry.pan = panVal;
     if (editList.tags?.length) entry.tags = editList.tags;
 
     // Rename: if name changed, delete old key and update all command references
@@ -1005,6 +1010,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
       ? editListInline.loop.filter((_, i) => Boolean(editListInline.items[i]))
       : editListInline.loop;
     if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
+    const panVal = Array.isArray(editListInline.pan)
+      ? editListInline.pan.filter((_, i) => Boolean(editListInline.items[i]))
+      : editListInline.pan;
+    if (Array.isArray(panVal) ? panVal.length > 0 : panVal) entry.pan = panVal;
     if (editListInline.tags?.length) entry.tags = editListInline.tags;
     j.soundDefinitions.spriteList[editListInline.name] = entry;
     const ok = await saveJson(j, `List "${editListInline.name}" updated`);
@@ -1265,7 +1274,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       </div>
                     )}
                     <div className="flex items-center gap-2 pt-1">
-                      <button onClick={() => setEditList({ name, _originalName: name, items: [...items], type: listType, overlap, loop: list?.loop ?? 0, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
+                      <button onClick={() => setEditList({ name, _originalName: name, items: [...items], type: listType, overlap, loop: list?.loop ?? 0, pan: list?.pan ?? 0, tags: [...tags] })} disabled={saving} className="text-xs text-text-dim hover:text-accent transition-colors" title="Edit sprite list items, type, and settings">Edit</button>
                       <div className="relative">
                         <button onClick={() => setConfirmDeleteList(confirmDeleteList === name ? null : name)} disabled={saving} className="text-xs text-text-dim hover:text-danger transition-colors" title="Remove this sprite list from sounds.json">Delete</button>
                         {confirmDeleteList === name && (
@@ -1470,7 +1479,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                                   const items = Array.isArray(list) ? [...list] : [...(list?.items || [])];
                                   setEditListInline({
                                     name: action.spriteListId, items, type: list?.type || 'random',
-                                    overlap: list?.overlap ?? false, loop: list?.loop || 0,
+                                    overlap: list?.overlap ?? false, loop: list?.loop || 0, pan: list?.pan ?? 0,
                                     tags: [...(list?.tags || [])], cmdName: name, stepIdx: idx
                                   });
                                 }}
@@ -1637,6 +1646,21 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       )}
                     </div>
                   </div>
+                  <div>
+                    <label className="section-label mb-1 block" title="Stereo panning per sprite. -1 = full left, 0 = center, 1 = full right. Click 'per sprite' for individual control">Pan</label>
+                    <div className="flex items-center gap-2">
+                      {!Array.isArray(st.pan) ? (
+                        <>
+                          <input type="number" min="-1" max="1" step="0.1" value={st.pan ?? 0} onChange={e => setSt(p => ({ ...p, pan: parseFloat(e.target.value) || 0 }))} className="input-base text-xs w-16 text-center" />
+                          <button type="button" onClick={() => setSt(p => ({ ...p, pan: p.items.map(id => ({ [id]: (p.pan && p.pan !== 0) ? p.pan : 0 })) }))}
+                            className="text-[10px] text-accent hover:text-accent/80" title="Set different pan per sprite">per sprite</button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={() => setSt(p => ({ ...p, pan: 0 }))}
+                          className="text-[10px] text-accent hover:text-accent/80" title="Use same pan for all sprites">uniform</button>
+                      )}
+                    </div>
+                  </div>
                   <div className="flex items-end pb-1">
                     <label className="flex items-center gap-2 cursor-pointer" title="Allow multiple sounds from this list to play simultaneously">
                       <input type="checkbox" checked={st.overlap} onChange={e => setSt(p => ({ ...p, overlap: e.target.checked }))} className="w-4 h-4 accent-accent" />
@@ -1653,9 +1677,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
                         <span className="text-text-dim text-xs w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
                         <select value={id} onChange={e => setSt(p => {
                           const items = [...p.items]; items[idx] = e.target.value;
-                          // Update per-sprite loop key if in array mode
+                          // Update per-sprite loop/pan keys if in array mode
                           const loop = Array.isArray(p.loop) ? p.loop.map((l, i) => i === idx ? { [e.target.value]: Object.values(l)[0] || 0 } : l) : p.loop;
-                          return { ...p, items, loop };
+                          const pan = Array.isArray(p.pan) ? p.pan.map((pn, i) => i === idx ? { [e.target.value]: Object.values(pn)[0] || 0 } : pn) : p.pan;
+                          return { ...p, items, loop, pan };
                         })} className="input-base text-xs font-mono flex-1 py-1">
                           <option value="">— select —</option>
                           {spriteIds.map(s => <option key={s}>{s}</option>)}
@@ -1670,10 +1695,21 @@ export default function CommandsPage({ project, setProject, showToast }) {
                             })}
                             className="input-base text-xs w-14 text-center shrink-0" title={`Loop count for ${id}: -1=infinite, 0=once`} />
                         )}
+                        {Array.isArray(st.pan) && (
+                          <input type="number" min="-1" max="1" step="0.1"
+                            value={st.pan[idx] ? Object.values(st.pan[idx])[0] ?? 0 : 0}
+                            onChange={e => setSt(p => {
+                              const pan = [...p.pan];
+                              pan[idx] = { [p.items[idx]]: parseFloat(e.target.value) || 0 };
+                              return { ...p, pan };
+                            })}
+                            className="input-base text-xs w-14 text-center shrink-0" title={`Pan for ${id}: -1=left, 0=center, 1=right`} />
+                        )}
                         <button onClick={() => setSt(p => {
                           const items = p.items.filter((_, i) => i !== idx);
                           const loop = Array.isArray(p.loop) ? p.loop.filter((_, i) => i !== idx) : p.loop;
-                          return { ...p, items, loop };
+                          const pan = Array.isArray(p.pan) ? p.pan.filter((_, i) => i !== idx) : p.pan;
+                          return { ...p, items, loop, pan };
                         })} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove this sprite">
                           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
