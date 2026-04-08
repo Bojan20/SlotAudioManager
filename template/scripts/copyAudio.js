@@ -140,10 +140,17 @@ if (fs.existsSync(distGameSoundsBase)) {
             });
     }
 
-    // Copy audio sprite files — unhashed AND overwrite hashed versions
+    // Copy audio sprite files — clean old files first, then copy unhashed AND overwrite hashed
     if (fs.existsSync(distSoundFolder)) {
         if (!fs.existsSync(distGameSoundFiles)) {
             fs.mkdirSync(distGameSoundFiles, { recursive: true });
+        }
+        // Clean ALL old M4A files from dist/soundFiles/ — prevents stale files from different game names
+        if (fs.existsSync(distGameSoundFiles)) {
+            fs.readdirSync(distGameSoundFiles).filter(f => f.endsWith('.m4a')).forEach(f => {
+                fs.rmSync(path.join(distGameSoundFiles, f));
+            });
+            console.log("cleaned old M4A from dist/soundFiles/");
         }
         // Build map of existing hashed files in game dist: baseName → [hashedFile1, ...]
         const existingFiles = fs.existsSync(distGameSoundFiles) ? fs.readdirSync(distGameSoundFiles) : [];
