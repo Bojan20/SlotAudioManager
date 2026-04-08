@@ -162,14 +162,25 @@ async function main() {
     }
 
     // If only JSON changed (not WAVs), skip sprite rebuild — just regenerate sounds.json
-    const onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged;
+    // BUT: only if dist/sounds.json exists and is valid (needed for reuse)
+    let onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged;
+    if (onlyJsonChanged) {
+        if (!fs.existsSync(JSONtarget)) {
+            console.log('  dist/sounds.json missing — forcing full rebuild');
+            onlyJsonChanged = false;
+        } else {
+            try { JSON.parse(fs.readFileSync(JSONtarget, 'utf8')); }
+            catch { console.log('  dist/sounds.json corrupted — forcing full rebuild'); onlyJsonChanged = false; }
+        }
+    }
 
     // Ensure dist/soundFiles/ exists — never delete dist/ (avoids EBUSY on Windows)
     fs.mkdirSync(outDir, { recursive: true });
 
     const gap = spriteConfig?.spriteGap !== undefined ? spriteConfig.spriteGap : 0.05;
+    let spriteData = [];
 
-    if (onlyJsonChanged && fs.existsSync(outDir)) {
+    if (onlyJsonChanged) {
         console.log('\n── JSON changed, WAVs unchanged — regenerating sounds.json only ──');
     } else {
 
@@ -228,12 +239,18 @@ async function main() {
         }
     }
 
+    // Clean stale M4A from previous builds with different sprite count
+    const existingM4a = fs.readdirSync(outDir).filter(f => f.match(/_audioSprite\d+\.m4a$/));
+    existingM4a.forEach(f => {
+        try { fs.unlinkSync(path.join(outDir, f)); } catch {}
+    });
+
     // Execute all builds in parallel — ffmpeg instances run concurrently
     const totalSprites = spriteNumber - 1;
     console.log('\n── Building ' + totalSprites + ' sprites in parallel ──');
     const buildStart = Date.now();
 
-    const spriteData = [];
+    spriteData = [];
     const results = await Promise.allSettled(
         buildJobs.map(job =>
             buildSprite(job.files, job.spriteNum, job.opts)
