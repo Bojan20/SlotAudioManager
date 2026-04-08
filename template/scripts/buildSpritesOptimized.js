@@ -373,7 +373,7 @@ async function main() {
         const items = Array.isArray(list) ? list : (list.items || []);
         const cleanItems = items.filter(id => {
             if (validSpriteIds.has(id)) return true;
-            console.log('  🗑 spriteList ' + listName + ': removed ' + id + ' (deleted)');
+            console.log('  - spriteList ' + listName + ': removed ' + id + ' (deleted)');
             cleanedCount++;
             return false;
         });
@@ -384,7 +384,7 @@ async function main() {
                 cleanedSpriteLists[listName] = { ...list, items: cleanItems };
             }
         } else {
-            console.log('  🗑 spriteList ' + listName + ': removed entirely (empty)');
+            console.log('  - spriteList ' + listName + ': removed entirely (empty)');
             cleanedCount++;
         }
     });
@@ -396,27 +396,39 @@ async function main() {
         const cleanSteps = steps.filter(s => {
             if (!s) return false;
             if (s.spriteId && !validSpriteIds.has(s.spriteId)) {
-                console.log('  🗑 command ' + cmdName + ': removed step → ' + s.spriteId + ' (deleted)');
+                console.log('  - command ' + cmdName + ': removed step -> ' + s.spriteId + ' (deleted)');
                 cleanedCount++;
                 return false;
             }
-            if (s.spriteListId && !cleanedSpriteLists[s.spriteListId] && !validSpriteIds.has(s.spriteListId)) {
-                console.log('  🗑 command ' + cmdName + ': removed step → ' + s.spriteListId + ' (deleted)');
+            if (s.spriteListId && !cleanedSpriteLists[s.spriteListId]) {
+                console.log('  - command ' + cmdName + ': removed step -> ' + s.spriteListId + ' (deleted)');
                 cleanedCount++;
                 return false;
             }
             return true;
         });
-        if (cleanSteps.length > 0) {
-            cleanedCommands[cmdName] = cleanSteps;
-        } else {
-            // Keep empty command array — don't delete command name (game may reference it)
-            cleanedCommands[cmdName] = [];
-        }
+        cleanedCommands[cmdName] = cleanSteps;
     });
 
+    // Second pass — remove Execute steps referencing emptied commands
+    const emptiedCmds = new Set(Object.keys(cleanedCommands).filter(k => Array.isArray(cleanedCommands[k]) && cleanedCommands[k].length === 0));
+    if (emptiedCmds.size > 0) {
+        Object.entries(cleanedCommands).forEach(([cmdName, steps]) => {
+            if (!Array.isArray(steps)) return;
+            cleanedCommands[cmdName] = steps.filter(s => {
+                if (s && s.commandId && emptiedCmds.has(s.commandId)) {
+                    console.log('  - command ' + cmdName + ': removed Execute -> ' + s.commandId + ' (emptied)');
+                    cleanedCount++;
+                    return false;
+                }
+                return true;
+            });
+        });
+        emptiedCmds.forEach(cmd => { console.log('  - command ' + cmd + ': emptied (all steps removed)'); });
+    }
+
     if (cleanedCount > 0) console.log('  Cleaned ' + cleanedCount + ' broken references');
-    else console.log('  ✓ No broken references');
+    else console.log('  * No broken references');
 
     // Assemble final JSON
     const outputJson = {
