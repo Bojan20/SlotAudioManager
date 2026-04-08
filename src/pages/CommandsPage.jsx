@@ -1720,13 +1720,60 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       </div>
                     ))}
                   </div>
-                  <button onClick={() => setSt(p => ({
-                    ...p, items: [...p.items, ''],
-                    loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop,
-                    pan: Array.isArray(p.pan) ? [...p.pan, { '': 0 }] : p.pan
-                  }))} className="text-xs text-accent hover:text-accent/80 transition-colors mt-1.5" title="Add another sprite to this list">
-                    + Add Sprite
-                  </button>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <button onClick={() => setSt(p => ({
+                      ...p, items: [...p.items, ''],
+                      loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop,
+                      pan: Array.isArray(p.pan) ? [...p.pan, { '': 0 }] : p.pan
+                    }))} className="text-xs text-accent hover:text-accent/80 transition-colors" title="Add one sprite manually">
+                      + Add One
+                    </button>
+                    <button onClick={() => setSt(p => ({ ...p, _showBulkAdd: !p._showBulkAdd }))}
+                      className="text-xs text-accent hover:text-accent/80 transition-colors" title="Select multiple sprites to add at once">
+                      + Add Multiple
+                    </button>
+                  </div>
+                  {st._showBulkAdd && (() => {
+                    const alreadyIn = new Set(st.items);
+                    const available = spriteIds.filter(id => !alreadyIn.has(id));
+                    return (
+                      <div className="mt-2 border border-border/50 rounded-lg p-3 bg-bg-hover/20 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-text-dim">{available.length} available</span>
+                          <div className="flex gap-2">
+                            <button onClick={() => setSt(p => ({ ...p, _bulkSelected: new Set(available) }))}
+                              className="text-[10px] text-accent hover:text-accent/80">Select All</button>
+                            <button onClick={() => setSt(p => ({ ...p, _bulkSelected: new Set() }))}
+                              className="text-[10px] text-text-dim hover:text-text-secondary">Clear</button>
+                          </div>
+                        </div>
+                        <div className="max-h-36 overflow-y-auto space-y-0.5">
+                          {available.map(id => (
+                            <label key={id} className="flex items-center gap-2 py-0.5 px-1 rounded hover:bg-bg-hover/30 cursor-pointer">
+                              <input type="checkbox" checked={st._bulkSelected?.has(id) || false}
+                                onChange={e => setSt(p => {
+                                  const sel = new Set(p._bulkSelected || []);
+                                  if (e.target.checked) sel.add(id); else sel.delete(id);
+                                  return { ...p, _bulkSelected: sel };
+                                })} className="w-3 h-3 accent-accent" />
+                              <span className="text-xs font-mono text-text-secondary">{id}</span>
+                            </label>
+                          ))}
+                        </div>
+                        <button onClick={() => setSt(p => {
+                          const toAdd = [...(p._bulkSelected || [])].filter(Boolean);
+                          if (!toAdd.length) return p;
+                          const newItems = [...p.items, ...toAdd];
+                          const newLoop = Array.isArray(p.loop) ? [...p.loop, ...toAdd.map(id => ({ [id]: 0 }))] : p.loop;
+                          const newPan = Array.isArray(p.pan) ? [...p.pan, ...toAdd.map(id => ({ [id]: 0 }))] : p.pan;
+                          return { ...p, items: newItems, loop: newLoop, pan: newPan, _bulkSelected: new Set(), _showBulkAdd: false };
+                        })} disabled={!st._bulkSelected?.size}
+                          className={st._bulkSelected?.size ? 'btn-primary text-xs py-1.5 px-4 w-full' : 'btn-ghost text-xs py-1.5 px-4 w-full opacity-40 cursor-not-allowed'}>
+                          Add {st._bulkSelected?.size || 0} Selected
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               <div className="p-4 border-t border-border flex gap-2 justify-end">
