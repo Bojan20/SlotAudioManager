@@ -1601,8 +1601,10 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       }
     }
     gameProcess = child;
-    child.stdout.on('data', d => send(d.toString()));
-    child.stderr.on('data', d => send(d.toString()));
+    let lastLine = '';
+    const dedupSend = (line) => { if (line.trim() && line !== lastLine) { lastLine = line; send(line); } };
+    child.stdout.on('data', d => dedupSend(d.toString()));
+    child.stderr.on('data', d => dedupSend(d.toString()));
     child.on('close', () => { if (gameProcess === child) gameProcess = null; });
     child.on('error', (e) => { send(`ERROR: ${e.message}\n`); });
     return { success: true, pid: child.pid, output: `Started "${scriptName}" (PID ${child.pid})` };
