@@ -242,26 +242,6 @@ export default function App() {
           </div>
         </nav>
 
-        {/* ── Undo/Redo ── */}
-        {project && (
-          <div style={{ padding: '8px 16px 0', display: 'flex', gap: '6px' }}>
-            <button onClick={handleUndo} disabled={!canUndo}
-              className="btn-ghost flex-1 text-xs py-1.5 disabled:opacity-20"
-              title="Undo (Ctrl+Z)"
-            >
-              <svg className="w-3.5 h-3.5 mr-1 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" /></svg>
-              Undo
-            </button>
-            <button onClick={handleRedo} disabled={!canRedo}
-              className="btn-ghost flex-1 text-xs py-1.5 disabled:opacity-20"
-              title="Redo (Ctrl+Shift+Z)"
-            >
-              Redo
-              <svg className="w-3.5 h-3.5 ml-1 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4" /></svg>
-            </button>
-          </div>
-        )}
-
         {/* ── Bottom action ── */}
         <div style={{ padding: '12px 16px 20px 16px', borderTop: '1px solid rgba(255,255,255,0.04)' }}>
           <button onClick={openProject} className="btn-primary w-full" style={{ borderRadius: '12px', fontSize: '13px', padding: '12px 0' }}>
