@@ -19,7 +19,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const audiosprite = require('./customAudioSprite');
-const pathToFFmpeg = require('ffmpeg-static');
+const _ffmpegStatic = require('ffmpeg-static');
+const FFMPEG_FDK_PATH = process.env.FFMPEG_FDK_PATH || '';
+const _fdkBinExists = FFMPEG_FDK_PATH && fs.existsSync(FFMPEG_FDK_PATH);
+const pathToFFmpeg = _fdkBinExists ? FFMPEG_FDK_PATH : _ffmpegStatic;
 const sox = require('sox');
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -43,9 +46,8 @@ const encoding = spriteConfig?.encoding || {};
 const sfxEnc = encoding.sfx || {};
 const musicEnc = encoding.music || {};
 
-// FDK-AAC detection
-const FFMPEG_FDK_PATH = process.env.FFMPEG_FDK_PATH || '';
-const fdkExists = FFMPEG_FDK_PATH && fs.existsSync(FFMPEG_FDK_PATH);
+// FDK-AAC detection (FFMPEG_FDK_PATH set above from env, checked at startup)
+const fdkExists = _fdkBinExists;
 
 // SFX vs Music separation — same regex as original
 function isMusicSound(name) {

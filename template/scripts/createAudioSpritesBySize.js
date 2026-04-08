@@ -1,6 +1,8 @@
 const audiosprite = require('./customAudioSprite');
 const fs = require('fs');
-const pathToFFmpeg = require('ffmpeg-static');
+const _ffmpegStatic = require('ffmpeg-static');
+const _fdkEnvPath = process.env.FFMPEG_FDK_PATH || '';
+const pathToFFmpeg = (_fdkEnvPath && require('fs').existsSync(_fdkEnvPath)) ? _fdkEnvPath : _ffmpegStatic;
 const { forEach } = require('underscore');
 const { count } = require('console');
 

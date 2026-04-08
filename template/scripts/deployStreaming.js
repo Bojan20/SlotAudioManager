@@ -133,7 +133,10 @@ if (streamingSounds.length === 0) {
 console.log('\n── Step 5: Encoding streaming M4A ──');
 
 const crypto = require('crypto');
-const pathToFFmpeg = require('ffmpeg-static');
+const _ffmpegStatic = require('ffmpeg-static');
+const _fdkStreamPath = process.env.FFMPEG_FDK_PATH || '';
+const _fdkStreamExists = _fdkStreamPath && fs.existsSync(_fdkStreamPath);
+const pathToFFmpeg = _fdkStreamExists ? _fdkStreamPath : _ffmpegStatic;
 const outDir = path.join('.', 'dist', 'soundFiles');
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
