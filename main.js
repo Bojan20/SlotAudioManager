@@ -2366,6 +2366,9 @@ ipcMain.handle('open-game-window', async (event, url) => {
     '--hide-crash-restore-bubble',
     '--disable-session-crashed-bubble',
     '--autoplay-policy=no-user-gesture-required',
+    '--disable-application-cache',
+    '--disk-cache-size=1',
+    '--aggressive-cache-discard',
     `--user-data-dir=${profileDir}`,
     url,
   ];
