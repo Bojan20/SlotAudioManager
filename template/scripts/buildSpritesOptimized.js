@@ -164,23 +164,7 @@ async function main() {
     // If only JSON changed (not WAVs), skip sprite rebuild — just regenerate sounds.json
     const onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged;
 
-    if (!onlyJsonChanged || !fs.existsSync(outDir)) {
-        // Full rebuild — clean dist with retry (Windows EBUSY workaround)
-        if (fs.existsSync(distDir)) {
-            for (let attempt = 0; attempt < 3; attempt++) {
-                try { fs.rmSync(distDir, { recursive: true, force: true }); break; }
-                catch (e) {
-                    if (attempt < 2) {
-                        console.log('  dist/ locked — retrying in 1s... (' + e.message.split(',')[0] + ')');
-                        require('child_process').execSync('sleep 1 || timeout /t 1 /nobreak >nul 2>&1', { stdio: 'ignore', shell: true });
-                    } else {
-                        console.error('❌ Cannot clean dist/ — close any programs using audio files and retry');
-                        process.exit(1);
-                    }
-                }
-            }
-        }
-    }
+    // Ensure dist/soundFiles/ exists — never delete dist/ (avoids EBUSY on Windows)
     fs.mkdirSync(outDir, { recursive: true });
 
     const gap = spriteConfig?.spriteGap !== undefined ? spriteConfig.spriteGap : 0.05;
