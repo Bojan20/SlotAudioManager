@@ -1804,29 +1804,43 @@ ipcMain.handle('build-game', async () => {
     }
   }
 
-  // Try with system Node silently (don't stream output — if it fails, user doesn't see noise)
-  const silentSend = () => {};
-  const result = await runBuildDev(gameRepoPath, null, silentSend);
-  if (result.success) {
-    gameNodeCache[gameRepoPath] = 'system';
-    // Re-stream the successful output line-by-line so renderer filter works per-line
-    for (const line of (result.output || '').split('\n')) send(line + '\n');
-    return result;
+  // Detect correct Node version from webpack version BEFORE trying any build
+  const detected = detectGameNode(gameRepoPath);
+  if (detected?.dir) {
+    // webpack needs specific Node version — use it directly, no wasted system Node attempt
+    send(`Using Node v${detected.version} (webpack compatibility)\n`);
+    const result = await runBuildDev(gameRepoPath, detected.dir, send);
+    if (result.success) {
+      await nvmUse(detected.version);
+      return { ...result, detectedNode: detected.version };
+    }
+    // If even the detected version fails, fall through to fallback loop
   }
 
-  // Check if failure is the known Node 22 + old webpack bug
-  const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines::unsupported|error:0308010C/.test(result.output || '');
-  if (!isNodeCompatBug) {
-    for (const line of (result.output || '').split('\n')) send(line + '\n');
-    return { ...result, error: result.error || 'build-dev failed' };
+  // Try with system Node (works for webpack 5+)
+  if (!gameNodeCache[gameRepoPath]) {
+    const silentSend = () => {};
+    const result = await runBuildDev(gameRepoPath, null, silentSend);
+    if (result.success) {
+      gameNodeCache[gameRepoPath] = 'system';
+      for (const line of (result.output || '').split('\n')) send(line + '\n');
+      return result;
+    }
+
+    // Check if failure is the known Node 22 + old webpack bug
+    const isNodeCompatBug = /callback.*already called|ERR_OSSL_EVP_UNSUPPORTED|digital envelope routines::unsupported|error:0308010C/.test(result.output || '');
+    if (!isNodeCompatBug) {
+      for (const line of (result.output || '').split('\n')) send(line + '\n');
+      return { ...result, error: result.error || 'build-dev failed' };
+    }
   }
 
-  // Try older Node versions via nvm — stream output for these attempts
+  // Fallback: try all nvm Node versions
   const sysNodeMajor = getSystemNodeMajor();
   const versions = findNvmNodeVersions();
   const fallbacks = versions.filter(v => {
     const major = parseInt(v.version.split('.')[0]);
-    return major >= 16 && major < sysNodeMajor;
+    return major >= 16 && major < sysNodeMajor && v.dir !== gameNodeCache[gameRepoPath];
   });
 
   let lastError = '';
