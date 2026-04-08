@@ -310,7 +310,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
               <span className="text-xs text-text-secondary">cancelDelay</span>
             </label>
           )}
-          {state.spriteId && soundSprites[state.spriteId] && (
+          {isPlay && state.spriteId && soundSprites[state.spriteId] && (
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
