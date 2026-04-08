@@ -143,37 +143,43 @@ async function main() {
     const musicFiles = allFiles.filter(f => isMusicSound(f.replace('.wav', ''))).map(f => path.join(sourceDir, f));
     console.log('SFX: ' + sfxFiles.length + ' files, Music: ' + musicFiles.length + ' files');
 
-    // Compute SHA-256 for all WAVs
+    // Compute SHA-256 for all WAVs + template sounds.json + sprite-config.json
     const hashes = {};
     allFiles.forEach(f => { hashes[f] = sha256(path.join(sourceDir, f)); });
+    const templateHash = fs.existsSync(JSONtemplate) ? sha256(JSONtemplate) : '';
+    const scHash = fs.existsSync('sprite-config.json') ? sha256('sprite-config.json') : '';
     const prevCache = loadCache();
 
-    // Check if any file changed
+    // Check if WAVs, template JSON, or sprite-config changed
     const filesChanged = allFiles.some(f => hashes[f] !== prevCache[f]);
     const structureChanged = (prevCache._fileList || '') !== allFiles.join(',');
+    const jsonChanged = templateHash !== (prevCache._templateHash || '') || scHash !== (prevCache._scHash || '');
 
-    if (!filesChanged && !structureChanged && fs.existsSync(JSONtarget)) {
+    if (!filesChanged && !structureChanged && !jsonChanged && fs.existsSync(JSONtarget)) {
         console.log('\n✅ No changes detected — skipping build (cached)');
         console.log('   Delete dist/.build-cache.json to force rebuild\n');
         process.exit(0);
     }
 
-    // Clean dist
-    if (fs.existsSync(distDir)) fs.rmSync(distDir, { recursive: true, force: true });
+    // If only JSON changed (not WAVs), skip sprite rebuild — just regenerate sounds.json
+    const onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged;
+
+    if (!onlyJsonChanged || !fs.existsSync(outDir)) {
+        // Full rebuild — clean dist and build sprites
+        if (fs.existsSync(distDir)) fs.rmSync(distDir, { recursive: true, force: true });
+    }
     fs.mkdirSync(outDir, { recursive: true });
+
+    const gap = spriteConfig?.spriteGap !== undefined ? spriteConfig.spriteGap : 0.05;
+
+    if (onlyJsonChanged && fs.existsSync(outDir)) {
+        console.log('\n── JSON changed, WAVs unchanged — regenerating sounds.json only ──');
+    } else {
 
     // ── Build SFX sprites ──
     const sfxChunks = chunkBySize(sfxFiles, 30);
     const sfxEncEncoder = sfxEnc.encoder || 'native';
     const sfxUseNative = !((sfxEncEncoder === 'fdk') && fdkExists);
-
-    // Gap optimization (hardcoded — does not affect other scripts):
-    // - customAudioSprite default: gap=1s + Math.ceil rounding = ~1.5s silence per sound
-    // - Web Audio AudioBufferSourceNode.start(0, offset, duration) is sample-accurate
-    // - Minimum safe gap = 1 AAC frame (1024 samples = 23ms at 44100Hz)
-    // - 50ms gap + no rounding = no wasted silence
-    // - For 99 sounds: saves ~150s of silence = ~900KB on final M4A at 48kbps
-    const gap = spriteConfig?.spriteGap !== undefined ? spriteConfig.spriteGap : 0.05;
 
     const sfxOpts = {
         output: path.join(outDir, gameName + '_audioSprite'),
@@ -261,9 +267,10 @@ async function main() {
         const job = buildJobs[i - 1];
         console.log('  ' + (sizeKB > 2000 ? '⚠' : '✓') + ' audioSprite' + i + '.m4a — ' + sizeKB + ' KB (' + job.type + ', ' + job.files.length + ' sounds)' + (sizeKB > 2000 ? ' — LARGE' : ''));
     }
+    } // end sprite build block
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // GENERATE sounds.json
+    // GENERATE sounds.json — always runs (even when only JSON changed)
     // ═══════════════════════════════════════════════════════════════════════════
 
     console.log('\n── Generating sounds.json ──');
@@ -277,59 +284,72 @@ async function main() {
     const originalCommands = templateJson.soundDefinitions?.commands || {};
     const originalSpriteLists = templateJson.soundDefinitions?.spriteList || {};
 
-    // Build manifest from M4A files
-    const soundManifest = [];
-    for (let i = 1; i <= totalSprites; i++) {
-        soundManifest.push({
-            id: gameName + '_audioSprite' + i,
-            src: ['soundFiles/' + gameName + '_audioSprite' + i + '.m4a']
-        });
-    }
-
-    // Build soundSprites from spriteData + sox durations
-    const soundSprites = {};
+    let soundManifest, soundSprites;
     let soxFailCount = 0;
 
-    console.log('Processing ' + allFiles.length + ' sounds...');
+    if (onlyJsonChanged && fs.existsSync(JSONtarget)) {
+        // JSON-only rebuild: reuse manifest + soundSprites from previous build
+        const prevDist = JSON.parse(fs.readFileSync(JSONtarget, 'utf8'));
+        soundManifest = prevDist.soundManifest || [];
+        soundSprites = prevDist.soundDefinitions?.soundSprites || {};
+        // Update tags/overlap from template (user may have changed tags)
+        Object.keys(soundSprites).forEach(key => {
+            if (originalSprites[key]?.tags) soundSprites[key].tags = originalSprites[key].tags;
+            if (originalSprites[key]?.overlap !== undefined) soundSprites[key].overlap = originalSprites[key].overlap;
+        });
+        console.log('  Reusing ' + soundManifest.length + ' sprites from previous build');
+    } else {
+        // Full rebuild: generate manifest + soundSprites from spriteData
+        soundManifest = [];
+        const totalSprites = spriteData.length;
+        for (let i = 0; i < totalSprites; i++) {
+            const num = spriteData[i].spriteNum;
+            soundManifest.push({
+                id: gameName + '_audioSprite' + num,
+                src: ['soundFiles/' + gameName + '_audioSprite' + num + '.m4a']
+            });
+        }
 
-    for (const { spriteNum, soundData } of spriteData) {
-        const spriteMap = soundData.sprite || {};
-        const soundId = gameName + '_audioSprite' + spriteNum;
+        soundSprites = {};
+        console.log('Processing ' + allFiles.length + ' sounds...');
 
-        for (const [name, timings] of Object.entries(spriteMap)) {
-            if (name === '__default') { /* skip */ }
-            else {
-                const entryName = 's_' + name;
-                const startTime = timings[0]; // ms from customAudioSprite howler2 format
+        for (const { spriteNum, soundData } of spriteData) {
+            const spriteMap = soundData.sprite || {};
+            const soundId = gameName + '_audioSprite' + spriteNum;
 
-                // Get duration from sox (accurate)
-                const wavPath = path.join(sourceDir, name + '.wav');
-                let duration = timings[1]; // fallback to sprite map
-                if (fs.existsSync(wavPath)) {
-                    const soxDur = await getSoxDuration(wavPath);
-                    if (soxDur !== null) {
-                        duration = soxDur;
+            for (const [name, timings] of Object.entries(spriteMap)) {
+                if (name === '__default') { /* skip */ }
+                else {
+                    const entryName = 's_' + name;
+                    const startTime = timings[0];
+
+                    const wavPath = path.join(sourceDir, name + '.wav');
+                    let duration = timings[1];
+                    if (fs.existsSync(wavPath)) {
+                        const soxDur = await getSoxDuration(wavPath);
+                        if (soxDur !== null) {
+                            duration = soxDur;
+                        } else {
+                            soxFailCount++;
+                            console.warn('  Using sprite map duration for ' + name);
+                        }
                     } else {
-                        soxFailCount++;
-                        console.warn('  ⚠ Using sprite map duration for ' + name);
+                        console.warn('  WAV missing for ' + name + ' — using sprite map duration');
                     }
-                } else {
-                    console.warn('  ⚠ WAV missing for ' + name + ' — using sprite map duration');
+
+                    const isMusic = isMusicSound(name);
+                    const defaultTag = isMusic ? ['Music'] : ['SoundEffects'];
+
+                    soundSprites[entryName] = {
+                        soundId: soundId,
+                        spriteId: name,
+                        startTime: startTime,
+                        duration: duration,
+                        tags: originalSprites[entryName]?.tags || defaultTag,
+                        overlap: originalSprites[entryName]?.overlap !== undefined
+                            ? originalSprites[entryName].overlap : false
+                    };
                 }
-
-                // Detect Music tag
-                const isMusic = isMusicSound(name);
-                const defaultTag = isMusic ? ['Music'] : ['SoundEffects'];
-
-                soundSprites[entryName] = {
-                    soundId: soundId,
-                    spriteId: name,
-                    startTime: startTime,
-                    duration: duration,
-                    tags: originalSprites[entryName]?.tags || defaultTag,
-                    overlap: originalSprites[entryName]?.overlap !== undefined
-                        ? originalSprites[entryName].overlap : false
-                };
             }
         }
     }
@@ -456,6 +476,8 @@ async function main() {
 
     // Save cache — only after successful build
     hashes._fileList = allFiles.join(',');
+    hashes._templateHash = templateHash;
+    hashes._scHash = scHash;
     saveCache(hashes);
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -467,21 +489,23 @@ async function main() {
     console.log('══════════════════════════════════════════════════\n');
     // Calculate total M4A size
     let totalSizeKB = 0;
-    for (let i = 1; i <= totalSprites; i++) {
-        totalSizeKB += Math.round(fs.statSync(path.join(outDir, gameName + '_audioSprite' + i + '.m4a')).size / 1024);
+    const m4aCount = soundManifest.length;
+    for (let i = 0; i < m4aCount; i++) {
+        const m4aFile = path.join(outDir, path.basename(soundManifest[i].src[0]));
+        if (fs.existsSync(m4aFile)) totalSizeKB += Math.round(fs.statSync(m4aFile).size / 1024);
     }
     // Estimate savings vs default gap (1s + rounding ≈ 1.5s avg per sound)
     const soundCount = Object.keys(sortedSprites).length;
     const savedSilenceSec = soundCount * 1.5 - soundCount * gap;
     const savedKB = Math.round(savedSilenceSec * ((sfxEnc.bitrate || 64) / 8));
 
-    console.log('  Sprites:       ' + totalSprites + ' (' + sfxChunks.length + ' SFX + ' + (totalSprites - sfxChunks.length) + ' Music)');
+    console.log('  Sprites:       ' + m4aCount);
     console.log('  SoundSprites:  ' + soundCount);
-    console.log('  SpriteLists:   ' + Object.keys(originalSpriteLists).length);
-    console.log('  Commands:      ' + Object.keys(originalCommands).length);
+    console.log('  SpriteLists:   ' + Object.keys(cleanedSpriteLists).length);
+    console.log('  Commands:      ' + Object.keys(cleanedCommands).length);
     console.log('  Total size:    ' + totalSizeKB + ' KB (' + (totalSizeKB / 1024).toFixed(1) + ' MB)');
-    console.log('  Gap:           ' + (gap * 1000) + 'ms (no rounding) — ~' + savedKB + ' KB saved vs default 1s gap');
-    if (soxFailCount > 0) console.log('  ⚠ Sox failures: ' + soxFailCount + ' (used sprite map fallback)');
+    console.log('  Mode:          ' + (onlyJsonChanged ? 'JSON-only rebuild' : 'Full rebuild'));
+    if (soxFailCount > 0) console.log('  Sox failures:  ' + soxFailCount + ' (used sprite map fallback)');
     console.log('');
 }
 
