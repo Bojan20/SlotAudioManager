@@ -1549,9 +1549,8 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       }
     }
 
-    // Wait for Windows TIME_WAIT to expire — port may show free but kernel hasn't released it
-    send('Waiting for port release...\n');
-    await new Promise(r => setTimeout(r, 3000));
+    // Brief wait for Windows TIME_WAIT to expire after port kill
+    await new Promise(r => setTimeout(r, 1000));
 
     // Read script command — if it calls playa, resolve binary directly (avoids yarn PATH issues on Windows)
     const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
@@ -2366,9 +2365,6 @@ ipcMain.handle('open-game-window', async (event, url) => {
     '--hide-crash-restore-bubble',
     '--disable-session-crashed-bubble',
     '--autoplay-policy=no-user-gesture-required',
-    '--disable-application-cache',
-    '--disk-cache-size=1',
-    '--aggressive-cache-discard',
     `--user-data-dir=${profileDir}`,
     url,
   ];
