@@ -949,6 +949,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
       ? newList.loop.filter((_, i) => Boolean(newList.items[i]))
       : newList.loop;
     if (Array.isArray(loopVal) ? loopVal.length > 0 : loopVal) entry.loop = loopVal;
+    const panVal = Array.isArray(newList.pan)
+      ? newList.pan.filter((_, i) => Boolean(newList.items[i]))
+      : newList.pan;
+    if (Array.isArray(panVal) ? panVal.length > 0 : panVal) entry.pan = panVal;
     if (newList.tags?.length) entry.tags = newList.tags;
     j.soundDefinitions.spriteList[name] = entry;
     const ok = await saveJson(j, `Sprite list "${name}" created`);
@@ -1467,7 +1471,7 @@ export default function CommandsPage({ project, setProject, showToast }) {
                           {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
                           {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
                           {action.spriteToPlay && <span className="text-green text-xs font-mono">{action.spriteToPlay}</span>}
-                          {(action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
+                          {action.command === 'Play' && (action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
                           {action.spriteId && soundSprites[action.spriteId]?.overlap && <span className="text-purple text-xs">overlap</span>}
 
                           <div className={`flex items-center gap-2 transition-opacity shrink-0 ${listEditActive ? 'opacity-100' : 'opacity-0 group-hover/step:opacity-100'}`}>
@@ -1548,12 +1552,12 @@ export default function CommandsPage({ project, setProject, showToast }) {
                                     <option value="">— select sprite —</option>
                                     {allSpriteIds.map(s => <option key={s}>{s}</option>)}
                                   </select>
-                                  <button onClick={() => setEditListInline(p => ({ ...p, items: p.items.filter((_, j) => j !== i) }))} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove sprite">
+                                  <button onClick={() => setEditListInline(p => ({ ...p, items: p.items.filter((_, j) => j !== i), pan: Array.isArray(p.pan) ? p.pan.filter((_, j) => j !== i) : p.pan }))} className="w-5 h-5 flex items-center justify-center rounded text-text-dim hover:text-danger transition-colors" title="Remove sprite">
                                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                                   </button>
                                 </div>
                               ))}
-                              <button onClick={() => setEditListInline(p => ({ ...p, items: [...p.items, ''] }))} className="text-xs text-accent hover:text-accent/80 transition-colors">+ Add Sprite</button>
+                              <button onClick={() => setEditListInline(p => ({ ...p, items: [...p.items, ''], pan: Array.isArray(p.pan) ? [...p.pan, { '': 0 }] : p.pan }))} className="text-xs text-accent hover:text-accent/80 transition-colors">+ Add Sprite</button>
                             </div>
 
                             <div className="flex gap-2 justify-end pt-0.5">
@@ -1718,7 +1722,8 @@ export default function CommandsPage({ project, setProject, showToast }) {
                   </div>
                   <button onClick={() => setSt(p => ({
                     ...p, items: [...p.items, ''],
-                    loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop // key updated on sprite select
+                    loop: Array.isArray(p.loop) ? [...p.loop, { '': 0 }] : p.loop,
+                    pan: Array.isArray(p.pan) ? [...p.pan, { '': 0 }] : p.pan
                   }))} className="text-xs text-accent hover:text-accent/80 transition-colors mt-1.5" title="Add another sprite to this list">
                     + Add Sprite
                   </button>
