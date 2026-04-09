@@ -169,13 +169,14 @@ app.on('before-quit', () => {
 // Safe JSON reader
 // Check if a port is free (ECONNREFUSED = free, anything else = still in use)
 function isPortFree(port) {
-  // Bind test — connect test falsely reports "free" during TIME_WAIT
   return new Promise(resolve => {
     const tcpNet = require('net');
-    const server = tcpNet.createServer();
-    server.once('error', () => resolve(false));
-    server.once('listening', () => server.close(() => resolve(true)));
-    server.listen(port, '127.0.0.1');
+    const sock = new tcpNet.Socket();
+    sock.setTimeout(200);
+    sock.on('connect', () => { sock.destroy(); resolve(false); });
+    sock.on('error', e => { sock.destroy(); resolve(e.code === 'ECONNREFUSED'); });
+    sock.on('timeout', () => { sock.destroy(); resolve(true); });
+    sock.connect(port, '127.0.0.1');
   });
 }
 
@@ -2389,18 +2390,21 @@ ipcMain.handle('open-game-window', async (event, url) => {
   return { success: true };
 });
 
-// Poll TCP port until available, then resolve (for waiting on dev servers)
+// Poll TCP port until server is stable — require 2 consecutive HTTP 200s
+// (playa can restart internally, first 200 may come from a dying instance)
 ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
   if (!port || typeof port !== 'number' || port < 1 || port > 65535) return { error: 'Invalid port' };
   const http = require('http');
   return new Promise((resolve) => {
     const start = Date.now();
     let done = false;
+    let successCount = 0;
     const finish = (result) => { if (done) return; done = true; resolve(result); };
     const retry = () => {
       if (done) return;
       if (!mainWindow || mainWindow.isDestroyed()) return finish({ ready: false, error: 'Window closed' });
       if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
+      successCount = 0;
       setTimeout(check, 1500);
     };
     const check = () => {
@@ -2409,12 +2413,14 @@ ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
       if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
       let handled = false;
       const once = (fn) => { if (handled) return; handled = true; fn(); };
-      // HTTP GET — ensures server is actually serving content, not just TCP port open
       const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
         res.resume();
         once(() => {
-          if (res.statusCode >= 200 && res.statusCode < 400) finish({ ready: true });
-          else retry();
+          if (res.statusCode >= 200 && res.statusCode < 400) {
+            successCount++;
+            if (successCount >= 2) finish({ ready: true });
+            else setTimeout(check, 1000);
+          } else retry();
         });
       });
       req.on('error', () => once(retry));
