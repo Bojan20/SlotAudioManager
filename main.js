@@ -2341,52 +2341,11 @@ ipcMain.handle('open-game-window', async (event, url) => {
     } else { try { proc.kill(); } catch {} }
   };
 
-  if (!browserPath) {
-    // No Chrome/Edge found — fall back to default browser
-    killBrowser(gameBrowserProcess);
-    gameBrowserProcess = null;
-    await shell.openExternal(url);
-    return { success: true, fallback: true };
-  }
-
-  // Kill previous game browser window if still alive
-  if (gameBrowserProcess) {
-    const oldPid = gameBrowserProcess.pid;
-    gameBrowserProcess = null;
-    if (isWin && oldPid) {
-      await new Promise(resolve => exec(`taskkill /F /T /PID ${oldPid}`, () => resolve()));
-    } else { try { process.kill(oldPid, 'SIGTERM'); } catch {} }
-    await new Promise(r => setTimeout(r, 2000));
-  }
-
-  // Persistent profile — avoids Chrome cold-init that causes loading to stall
-  // Use "Clear Storage" button in app to reset localStorage (tutorial prefs etc.)
-  const profileDir = path.join(app.getPath('temp'), 'slot-audio-game');
-
-  // Only block IGT servers for local GLR launches (127.0.0.1) — not for VPN server launches
-  const isLocal = url.includes('127.0.0.1') || url.includes('localhost');
-  const chromeArgs = [
-    '--new-window',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--test-type',
-    '--disable-web-security',
-    '--allow-running-insecure-content',
-    '--ignore-certificate-errors',
-    '--hide-crash-restore-bubble',
-    '--disable-session-crashed-bubble',
-    '--autoplay-policy=no-user-gesture-required',
-    `--user-data-dir=${profileDir}`,
-    url,
-  ];
-  if (isLocal) {
-    chromeArgs.splice(-2, 0, '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND');
-  }
-  const child = spawn(browserPath, chromeArgs, { detached: false, stdio: 'ignore' });
-
-  gameBrowserProcess = child;
-  child.once('exit', () => { if (gameBrowserProcess === child) gameBrowserProcess = null; });
-
+  // Open in system default browser (regular Chrome tab, not isolated instance)
+  // This uses the user's main Chrome profile with full AAC decoder support
+  killBrowser(gameBrowserProcess);
+  gameBrowserProcess = null;
+  try { await shell.openExternal(url); } catch (e) { return { error: e.message }; }
   return { success: true };
 });
 

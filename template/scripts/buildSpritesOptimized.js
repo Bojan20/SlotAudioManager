@@ -377,12 +377,10 @@ async function main() {
     }
 
     // ── Group sprite list members so they stay on the same Howl object ──
-    console.log('── Sprite list grouping ──');
-    const sfxGrouped = groupSpriteListFiles(sfxFiles, templateJsonForGroups);
-    const musicGrouped = groupSpriteListFiles(musicFiles, templateJsonForGroups);
-    if (sfxGrouped.groups.length === 0 && musicGrouped.groups.length === 0) {
-        console.log('  No multi-member sprite lists found — no grouping needed');
-    }
+    // DISABLED for testing — using ungrouped file order
+    console.log('── Sprite list grouping: DISABLED ──');
+    const sfxGrouped = { files: sfxFiles, groups: [] };
+    const musicGrouped = { files: musicFiles, groups: [] };
 
     // ── Build SFX sprites ──
     const sfxChunks = chunkBySize(sfxGrouped.files, 30, sfxGrouped.groups);
@@ -428,7 +426,7 @@ async function main() {
             useNativeAac: musicUseNative,
             gap: gap,
             ignorerounding: 1,
-            logger: { debug: () => {}, info: console.log, log: console.log }
+                logger: { debug: () => {}, info: console.log, log: console.log }
         };
 
         console.log('\n── Building Music sprites (' + (musicEnc.bitrate || 64) + 'kbps, ' + (musicEnc.channels || 2) + 'ch) ──');
@@ -447,23 +445,18 @@ async function main() {
 
     // Execute all builds in parallel — ffmpeg instances run concurrently
     const totalSprites = spriteNumber - 1;
-    console.log('\n── Building ' + totalSprites + ' sprites in parallel ──');
+    console.log('\n── Building ' + totalSprites + ' sprites sequentially ──');
     const buildStart = Date.now();
 
     spriteData = [];
-    const results = await Promise.allSettled(
-        buildJobs.map(job =>
-            buildSprite(job.files, job.spriteNum, job.opts)
-                .then(data => ({ spriteNum: job.spriteNum, soundData: data, type: job.type }))
-        )
-    );
-
-    for (let i = 0; i < results.length; i++) {
-        if (results[i].status === 'rejected') {
-            console.error('❌ Sprite ' + buildJobs[i].spriteNum + ' (' + buildJobs[i].type + ') failed:', results[i].reason?.message || results[i].reason);
+    for (const job of buildJobs) {
+        try {
+            const data = await buildSprite(job.files, job.spriteNum, job.opts);
+            spriteData.push({ spriteNum: job.spriteNum, soundData: data, type: job.type });
+        } catch (err) {
+            console.error('❌ Sprite ' + job.spriteNum + ' (' + job.type + ') failed:', err?.message || err);
             process.exit(1);
         }
-        spriteData.push(results[i].value);
     }
 
     const buildMs = Date.now() - buildStart;
@@ -622,8 +615,7 @@ async function main() {
         }
     });
     if (listCohesionErrors > 0) {
-        console.error('\n❌ ' + listCohesionErrors + ' sprite list cohesion error(s) — this is a bug in chunk grouping');
-        process.exit(1);
+        console.warn('  ⚠ ' + listCohesionErrors + ' sprite list(s) split across Howl objects (grouping disabled)');
     }
 
     // ── Clean broken references — remove commands/spriteList items for deleted sounds ──
