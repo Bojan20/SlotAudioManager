@@ -80,23 +80,126 @@ function saveCache(cache) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SPRITE LIST GROUPING — keep sprite list members in the same Howl object
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Read sprite lists from template sounds.json → map sl_ list members to WAV paths.
+// Returns { files: reordered[], groups: [{ startIdx, count, name }] }
+// Files within a group are adjacent in the returned array so chunkBySize can
+// treat them atomically.
+function groupSpriteListFiles(files, parsedTemplate) {
+    const spriteLists = parsedTemplate?.soundDefinitions?.spriteList || {};
+
+    // basename (no ext) → full path lookup
+    const pathByName = {};
+    files.forEach(f => { pathByName[path.basename(f, '.wav')] = f; });
+
+    // Map each WAV basename to its FIRST sprite list (a sound should belong to one list)
+    const nameToList = {};       // basename → listName
+    const listMembers = {};      // listName → [basenames that exist as WAVs in this file set]
+
+    for (const [listName, list] of Object.entries(spriteLists)) {
+        const items = Array.isArray(list) ? list : (list?.items || []);
+        if (items.length < 2) continue; // single-item lists don't need grouping
+        const members = [];
+        for (const item of items) {
+            const bn = item.replace(/^s_/, '');
+            if (pathByName[bn]) {
+                if (nameToList[bn]) {
+                    console.warn('  ⚠ ' + bn + ' is in both ' + nameToList[bn] + ' and ' + listName + ' — using ' + nameToList[bn]);
+                    continue;
+                }
+                nameToList[bn] = listName;
+                members.push(bn);
+            }
+        }
+        if (members.length >= 2) listMembers[listName] = members;
+    }
+
+    if (Object.keys(listMembers).length === 0) return { files, groups: [] };
+
+    // Reorder: when we hit the first member of a group, pull all siblings next to it
+    const used = new Set();
+    const reordered = [];
+    const groups = [];
+
+    for (const f of files) {
+        const bn = path.basename(f, '.wav');
+        if (used.has(bn)) continue;
+
+        const grp = nameToList[bn];
+        if (grp && listMembers[grp]) {
+            const startIdx = reordered.length;
+            const siblings = listMembers[grp];
+            for (const m of siblings) {
+                reordered.push(pathByName[m]);
+                used.add(m);
+            }
+            groups.push({ startIdx, count: siblings.length, name: grp });
+            // Log once — helpful for debugging sprite assignment
+            console.log('  Group: ' + grp + ' (' + siblings.length + ' files kept together)');
+        } else {
+            reordered.push(f);
+            used.add(bn);
+        }
+    }
+
+    return { files: reordered, groups };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // CHUNK BY SIZE (~30MB per sprite)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function chunkBySize(files, maxMB) {
+// groups: [{ startIdx, count, name }] — atomic units that must not be split.
+function chunkBySize(files, maxMB, groups) {
+    // Build index→group lookup
+    const groupAt = {};
+    for (const g of (groups || [])) groupAt[g.startIdx] = g;
+
     const chunks = [];
     let current = [];
     let currentSize = 0;
-    for (let i = 0; i < files.length; i++) {
-        const size = fs.statSync(files[i]).size / (1024 * 1024);
-        if (currentSize + size >= maxMB && current.length > 0) {
-            chunks.push(current);
-            current = [];
-            currentSize = 0;
+    let i = 0;
+
+    while (i < files.length) {
+        const g = groupAt[i];
+
+        if (g) {
+            // Atomic group — measure total size
+            let groupSize = 0;
+            for (let j = i; j < i + g.count; j++) {
+                groupSize += fs.statSync(files[j]).size / (1024 * 1024);
+            }
+
+            // Start new chunk if group doesn't fit (but always accept into empty chunk)
+            if (currentSize + groupSize >= maxMB && current.length > 0) {
+                chunks.push(current);
+                current = [];
+                currentSize = 0;
+            }
+
+            // If group alone exceeds maxMB, warn but keep together — splitting is worse
+            if (groupSize >= maxMB) {
+                console.warn('  ⚠ Group ' + g.name + ' (' + groupSize.toFixed(1) + ' MB) exceeds chunk limit — keeping together');
+            }
+
+            for (let j = i; j < i + g.count; j++) current.push(files[j]);
+            currentSize += groupSize;
+            i += g.count;
+        } else {
+            const size = fs.statSync(files[i]).size / (1024 * 1024);
+            if (currentSize + size >= maxMB && current.length > 0) {
+                chunks.push(current);
+                current = [];
+                currentSize = 0;
+            }
+            current.push(files[i]);
+            currentSize += size;
+            i++;
         }
-        current.push(files[i]);
-        currentSize += size;
     }
+
     if (current.length > 0) chunks.push(current);
     return chunks;
 }
@@ -236,8 +339,45 @@ async function main() {
         console.log('\n── JSON changed, WAVs unchanged — regenerating sounds.json only ──');
     } else {
 
+    // ── Pre-check: sprite list members must not be split across SFX/Music pools ──
+    let templateJsonForGroups;
+    try { templateJsonForGroups = JSON.parse(fs.readFileSync(JSONtemplate, 'utf8')); }
+    catch { templateJsonForGroups = null; }
+
+    if (templateJsonForGroups) {
+        const sl = templateJsonForGroups.soundDefinitions?.spriteList || {};
+        const sfxSet = new Set(sfxFiles.map(f => 's_' + path.basename(f, '.wav')));
+        const musicSet = new Set(musicFiles.map(f => 's_' + path.basename(f, '.wav')));
+        let crossPoolErrors = 0;
+        for (const [listName, list] of Object.entries(sl)) {
+            const items = Array.isArray(list) ? list : (list?.items || []);
+            if (items.length < 2) continue;
+            const inSfx = items.filter(id => sfxSet.has(id));
+            const inMusic = items.filter(id => musicSet.has(id));
+            if (inSfx.length > 0 && inMusic.length > 0) {
+                console.error('  ❌ spriteList ' + listName + ' has members in BOTH SFX and Music pools:');
+                console.error('     SFX:   ' + inSfx.join(', '));
+                console.error('     Music: ' + inMusic.join(', '));
+                console.error('     These will end up on different Howl objects — rename files or adjust isMusicSound()');
+                crossPoolErrors++;
+            }
+        }
+        if (crossPoolErrors > 0) {
+            console.error('\n❌ ' + crossPoolErrors + ' sprite list(s) split across SFX/Music — fix before building');
+            process.exit(1);
+        }
+    }
+
+    // ── Group sprite list members so they stay on the same Howl object ──
+    console.log('── Sprite list grouping ──');
+    const sfxGrouped = groupSpriteListFiles(sfxFiles, templateJsonForGroups);
+    const musicGrouped = groupSpriteListFiles(musicFiles, templateJsonForGroups);
+    if (sfxGrouped.groups.length === 0 && musicGrouped.groups.length === 0) {
+        console.log('  No multi-member sprite lists found — no grouping needed');
+    }
+
     // ── Build SFX sprites ──
-    const sfxChunks = chunkBySize(sfxFiles, 30);
+    const sfxChunks = chunkBySize(sfxGrouped.files, 30, sfxGrouped.groups);
     const sfxEncEncoder = sfxEnc.encoder || 'native';
     const sfxUseNative = !((sfxEncEncoder === 'fdk') && fdkExists);
 
@@ -266,7 +406,7 @@ async function main() {
     }
 
     if (musicFiles.length > 0) {
-        const musicChunks = chunkBySize(musicFiles, 30);
+        const musicChunks = chunkBySize(musicGrouped.files, 30, musicGrouped.groups);
         const musicEncEncoder = musicEnc.encoder || 'native';
         const musicUseNative = !((musicEncEncoder === 'fdk') && fdkExists);
 
@@ -448,6 +588,35 @@ async function main() {
     }
     console.log('  ✓ All soundSprites reference valid manifest IDs');
     console.log('  ✓ ' + Object.keys(sortedSprites).length + ' sprites validated');
+
+    // ── Validate sprite list cohesion — all members of a list must share the same soundId ──
+    let listCohesionErrors = 0;
+    Object.entries(originalSpriteLists).forEach(([listName, list]) => {
+        const items = Array.isArray(list) ? list : (list?.items || []);
+        if (items.length < 2) return;
+        const soundIds = new Set();
+        const missing = [];
+        for (const item of items) {
+            const sp = sortedSprites[item];
+            if (sp) soundIds.add(sp.soundId);
+            else missing.push(item);
+        }
+        if (soundIds.size > 1) {
+            const detail = items.map(id => {
+                const sp = sortedSprites[id];
+                return sp ? id + '→' + sp.soundId : id + '→MISSING';
+            }).join(', ');
+            console.error('  ❌ spriteList ' + listName + ' has members on DIFFERENT Howl objects: ' + detail);
+            console.error('     This causes playback failures when overlap:false — sounds on the same Howl steal each other\'s playback slot');
+            listCohesionErrors++;
+        } else if (soundIds.size === 1 && missing.length === 0) {
+            console.log('  ✓ ' + listName + ' — all ' + items.length + ' members on ' + [...soundIds][0]);
+        }
+    });
+    if (listCohesionErrors > 0) {
+        console.error('\n❌ ' + listCohesionErrors + ' sprite list cohesion error(s) — this is a bug in chunk grouping');
+        process.exit(1);
+    }
 
     // ── Clean broken references — remove commands/spriteList items for deleted sounds ──
     const validSpriteIds = new Set(Object.keys(sortedSprites));
