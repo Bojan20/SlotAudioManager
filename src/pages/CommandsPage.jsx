@@ -403,13 +403,15 @@ export default function CommandsPage({ project, setProject, showToast }) {
   const previewCtxRef = useRef(null);
   const previewSourcesRef = useRef([]); // { source, cmdName }
   const previewTimersRef = useRef([]); // { timer, cmdName }
+  const dragRef = useRef({ cmdName: null, fromIdx: null }); // drag-and-drop reorder state
+  const [dragOver, setDragOver] = useState(null); // { cmdName, idx } — visual drop indicator
 
   useEffect(() => {
     setFilter(''); setExpanded(null); setGenPreview(null);
     setNewCmd(null); setAddStep(null); setEditStep(null); setConfirmDeleteCmd(null);
     setRenameCmd(null); setScanResult(null); setScanFixInclude({ add: {}, remove: {}, fill: {} });
     setNewList(null); setEditList(null); setEditListInline(null); setConfirmDeleteList(null); setClipboard(null);
-    setSelected(new Set()); setConfirmBulkDelete(false);
+    setSelected(new Set()); setConfirmBulkDelete(false); setDragOver(null);
     stopAllPreviews();
   }, [project?.path, project?._reloadKey]);
 
@@ -837,6 +839,15 @@ export default function CommandsPage({ project, setProject, showToast }) {
     j.soundDefinitions.commands[cmdName].splice(stepIdx, 1);
     setEditListInline(null);
     await saveJson(j, 'Step obrisan');
+  };
+
+  const handleReorderStep = async (cmdName, fromIdx, toIdx) => {
+    if (fromIdx === toIdx) return;
+    const j = structuredClone(project.soundsJson);
+    const arr = j.soundDefinitions.commands[cmdName];
+    const [moved] = arr.splice(fromIdx, 1);
+    arr.splice(toIdx, 0, moved);
+    await saveJson(j, `Step ${fromIdx + 1} → ${toIdx + 1}`);
   };
 
   const handleDeleteCmd = async (cmdName) => {
@@ -1440,10 +1451,39 @@ export default function CommandsPage({ project, setProject, showToast }) {
                       );
                     }
                     const listEditActive = editListInline?.cmdName === name && editListInline?.stepIdx === idx;
+                    const isDragOver = dragOver?.cmdName === name && dragOver?.idx === idx;
                     return (
-                      <div key={idx} style={{ borderBottom: idx < actions.length - 1 ? '1px solid rgba(50,50,90,0.12)' : 'none' }}>
+                      <div key={idx}
+                        draggable={!isEditing && !listEditActive && !saving}
+                        onDragStart={e => {
+                          dragRef.current = { cmdName: name, fromIdx: idx };
+                          e.dataTransfer.effectAllowed = 'move';
+                          e.currentTarget.style.opacity = '0.4';
+                        }}
+                        onDragEnd={e => {
+                          e.currentTarget.style.opacity = '1';
+                          dragRef.current = { cmdName: null, fromIdx: null };
+                          setDragOver(null);
+                        }}
+                        onDragOver={e => {
+                          if (dragRef.current.cmdName !== name) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          if (dragOver?.cmdName !== name || dragOver?.idx !== idx) setDragOver({ cmdName: name, idx });
+                        }}
+                        onDragLeave={() => { if (dragOver?.cmdName === name && dragOver?.idx === idx) setDragOver(null); }}
+                        onDrop={e => {
+                          e.preventDefault();
+                          setDragOver(null);
+                          const { cmdName: fromCmd, fromIdx } = dragRef.current;
+                          if (fromCmd === name && fromIdx !== null && fromIdx !== idx) handleReorderStep(name, fromIdx, idx);
+                          dragRef.current = { cmdName: null, fromIdx: null };
+                        }}
+                        style={{ borderBottom: idx < actions.length - 1 ? '1px solid rgba(50,50,90,0.12)' : 'none' }}
+                      >
+                        {isDragOver && <div className="h-0.5 bg-accent rounded-full -mt-0.5 mb-0.5" />}
                         <div className="flex items-center gap-2 text-[13px] py-1.5 group/step">
-                          <span className="text-text-dim w-5 text-right tabular-nums shrink-0">{idx + 1}</span>
+                          <span className="text-text-dim w-5 text-right tabular-nums shrink-0 cursor-grab active:cursor-grabbing">{idx + 1}</span>
                           <span className="badge bg-cyan-dim text-cyan shrink-0">{action.command}</span>
 
                           {/* Target display */}

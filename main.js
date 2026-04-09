@@ -169,14 +169,13 @@ app.on('before-quit', () => {
 // Safe JSON reader
 // Check if a port is free (ECONNREFUSED = free, anything else = still in use)
 function isPortFree(port) {
+  // Bind test — connect test falsely reports "free" during TIME_WAIT
   return new Promise(resolve => {
     const tcpNet = require('net');
-    const sock = new tcpNet.Socket();
-    sock.setTimeout(200);
-    sock.on('connect', () => { sock.destroy(); resolve(false); });
-    sock.on('error', e => { sock.destroy(); resolve(e.code === 'ECONNREFUSED'); });
-    sock.on('timeout', () => { sock.destroy(); resolve(true); });
-    sock.connect(port, '127.0.0.1');
+    const server = tcpNet.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => server.close(() => resolve(true)));
+    server.listen(port, '127.0.0.1');
   });
 }
 
