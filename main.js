@@ -2387,51 +2387,10 @@ ipcMain.handle('open-game-window', async (event, url) => {
     } else { try { proc.kill(); } catch {} }
   };
 
-  if (!browserPath) {
-    // No Chrome/Edge found — fall back to default browser
-    killBrowser(gameBrowserProcess);
-    gameBrowserProcess = null;
-    await shell.openExternal(url);
-    return { success: true, fallback: true };
-  }
-
-  // Kill previous game browser window if still alive
-  if (gameBrowserProcess) {
-    const oldPid = gameBrowserProcess.pid;
-    gameBrowserProcess = null;
-    if (isWin && oldPid) {
-      await new Promise(resolve => exec(`taskkill /F /T /PID ${oldPid}`, () => resolve()));
-    } else { try { process.kill(oldPid, 'SIGTERM'); } catch {} }
-    await new Promise(r => setTimeout(r, 2000));
-  }
-
-  // Fresh random profile every launch — guarantees no stale SW/audio cache
-  const profileDir = path.join(app.getPath('temp'), 'slot-audio-' + Date.now());
-
-  // Only block IGT servers for local GLR launches (127.0.0.1) — not for VPN server launches
-  const isLocal = url.includes('127.0.0.1') || url.includes('localhost');
-  const chromeArgs = [
-    '--new-window',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--test-type',
-    '--disable-web-security',
-    '--allow-running-insecure-content',
-    '--ignore-certificate-errors',
-    '--hide-crash-restore-bubble',
-    '--disable-session-crashed-bubble',
-    '--autoplay-policy=no-user-gesture-required',
-    `--user-data-dir=${profileDir}`,
-    url,
-  ];
-  if (isLocal) {
-    chromeArgs.splice(-2, 0, '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND');
-  }
-  const child = spawn(browserPath, chromeArgs, { detached: false, stdio: 'ignore' });
-
-  gameBrowserProcess = child;
-  child.once('exit', () => { if (gameBrowserProcess === child) gameBrowserProcess = null; });
-
+  // Use system default browser — same as manual yarn launch.
+  // Custom Chrome profile + flags caused intermittent loading failures
+  // (cold profile init, SW registration race, Chrome multi-process conflicts).
+  await shell.openExternal(url);
   return { success: true };
 });
 
@@ -2442,13 +2401,14 @@ ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
   return new Promise((resolve) => {
     const start = Date.now();
     let done = false;
+    let successCount = 0; // require 2 consecutive successes — first can be premature
     const finish = (result) => { if (done) return; done = true; resolve(result); };
     const retry = () => {
       if (done) return;
       if (!mainWindow || mainWindow.isDestroyed()) return finish({ ready: false, error: 'Window closed' });
       if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
-      // Check if game process died — no point waiting for a dead server
       if (!gameProcess) return finish({ ready: false, error: 'Game process exited' });
+      successCount = 0; // reset on any failure
       setTimeout(check, 1500);
     };
     const check = () => {
@@ -2458,11 +2418,14 @@ ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
       if (!gameProcess) return finish({ ready: false, error: 'Game process exited' });
       let handled = false;
       const once = (fn) => { if (handled) return; handled = true; fn(); };
-      // HTTP GET — ensures server is actually serving content, not just TCP port open
       const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
         res.resume();
         once(() => {
-          if (res.statusCode >= 200 && res.statusCode < 400) finish({ ready: true });
+          if (res.statusCode >= 200 && res.statusCode < 400) {
+            successCount++;
+            if (successCount >= 2) { finish({ ready: true }); }
+            else { setTimeout(check, 500); } // quick recheck to confirm
+          }
           else retry();
         });
       });
