@@ -54,6 +54,7 @@
 42. [SubLoader auto-trigger — workaround bez game devova](#42-subloader-auto-trigger--workaround-bez-game-devova)
 43. [Oficijalna IGT/GDK dokumentacija — poredjenje i nedostajuci detalji](#43-oficijalna-igtgdk-dokumentacija--poredjenje-i-nedostajuci-detalji)
 44. [Strategija "Z" za main pool — eliminacija game dev koda](#44-strategija-z-za-main-pool--eliminacija-game-dev-koda)
+45. [generateSubLoaderInit.js — kompletni dizajn](#45-generatesubloaderinitjs--kompletni-dizajn)
 
 ---
 
@@ -5560,3 +5561,375 @@ Ako stari game repo VEC ima `startSubLoader("A")` u kodu, a mi promenimo loadTyp
 - [ ] Da li igre koje vec imaju grafiku na "Z" imaju problem sa bandwidth-om kad dodamo i audio na "Z"
 - [ ] Da li playa-core SubLoader queue ispravno hendluje tranziciju "Z" → "B"
 - [ ] Testirati na jednoj igri (npr. cash-eruption) pre roll-out-a
+
+---
+
+## 45. generateSubLoaderInit.js — kompletni dizajn
+
+> **Istrazivanje zavrseno**: procitan svaki relevantan fajl iz playa-core source koda,
+> svih 5 game repoa, svi build sistemi, i oficijalna IGT/GDK dokumentacija.
+> Ova sekcija dokumentuje TACNO kako skripta treba da radi.
+
+### 45.1 Kriticna otkrica iz istrazivanja
+
+#### Otkrice 1: Nijedna igra NE poziva startSubLoader() direktno
+
+Pretrazeni svi game repoi u `c:\IGT\`:
+- cash-eruption-money-madness — **nema** startSubLoader poziva
+- jumanji-next-level — **nema** (koristi samo "I" za grafiku)
+- aztec-queen — **nema**
+- love-island — **nema**
+- mystery-of-the-lamp — **nema**
+
+**Zakljucak**: Game devovi NIKAD nisu implementirali SubLoader pozive za audio. Sav audio se ucitava na main load-u (bez deferred-a). Nase tiered build dodaje loadType "A"/"B" ali niko ih NE triggeruje — zvuci su zarobljeni u SubLoader-ima koji nikad ne startuju.
+
+#### Otkrice 2: "Z" se triggeruje AUTOMATSKI iz LayoutService.ts
+
+```typescript
+// LayoutService.ts L78-85 — FRAMEWORK KOD, ne game kod:
+if (system.ixfState === "onBeforeShowStage") {
+    if (system.loadStatus.Z !== undefined) {
+        system.loadStatus.Z.subLoaderTrigger = true;   // AUTOMATSKI!
+        this.setSecondaryAssetReaction();
+    } else if (system.loadStatus.I !== undefined) {
+        system.loadStatus.I.subLoaderTrigger = true;
+    }
+}
+```
+
+**Kad igra zavrsi layout build** (`onBeforeShowStage`), framework AUTOMATSKI triggeruje:
+1. Prvo "Z" (lazy) — odmah
+2. Kad "Z" zavrsi → "I" (secondary) — automatski
+
+#### Otkrice 3: SubLoader queue procesira sledeceg AUTOMATSKI
+
+```typescript
+// LoaderActions.ts L128-136:
+public checkForPendingSubLoaders(): void {
+    if (this._data.subLoaderQueue.length > 0) {
+        const subLoaderID = this._data.subLoaderQueue.shift();  // FIFO
+        this._data.loadStatus[subLoaderID].subLoaderTrigger = true;
+    }
+}
+```
+
+Kad BILO KOJI SubLoader zavrsi, sledeci u queue-u se automatski triggeruje. ALI — SubLoader ulazi u queue SAMO ako je `subLoaderTrigger = true` VEC bio postavljan dok je drugi SubLoader bio aktivan (SubLoader.ts L126).
+
+#### Otkrice 4: "Z" ima apsolutni prioritet
+
+```typescript
+// SubLoader.ts L114-121:
+const lazySubLoader = this._resourceLoaderActions.getLoadStatus()["Z"];
+const lazySubLoaderCompleteOrDoesNotExist =
+    lazySubLoader === undefined ? true : lazySubLoader.subLoaderComplete;
+
+if ((currentSubLoader === "" && lazySubLoaderCompleteOrDoesNotExist) ||
+    this._subLoaderID === "Z") {
+    this.startSubLoader();  // Startuj odmah
+} else {
+    this._resourceLoaderActions.addSubLoaderToQueue(this._subLoaderID);  // Queue
+}
+```
+
+**Pravila**:
+- "Z" se UVEK startuje odmah (uslov `this._subLoaderID === "Z"`)
+- Ostali ("A"-"F") se startuju SAMO ako je "Z" zavrsio I niko drugi nije aktivan
+- Ako neko drugi je aktivan → idi u queue
+
+#### Otkrice 5: buildSpritesOptimized.js NEMA deferred logiku
+
+`buildSpritesOptimized.js` ne cita `subLoaderId` iz sprite-config.json. Generise sounds.json **BEZ** loadType polja. Svi zvuci idu na main load.
+
+Samo `buildTieredJSON.js` postavlja loadType:
+```javascript
+// buildTieredJSON.js L91-102:
+if (isStreamingTier) {
+    manifestEntry.loadType = "S";
+} else if (subLoaderId && !isStandaloneTier) {
+    manifestEntry.loadType = subLoaderId;  // "A" ili "B"
+    if (tierConfig.unloadable) manifestEntry.unloadable = true;
+}
+```
+
+### 45.2 Tri moguca pristupa
+
+| Pristup | Opis | Menja sounds.json? | Menja game kod? | Kompleksnost |
+|---------|------|---------------------|-------------------|-------------|
+| **A: "Z" u manifestu** | buildTieredJSON stavlja `loadType: "Z"` na main tier | DA | NE — framework automatski triggeruje | NAJJEDNOSTAVNIJA |
+| **B: SubLoaderAutoInit.ts** | Generisana skripta poziva `slotProps.startSubLoader()` | NE | DA — import u main.ts | SREDNJA |
+| **C: Kombinacija Z + AutoInit** | Main na "Z", bonus na "B" + AutoInit triggeruje "B" | DA + DA | SREDNJA |
+
+### 45.3 PREPORUCENI PRISTUP: "Z" za SVE deferred audio
+
+**Najjednostavniji i najsigurniji** — koristi framework mehanizam koji VEC RADI.
+
+**Promena u buildTieredJSON.js** (jedna linija):
+```javascript
+// TRENUTNO (L97-98):
+} else if (subLoaderId && !isStandaloneTier) {
+    manifestEntry.loadType = subLoaderId;  // "A" ili "B"
+
+// NOVO:
+} else if (subLoaderId && !isStandaloneTier) {
+    manifestEntry.loadType = "Z";  // lazy — framework auto-triggeruje
+```
+
+**Rezultat u sounds.json:**
+```json
+// TRENUTNO:
+{ "id": "game_main",  "src": [...], "loadType": "A" }
+{ "id": "game_bonus", "src": [...], "loadType": "B", "unloadable": true }
+
+// NOVO:
+{ "id": "game_main",  "src": [...], "loadType": "Z" }
+{ "id": "game_bonus", "src": [...], "loadType": "Z" }
+```
+
+**Sta se desava u runtime-u:**
+```
+Boot → Main load (loading sprite + standalone)
+     → LayoutService: ixfState === "onBeforeShowStage"
+     → system.loadStatus.Z.subLoaderTrigger = true  ← AUTOMATSKI
+     → SubLoader "Z" pocinje ucitavanje (main + bonus audio ZAJEDNO)
+     → 5-15 sekundi later: svi zvuci ucitani
+     → Komande rade — 0 linija game koda
+```
+
+### 45.4 Problem sa "Z" pristupom — i resenje
+
+**Problem**: Main i bonus se ucitavaju ZAJEDNO u jednom "Z" SubLoader-u. Ne mozemo ih razdvojiti — "Z" je jedan loader.
+
+**Zasto to NIJE problem:**
+1. **Bandwidth**: Main sprite (1-2MB) + Bonus sprite (1-2MB) = 2-4MB ukupno. Na modernoj mrezi: 1-2 sekunde. Zanemarljivo.
+2. **Memorija**: Bonus audio ostaje u RAM-u ali `unloadSubLoader()` ionako NE RADI — nema razlike
+3. **Timing**: "Z" pocinje odmah posle main load-a — igrac je na loading screen-u ili prvom spinu. Svi zvuci spremni pre nego sto treba bonus.
+4. **Fallback**: Ako "Z" ne zavrsi pre bonusa, SoundSprite sa `howl=undefined` tiho propadne — nema crash-a, samo nema zvuka 1-2s
+
+**Kad bi "Z" BIO problem** (buduci scenario):
+- Igra ima 10+ MB bonus audio (ekstremno retko)
+- Igra je na sporom mobilnom internetu (3G)
+- Igrac ulazi u bonus na prvom spinu (statisticki nemoguce)
+- U tom slucaju: bonus zvuci se ucitavaju 10-30s — igrac cuje loading sprite zvukove za UI ali nema bonus SFX prvih 10-30s
+
+### 45.5 Alternativa: generateSubLoaderInit.js (Pristup B)
+
+Ako odlucimo da ZADRZIMO razdvojene pool-ove ("A" + "B") umesto jednog "Z":
+
+**Nova template skripta**: `template/scripts/generateSubLoaderInit.js`
+
+**Input**: Cita `sprite-config.json` — pronalazi koji tierovi imaju `subLoaderId`
+
+**Output**: Generise `SubLoaderAutoInit.ts` — auto-triggeruje sve deferred SubLoadere
+
+**Deploy**: Kopira u game repo `src/ts/utils/` + patchuje `main.ts`
+
+```javascript
+#!/usr/bin/env node
+/**
+ * generateSubLoaderInit.js
+ *
+ * Reads sprite-config.json to find tiers with subLoaderId.
+ * Generates SubLoaderAutoInit.ts that triggers all deferred SubLoaders
+ * after main load completes. Deploys to game repo + patches main.ts.
+ *
+ * Result: 0 lines of game code needed for audio SubLoader management.
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+// 1. READ CONFIG
+const settings = JSON.parse(fs.readFileSync('settings.json', 'utf8'));
+const spriteConfig = JSON.parse(fs.readFileSync('sprite-config.json', 'utf8'));
+const gameRepoAbs = path.resolve(settings.gameProjectPath);
+
+// 2. FIND DEFERRED TIERS
+const deferredIds = [];
+for (const [tierName, tierConfig] of Object.entries(spriteConfig.sprites || {})) {
+    if (tierConfig.subLoaderId && tierConfig.subLoaderId !== '-') {
+        deferredIds.push(tierConfig.subLoaderId);
+    }
+}
+
+if (deferredIds.length === 0) {
+    console.log('No deferred SubLoaders in sprite-config.json — skipping');
+    process.exit(0);
+}
+
+console.log('Deferred SubLoader IDs:', deferredIds.join(', '));
+
+// 3. GENERATE TypeScript
+const idsJson = JSON.stringify(deferredIds);
+const generatedTs = `/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * SubLoaderAutoInit.ts — Auto-generated by generateSubLoaderInit.js
+ *
+ * Triggers deferred SubLoaders (${deferredIds.join(', ')}) after main load.
+ * Uses slotProps.startSubLoader() — same API as game code, safe NO-OP if
+ * SubLoader doesn't exist or was already triggered.
+ */
+
+import { slotProps } from "playa-slot";
+import { soundManager } from "playa-core";
+
+const IDS: string[] = ${idsJson};
+const TAG = "[SubLoaderAuto]";
+
+(function init(): void {
+    try {
+        let elapsed = 0;
+        function check(): void {
+            // Wait for SoundPlayer to be ready (same check as BGMStreamingInit)
+            const p = (soundManager as any)?.player;
+            if (!(p?._soundSprites?.size > 0 && p?._soundUrl)) {
+                elapsed += 100;
+                if (elapsed < 30000) setTimeout(check, 100);
+                else console.warn(TAG, "timeout");
+                return;
+            }
+
+            // Trigger each deferred SubLoader with 200ms spacing
+            // SubLoader queue is FIFO — they process in order automatically
+            IDS.forEach((id, i) => {
+                setTimeout(() => {
+                    console.log(TAG, "triggering SubLoader", id);
+                    try { slotProps.startSubLoader(id); } catch (e) {
+                        console.warn(TAG, id, "failed:", e);
+                    }
+                }, i * 200);
+            });
+        }
+        check();
+    } catch (e) {
+        console.warn(TAG, "init error (game continues):", e);
+    }
+})();
+
+export const SUB_LOADER_AUTO_INIT = true;
+`;
+
+// 4. WRITE TO DIST
+const distDir = path.join('.', 'dist');
+if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, { recursive: true });
+const distTsPath = path.join(distDir, 'SubLoaderAutoInit.ts');
+fs.writeFileSync(distTsPath, generatedTs, 'utf8');
+console.log('Generated: ' + distTsPath);
+
+// 5. DEPLOY TO GAME REPO
+const gameSrcTs = path.join(gameRepoAbs, 'src', 'ts');
+if (!fs.existsSync(gameSrcTs)) {
+    console.log('⚠ game repo src/ts/ not found — skipping deploy');
+    process.exit(0);
+}
+
+const utilsDir = path.join(gameSrcTs, 'utils');
+if (!fs.existsSync(utilsDir)) fs.mkdirSync(utilsDir, { recursive: true });
+fs.copyFileSync(distTsPath, path.join(utilsDir, 'SubLoaderAutoInit.ts'));
+console.log('✅ SubLoaderAutoInit.ts → game repo');
+
+// 6. PATCH main.ts (same logic as deployStreaming.js)
+const mainTsPath = path.join(gameSrcTs, 'main.ts');
+if (!fs.existsSync(mainTsPath)) {
+    console.log('⚠ main.ts not found — skipping patch');
+    process.exit(0);
+}
+
+let mainLines = fs.readFileSync(mainTsPath, 'utf8').split('\\n');
+
+// Remove old references
+mainLines = mainLines.filter(l =>
+    !l.includes('SubLoaderAutoInit') && !l.includes('SUB_LOADER_AUTO_INIT')
+);
+
+// Find last import
+let lastImportLine = -1;
+for (let i = 0; i < mainLines.length; i++) {
+    if (/^\\s*import\\s/.test(mainLines[i])) {
+        lastImportLine = i;
+        if (!mainLines[i].includes(';') && !mainLines[i].includes('from')) {
+            for (let j = i + 1; j < mainLines.length; j++) {
+                if (mainLines[j].includes('from') || mainLines[j].includes(';')) {
+                    lastImportLine = j;
+                    break;
+                }
+            }
+        }
+    }
+}
+
+if (lastImportLine >= 0) {
+    mainLines.splice(lastImportLine + 1, 0,
+        'import { SUB_LOADER_AUTO_INIT } from "./utils/SubLoaderAutoInit";',
+        'if (SUB_LOADER_AUTO_INIT) { /* webpack: keep */ }'
+    );
+    fs.writeFileSync(mainTsPath, mainLines.join('\\n'), 'utf8');
+    console.log('✅ Patched main.ts');
+}
+
+console.log('\\n✅ SubLoaderAutoInit deployed — ' + deferredIds.length + ' SubLoaders will auto-trigger');
+```
+
+### 45.6 Poredjenje Pristupa A vs B
+
+| Aspekt | A: "Z" u manifestu | B: generateSubLoaderInit |
+|--------|---------------------|--------------------------|
+| Promene u build sistemu | buildTieredJSON.js (1 linija) | Nova skripta (nema promena u build-u) |
+| Promene u game repo | NEMA — samo sounds.json | SubLoaderAutoInit.ts + main.ts patch |
+| Razdvojeni pool-ovi | NE — sve na jednom "Z" | DA — A i B odvojeni, queue FIFO |
+| Kontrola redosleda | Framework odlucuje | Mi odlucujemo (200ms spacing) |
+| Future unload podrska | NE — sve na "Z", ne moze se unload-ovati po pool-u | DA — kad playa-core implementira unload, "B" se moze osloboditi |
+| Dependency | Samo playa-core | playa-core + playa-slot (slotProps import) |
+| Testiranje | Trivijalno — promeni loadType i pokreni igru | Zahteva TypeScript kompajliranje u game repo |
+| Backward compat | Stari startSubLoader("A") postaje NO-OP (prazan SubLoader) | Dupli trigger je NO-OP (MobX ne reaguje na istu vrednost) |
+
+### 45.7 FINALNA PREPORUKA
+
+**Pristup B (generateSubLoaderInit.js)** je bolji za produkciju jer:
+1. **Cuva pool razdvojenost** — kad playa-core implementira unload, odmah mozemo koristiti
+2. **Ne menja sounds.json format** — manja blast radius
+3. **Isti deployment pattern kao BGMStreamingInit** — dokazan u produkciji
+4. **Game dev-ov rucni startSubLoader i dalje radi** — additive, ne zamena
+
+**Pristup A ("Z")** je bolji za brzi test jer ne zahteva TypeScript fajl u game repo-u.
+
+**Plan implementacije:**
+1. Napraviti `generateSubLoaderInit.js` u `template/scripts/`
+2. Dodati dugme u BuildPage (ili integrisati u Deploy flow)
+3. Testirati na jednoj igri (cash-eruption ili jumanji)
+4. Ako radi — roll-out na sve igre
+
+### 45.8 Edge cases i fallback-ovi
+
+| Edge case | Sta se desava | Rizik |
+|-----------|---------------|-------|
+| SubLoader ne postoji (nema tog loadType u manifestu) | `slotProps.startSubLoader()` loguje warning, nastavlja | ✅ Bezopasno |
+| SubLoader vec triggerovan (game dev vec dodao poziv) | MobX ne reaguje na istu vrednost — NO-OP | ✅ Bezopasno |
+| "Z" vec aktivan kad "A" triggeruje | "A" ulazi u queue, ceka da "Z" zavrsi | ✅ Automatski |
+| playa-slot ne postoji u game repo | `import { slotProps }` fail na webpack build-u | ⚠ Treba try-catch ili provera |
+| Game nema deferred tierove u sprite-config | Skripta izlazi sa "No deferred SubLoaders" | ✅ Bezopasno |
+| main.ts ne postoji | Skripta loguje warning, preskace patch | ✅ Bezopasno |
+| Spor internet — SubLoader traje 30+ sekundi | SoundSprite sa howl=undefined tiho propadne — nema crash-a | ✅ Bezopasno |
+| 30s timeout u waitForPlayer | Loguje warning, SubLoaderi se ne triggeruju | ⚠ Audio na main load-u radi, deferred ne |
+
+### 45.9 Test plan
+
+**Pre-deploy verifikacija:**
+1. Pokreni `generateSubLoaderInit.js` u audio repo-u
+2. Proveri generisani `SubLoaderAutoInit.ts` — ispravni SubLoader ID-ovi?
+3. Proveri `main.ts` patch — import dodat ispravno?
+
+**Runtime verifikacija (u browseru):**
+1. Otvori DevTools Console
+2. Ocekivani log:
+   ```
+   [SubLoaderAuto] triggering SubLoader A
+   [SubLoaderAuto] triggering SubLoader B
+   ```
+3. Proveri da li zvuci rade: `soundManager.execute("BigWinStart")` u konzoli
+4. Proveri Howler stanje: `Howler._howls.length` — treba biti > 1 (main + bonus sprite-ovi)
+5. Proveri SubLoader status:
+   ```javascript
+   const ls = slotProps.loadStatus;
+   console.log('A:', ls.A?.subLoaderComplete, ls.A?.subLoaderPercent + '%');
+   console.log('B:', ls.B?.subLoaderComplete, ls.B?.subLoaderPercent + '%');
+   ```
