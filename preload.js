@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('api', {
   vpnDisconnect: () => ipcRenderer.invoke('vpn-disconnect'),
   vpnStatus: () => ipcRenderer.invoke('vpn-status'),
   openGameWindow: (url) => ipcRenderer.invoke('open-game-window', url),
+  clearGameStorage: () => ipcRenderer.invoke('clear-game-storage'),
   waitForPort: (opts) => ipcRenderer.invoke('wait-for-port', opts),
   gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
   checkoutGameBranch: (branch) => ipcRenderer.invoke('checkout-game-branch', branch),

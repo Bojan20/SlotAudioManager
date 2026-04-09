@@ -169,15 +169,14 @@ app.on('before-quit', () => {
 // Safe JSON reader
 // Check if a port is free (ECONNREFUSED = free, anything else = still in use)
 function isPortFree(port) {
-  // Bind test — more reliable than connect test on Windows.
-  // Connect test can report "free" while port is still in TIME_WAIT,
-  // but bind will fail with EADDRINUSE until OS fully releases the port.
   return new Promise(resolve => {
     const tcpNet = require('net');
-    const server = tcpNet.createServer();
-    server.once('error', () => { resolve(false); });
-    server.once('listening', () => { server.close(() => resolve(true)); });
-    server.listen(port, '127.0.0.1');
+    const sock = new tcpNet.Socket();
+    sock.setTimeout(200);
+    sock.on('connect', () => { sock.destroy(); resolve(false); });
+    sock.on('error', e => { sock.destroy(); resolve(e.code === 'ECONNREFUSED'); });
+    sock.on('timeout', () => { sock.destroy(); resolve(true); });
+    sock.connect(port, '127.0.0.1');
   });
 }
 
@@ -1550,97 +1549,52 @@ ipcMain.handle('run-game-script', async (event, scriptName) => {
       }
     }
 
+    // Brief wait for Windows TIME_WAIT to expire after port kill
+    await new Promise(r => setTimeout(r, 1000));
+
     // Read script command — if it calls playa, resolve binary directly (avoids yarn PATH issues on Windows)
     const gamePkg = readJsonSafe(path.join(gameRepoPath, 'package.json'));
     const scriptCmd = (gamePkg?.scripts?.[scriptName] || '').trim();
     const startsWithPlaya = /^playa\s/.test(scriptCmd);
 
-    // Spawn helper — extracted so we can retry on early death
-    function spawnGame() {
-      if (startsWithPlaya) {
-        const ext = isWin ? '.cmd' : '';
-        const playaBin = path.join(gameRepoPath, 'node_modules', '.bin', `playa${ext}`);
-        if (!fs.existsSync(playaBin)) return null;
-        const args = scriptCmd.slice('playa '.length).split(/\s+/).filter(Boolean);
-        const playaEnv = getGameNodeEnv(gameRepoPath);
-        delete playaEnv.NODE_OPTIONS;
-        return spawn(playaBin, args, {
+    let child;
+    if (startsWithPlaya) {
+      const ext = isWin ? '.cmd' : '';
+      const playaBin = path.join(gameRepoPath, 'node_modules', '.bin', `playa${ext}`);
+      if (!fs.existsSync(playaBin)) {
+        return { error: 'playa not found in game node_modules — run yarn install in game repo' };
+      }
+      const args = scriptCmd.slice('playa '.length).split(/\s+/).filter(Boolean);
+      const playaEnv = getGameNodeEnv(gameRepoPath);
+      delete playaEnv.NODE_OPTIONS;
+      child = spawn(playaBin, args, {
+        cwd: gameRepoPath,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: isWin,
+        env: playaEnv
+      });
+    } else {
+      const gameEnv = getGameNodeEnv(gameRepoPath);
+      delete gameEnv.NODE_OPTIONS;
+      const yarnJs = findYarnJs();
+      if (yarnJs) {
+        const nodeDir = gameNodeCache[gameRepoPath] && gameNodeCache[gameRepoPath] !== 'system' ? gameNodeCache[gameRepoPath] : null;
+        const nodeExe = nodeDir ? path.join(nodeDir, isWin ? 'node.exe' : 'bin/node') : (isWin ? 'node.exe' : 'node');
+        child = spawn(nodeExe, [yarnJs, scriptName], {
+          cwd: gameRepoPath,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          shell: false,
+          env: gameEnv
+        });
+      } else {
+        child = spawn('yarn', [scriptName], {
           cwd: gameRepoPath,
           stdio: ['ignore', 'pipe', 'pipe'],
           shell: isWin,
-          env: playaEnv
+          env: gameEnv
         });
-      } else {
-        const gameEnv = getGameNodeEnv(gameRepoPath);
-        delete gameEnv.NODE_OPTIONS;
-        const yarnJs = findYarnJs();
-        if (yarnJs) {
-          const nodeDir = gameNodeCache[gameRepoPath] && gameNodeCache[gameRepoPath] !== 'system' ? gameNodeCache[gameRepoPath] : null;
-          const nodeExe = nodeDir ? path.join(nodeDir, isWin ? 'node.exe' : 'bin/node') : (isWin ? 'node.exe' : 'node');
-          return spawn(nodeExe, [yarnJs, scriptName], {
-            cwd: gameRepoPath,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            shell: false,
-            env: gameEnv
-          });
-        } else {
-          return spawn('yarn', [scriptName], {
-            cwd: gameRepoPath,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            shell: isWin,
-            env: gameEnv
-          });
-        }
       }
     }
-
-    if (startsWithPlaya && !fs.existsSync(path.join(gameRepoPath, 'node_modules', '.bin', `playa${isWin ? '.cmd' : ''}`))) {
-      return { error: 'playa not found in game node_modules — run yarn install in game repo' };
-    }
-
-    // Launch with retry — if process dies within 3s (EADDRINUSE), wait and retry
-    const maxRetries = 3;
-    let child = null;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      // Wait for port to be truly free before each attempt
-      const portReady = await waitPortFree(8080, 5000);
-      if (!portReady) {
-        send(`⚠ Port 8080 still busy — attempt ${attempt}/${maxRetries}\n`);
-        await new Promise(r => setTimeout(r, 2000));
-        continue;
-      }
-
-      child = spawnGame();
-      if (!child) return { error: 'Failed to spawn game process' };
-
-      // Wait up to 3s to see if process stays alive
-      const earlyDeath = await new Promise(resolve => {
-        let died = false;
-        const onClose = (code) => { died = true; resolve(code); };
-        child.on('close', onClose);
-        setTimeout(() => {
-          child.removeListener('close', onClose);
-          if (!died) resolve(null); // still alive after 3s — good
-        }, 3000);
-      });
-
-      if (earlyDeath === null) {
-        // Process survived 3s — it's running
-        break;
-      }
-
-      // Process died early — likely EADDRINUSE
-      send(`⚠ Process died immediately (exit ${earlyDeath}) — retrying (${attempt}/${maxRetries})...\n`);
-      child = null;
-      if (attempt < maxRetries) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    }
-
-    if (!child) {
-      return { success: false, error: 'Game server failed to start after ' + maxRetries + ' attempts (port 8080 busy)' };
-    }
-
     gameProcess = child;
     let lastLine = '';
     const dedupSend = (line) => { if (line.trim() && line !== lastLine) { lastLine = line; send(line); } };
@@ -2078,7 +2032,6 @@ function spawnAsync(cmd, args, opts = {}) {
 ipcMain.handle('vpn-connect', async () => {
   if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
   try {
-    // Show panel first — '-c connect' alone doesn't open the UI window
     await spawnAsync(panGPAPath, ['-c', 'show'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] }).catch(() => {});
     await new Promise(r => setTimeout(r, 2000));
     const result = await new Promise((resolve, reject) => {
@@ -2388,10 +2341,52 @@ ipcMain.handle('open-game-window', async (event, url) => {
     } else { try { proc.kill(); } catch {} }
   };
 
-  // Use system default browser — same as manual yarn launch.
-  // Custom Chrome profile + flags caused intermittent loading failures
-  // (cold profile init, SW registration race, Chrome multi-process conflicts).
-  await shell.openExternal(url);
+  if (!browserPath) {
+    // No Chrome/Edge found — fall back to default browser
+    killBrowser(gameBrowserProcess);
+    gameBrowserProcess = null;
+    await shell.openExternal(url);
+    return { success: true, fallback: true };
+  }
+
+  // Kill previous game browser window if still alive
+  if (gameBrowserProcess) {
+    const oldPid = gameBrowserProcess.pid;
+    gameBrowserProcess = null;
+    if (isWin && oldPid) {
+      await new Promise(resolve => exec(`taskkill /F /T /PID ${oldPid}`, () => resolve()));
+    } else { try { process.kill(oldPid, 'SIGTERM'); } catch {} }
+    await new Promise(r => setTimeout(r, 2000));
+  }
+
+  // Persistent profile — avoids Chrome cold-init that causes loading to stall
+  // Use "Clear Storage" button in app to reset localStorage (tutorial prefs etc.)
+  const profileDir = path.join(app.getPath('temp'), 'slot-audio-game');
+
+  // Only block IGT servers for local GLR launches (127.0.0.1) — not for VPN server launches
+  const isLocal = url.includes('127.0.0.1') || url.includes('localhost');
+  const chromeArgs = [
+    '--new-window',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--test-type',
+    '--disable-web-security',
+    '--allow-running-insecure-content',
+    '--ignore-certificate-errors',
+    '--hide-crash-restore-bubble',
+    '--disable-session-crashed-bubble',
+    '--autoplay-policy=no-user-gesture-required',
+    `--user-data-dir=${profileDir}`,
+    url,
+  ];
+  if (isLocal) {
+    chromeArgs.splice(-2, 0, '--host-resolver-rules=MAP *.wagerworks.com ~NOTFOUND, MAP *.igt.com ~NOTFOUND');
+  }
+  const child = spawn(browserPath, chromeArgs, { detached: false, stdio: 'ignore' });
+
+  gameBrowserProcess = child;
+  child.once('exit', () => { if (gameBrowserProcess === child) gameBrowserProcess = null; });
+
   return { success: true };
 });
 
@@ -2402,31 +2397,24 @@ ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
   return new Promise((resolve) => {
     const start = Date.now();
     let done = false;
-    let successCount = 0; // require 2 consecutive successes — first can be premature
     const finish = (result) => { if (done) return; done = true; resolve(result); };
     const retry = () => {
       if (done) return;
       if (!mainWindow || mainWindow.isDestroyed()) return finish({ ready: false, error: 'Window closed' });
       if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
-      if (!gameProcess) return finish({ ready: false, error: 'Game process exited' });
-      successCount = 0; // reset on any failure
       setTimeout(check, 1500);
     };
     const check = () => {
       if (done) return;
       if (!mainWindow || mainWindow.isDestroyed()) return finish({ ready: false, error: 'Window closed' });
       if (Date.now() - start > timeout) return finish({ ready: false, error: 'Timeout' });
-      if (!gameProcess) return finish({ ready: false, error: 'Game process exited' });
       let handled = false;
       const once = (fn) => { if (handled) return; handled = true; fn(); };
+      // HTTP GET — ensures server is actually serving content, not just TCP port open
       const req = http.get(`http://127.0.0.1:${port}/`, (res) => {
         res.resume();
         once(() => {
-          if (res.statusCode >= 200 && res.statusCode < 400) {
-            successCount++;
-            if (successCount >= 2) { finish({ ready: true }); }
-            else { setTimeout(check, 500); } // quick recheck to confirm
-          }
+          if (res.statusCode >= 200 && res.statusCode < 400) finish({ ready: true });
           else retry();
         });
       });
@@ -2435,6 +2423,18 @@ ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
     };
     check();
   });
+});
+
+// Clear Chrome localStorage for game (127.0.0.1) — resets tutorial prefs etc.
+ipcMain.handle('clear-game-storage', async () => {
+  try {
+    const lsDir = path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data', 'Default', 'Local Storage', 'leveldb');
+    if (!fs.existsSync(lsDir)) return { error: 'Chrome Local Storage not found' };
+    fs.rmSync(lsDir, { recursive: true, force: true });
+    return { success: true, message: 'Chrome localStorage cleared. Close Chrome tabs and relaunch.' };
+  } catch (e) {
+    return { error: e.message };
+  }
 });
 
 // Scan game repo TypeScript source for all soundManager.execute() calls

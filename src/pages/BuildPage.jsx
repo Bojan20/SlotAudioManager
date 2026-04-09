@@ -582,6 +582,17 @@ export default function BuildPage({ project, setProject, showToast }) {
                 Free Port
               </button>
               <button
+                onClick={async () => {
+                  const r = await window.api.clearGameStorage();
+                  if (r?.error) showToast(r.error, 'error');
+                  else showToast('Storage cleared — restart Chrome', 'success');
+                }}
+                className="btn-ghost text-xs py-1 px-2.5 text-text-dim hover:text-orange hover:border-orange/30"
+                title="Clear Chrome localStorage for game (resets tutorial, etc.)"
+              >
+                Clear Storage
+              </button>
+              <button
                 onClick={loadGameScripts}
                 disabled={loadingGameScripts || running !== null || deploying}
                 className="btn-ghost text-xs py-1 px-2.5 disabled:opacity-40"
