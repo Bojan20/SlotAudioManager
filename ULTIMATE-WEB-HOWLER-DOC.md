@@ -52,6 +52,8 @@
 40. [deployStreaming.js — liniju-po-liniju analiza (735 LOC)](#40-deploystreamingjs--liniju-po-liniju-analiza-735-loc)
 41. [Tri build sistema — uporedna analiza](#41-tri-build-sistema--uporedna-analiza)
 42. [SubLoader auto-trigger — workaround bez game devova](#42-subloader-auto-trigger--workaround-bez-game-devova)
+43. [Oficijalna IGT/GDK dokumentacija — poredjenje i nedostajuci detalji](#43-oficijalna-igtgdk-dokumentacija--poredjenje-i-nedostajuci-detalji)
+44. [Strategija "Z" za main pool — eliminacija game dev koda](#44-strategija-z-za-main-pool--eliminacija-game-dev-koda)
 
 ---
 
@@ -5204,3 +5206,357 @@ loadStatus nema "unload trigger"
 | `unloadSubLoader("B")` | ❌ NE POSTOJI | playa-core tim mora dodati: SubLoader.unload() + SoundPlayer.unloadHowl() |
 | Runtime memory oslobadjanje | ❌ NE POSTOJI | playa-core tim: howl.unload() + delete _howlInstances + cleanup _soundSprites |
 | `unloadable: true` flag citanje | ❌ MRTAV METADATA | playa-core tim: treba da ga cita i reaguje |
+
+---
+
+## 43. Oficijalna IGT/GDK dokumentacija — poredjenje i nedostajuci detalji
+
+> Izvor: PlayDigital GDK — Foundry dokumentacija
+> "How to Use Deferred Loading" + "How to Use Initial and Secondary Assets"
+> Autor: Sonja Damjanić, poslednji update Feb 2026
+
+### 43.1 Kompletna loadType tabela (oficijalna + nasa prosirenja)
+
+| loadType | Ime | Ponasanje | Ko triggeruje | Izvor |
+|----------|-----|-----------|---------------|-------|
+| `"-"` ili nema | Main load | Ucitava se pre pokretanja igre | Automatski | Oficijalni GDK |
+| `"Z"` | Lazy Load | **Automatski** odmah posle main load-a | Framework (NEMA game koda) | Oficijalni GDK |
+| `"I"` | Initial/Secondary | Main ucitava kompresovanu verziju, posle swap-uje full-res | Framework automatski | Oficijalni GDK |
+| `"A"` — `"F"` | Deferred | Ucitava se na zahtev | Game kod: `slotProps.startSubLoader("X")` | Oficijalni GDK |
+| `"M"` | Music Streaming | playa-core resolvuje URL ali NE ucitava | BGMStreamingInit (nasa skripta) | **NASA INOVACIJA** |
+| `"S"` | Streaming (legacy) | Isto kao "M" | Custom kod | **NASA INOVACIJA** |
+
+### 43.2 Lazy Load ("Z") — detalji iz oficijalne dokumentacije
+
+**Definicija**: Ucitavanje koje pocinje **automatski** po zavrsetku main load-a i inicijalizacije igre. Odvija se u pozadini, osim ako korisnik triggeruje sadrzaj pre zavrsetka.
+
+**Tri scenarija** (oficijalni GDK):
+
+**Scenario 1 — Najcesci (korisnik ne primecuje nista):**
+> Lazy loading is complete before the game reaches a point of requiring the lazy loaded assets, so the game continues as it would have done if everything had been front loaded.
+
+**Scenario 2 — Korisnik je srecan (bonus na prvom spinu):**
+> The user is lucky enough to trigger the part of the game requiring the lazy loaded assets, before they have finished loading. In which case, the game would show a secondary loading screen or panel (likely styled to that part of the game). The loading percentage would already be somewhat progressed toward completion.
+
+**Scenario 3 — Game-In-Progress:**
+> The user triggers a Game-In-Progress situation. In this case, the secondary loading screen or panel would be shown as soon as the main load is complete. Upon full load, the game would continue as normal.
+
+**Kriticno**: "Z" zvuci se NE MOGU pustiti pre zavrsetka ucitavanja. Pokusaj reprodukcije pre load-a baca gresku:
+> You must remember that you cannot call/play a sound in the game, if you have not loaded the asset. This will cause an error, since the sound will not yet exist.
+
+Ali u praksi, SoundSprite se kreira sa `howl = undefined` na boot-u — komande tiho propadaju (ne baca se exception, samo nema zvuka). Kad lazy load zavrsi, `addHowl()` zameni undefined sa pravim Howl-om i komande pocinju da rade.
+
+### 43.3 loadType "I" — Initial/Secondary Assets
+
+**Namena**: Primarno za grafiku (WebP kompresija), ali loadType "I" radi za SVE asset tipove ukljucujuci zvuk.
+
+**Mehanizam**:
+1. Main load ucitava **inicijalnu** verziju asseta (kompresovaniju, manju)
+2. Igra postaje interaktivna odmah
+3. U pozadini se ucitava **sekundarna** verzija (full resolution)
+4. Kad sekundarna zavrsi: `loadService.onReplaceAssetFinished("I", callback)` triggeruje zamenu
+
+**Za grafiku**: `@1x` WebP (manja) → full WebP (veca)
+**Za zvuk**: Teorijski moguce ali nema prakticne primene — audio kvalitet na 64kbps je vec prihvatljiv, nema potrebe za "initial low-quality → swap to high-quality" pattern
+
+**Pravilno praćenje zamene asset-a:**
+```typescript
+const loadStatus = (slotProps.loadStatus as any).I;
+if (loadStatus && loadType === "I") {
+    loadService.onReplaceAssetFinished("I", (): Promise<void> => {
+        return new Promise(async (resolve) => {
+            // Zameni grafiku sa full-res verzijom
+            this._spineAnim = this.container.getChildByName("anim") as SpineAnimation;
+            resolve();
+        });
+    });
+}
+```
+
+### 43.4 SubLoader progress monitoring — MobX observables
+
+**Nedostajalo u nasem doc-u.** playa-core eksponira progress za svaki SubLoader:
+
+```typescript
+const loadStatus = slotProps.loadStatus;
+
+// Za lazy load ("Z"):
+const lazyStatus = (loadStatus as any).Z;
+if (lazyStatus) {
+    // MobX reaction — reaguje na promene
+    reaction(
+        () => lazyStatus.subLoaderPercent || lazyStatus.subLoaderComplete,
+        () => {
+            console.log('Progress:', lazyStatus.subLoaderPercent + '%');
+            if (lazyStatus.subLoaderComplete) {
+                console.log('Lazy load complete!');
+            }
+        }
+    );
+}
+
+// Za deferred load ("A"):
+const deferredStatus = (loadStatus as any).A;
+if (deferredStatus) {
+    reaction(
+        () => deferredStatus.subLoaderPercent || deferredStatus.subLoaderComplete,
+        () => {
+            if (deferredStatus.subLoaderComplete) {
+                // Svi "A" zvuci su ucitani i spremni za reprodukciju
+            }
+        }
+    );
+}
+```
+
+**Dostupna polja na svakom SubLoader loadStatus:**
+
+| Polje | Tip | Opis |
+|-------|-----|------|
+| `subLoaderTrigger` | `boolean` (MobX observable) | `true` = ucitavanje pokrenuto |
+| `subLoaderPercent` | `number` (0-100) | Procenat zavrsetka |
+| `subLoaderComplete` | `boolean` | `true` = sve ucitano |
+| `subLoaderStarted` | `boolean` | `true` = ucitavanje u toku |
+
+**Ovo mozemo koristiti u SubLoaderAutoInit.ts** za logovanje progresa u konzoli:
+```typescript
+const statusA = (slotProps.loadStatus as any).A;
+if (statusA) {
+    reaction(
+        () => statusA.subLoaderComplete,
+        () => {
+            if (statusA.subLoaderComplete) {
+                console.log("[SubLoaderAuto] Pool A complete — triggering B");
+                slotProps.startSubLoader("B");
+            }
+        }
+    );
+}
+```
+
+### 43.5 Layout placeholders za pending items
+
+Oficijalna dokumentacija kaze:
+> Lazy and Deferred loading has been set up to build the game layout as normal, on initial load. Code-generated placeholders are used so that during development you can see the game is built correctly, and any code that needs to reference items before the load is complete, has something to work with.
+
+**Za zvuk**: Ovo se manifestuje kao SoundSprite sa `howl = undefined`. Placeholder postoji u `_soundSprites` Map-i, komande ga referenciraju, ali play() tiho propadne. Kad SubLoader zavrsi, `addHowl()` zameni placeholder sa pravim Howl-om.
+
+### 43.6 Grupni loadType — NE RADI na runtime-u
+
+Oficijalna dokumentacija eksplicitno upozorava:
+> Currently, marking group nodes with a loadType has no effect at runtime. If you want to use deferred loading for all assets in a group, you need to set the loadType for each asset individually.
+
+**Za zvuk**: Ovo znaci da SVAKI manifest entry mora imati loadType individualno. Ne moze se staviti loadType na "grupu" zvukova — nema takvog koncepta u sounds.json. **Nas buildTieredJSON.js vec radi ispravno** — postavlja loadType na svaki manifest entry individualno.
+
+### 43.7 Sekundarni loading screen za deferred loadere
+
+Oficijalna dokumentacija opisuje dva scenarija za deferred ("A"-"F"):
+
+**Scenario 1**: Korisnik triggeruje deferred sadrzaj → loading screen se prikazuje → po zavrsetku igra nastavlja
+**Scenario 2**: Game-In-Progress → loading screen cim main load zavrsi → po zavrsetku igra nastavlja
+
+**Za audio**: Bonus intro animacija (2-3s) sluzi kao "loading screen" — kupuje vreme za SubLoader B. Ako je B vec ucitan (lazy ili proaktivan), animacija se jednostavno zavrsava i bonus pocinje odmah.
+
+### 43.8 Queue ponasanje — potvrdeno u obe dokumentacije
+
+Oficijalni GDK i nas doc se slazu:
+- Samo **jedan SubLoader** se ucitava istovremeno
+- FIFO redosled
+- Kad jedan zavrsi, sledeci u redu automatski pocinje
+
+### 43.9 Sta oficijalna dokumentacija NE pokriva (nasa inovacija)
+
+| Tema | Oficijalni GDK | Nas ULTIMATE doc |
+|------|----------------|-------------------|
+| HTML5 streaming muzike | ❌ Ne pominje | ✅ Sekcije 12, 40 |
+| loadType "M" / "S" | ❌ Ne postoji | ✅ Nasa inovacija |
+| BGMStreamingInit auto-injection | ❌ | ✅ Auto-generisan, auto-deployed |
+| Tiered sprite build | ❌ | ✅ buildTiered.js + buildTieredJSON.js |
+| SubLoaderAutoInit | ❌ | ✅ Koncept u sekciji 42 |
+| Howler.js internali | ❌ | ✅ Sekcije 2-4 |
+| Web Audio API memorija | ❌ | ✅ Sekcija 5 |
+| AAC encoder padding | ❌ | ✅ Sekcija 6 |
+| Gapless HTML5 loop | ❌ | ✅ rAF mute-seek-unmute |
+| unloadable flag | ❌ | ✅ Metadata signal (ceka implementaciju) |
+| FDK/native encoder izbor | ❌ | ✅ Per-category sa dropdown-om |
+
+---
+
+## 44. Strategija "Z" za main pool — eliminacija game dev koda
+
+### 44.1 Trenutna strategija vs predlozena
+
+**Trenutna (loadType "A" za main pool):**
+```
+Boot → Main load (loading sprite)
+     → Game postaje interaktivna
+     → Igrac pritisne Spin
+     → Game kod poziva startSubLoader("A")  ← ZAHTEVA GAME DEVOVE
+     → SubLoader A ucitava main pool
+     → Symbols, BigWin, Anticipation rade
+```
+
+**Predlozena (loadType "Z" za main pool):**
+```
+Boot → Main load (loading sprite)
+     → Game postaje interaktivna
+     → Framework AUTOMATSKI startuje lazy load "Z"  ← BEZ GAME KODA
+     → Main pool se ucitava u pozadini
+     → Igrac pritisne Spin (loading pool vec pokriva osnovne zvukove)
+     → Do drugog/treceg spina: main pool ucitan
+     → Symbols, BigWin, Anticipation rade
+```
+
+### 44.2 Kompletna tabela — sva tri scenarija
+
+| Pool | Trenutno | Opcija A: Z+Auto | Opcija B: Full Auto |
+|------|----------|-------------------|----------------------|
+| loading | main load (nema loadType) | main load | main load |
+| main | `"A"` + `startSubLoader("A")` u game kodu | **`"Z"` (automatski!)** | `"A"` + SubLoaderAutoInit |
+| bonus | `"B"` + `startSubLoader("B")` u game kodu | `"B"` + SubLoaderAutoInit | `"B"` + SubLoaderAutoInit |
+| standalone | main load | main load | main load |
+| streaming | `"M"` + BGMStreamingInit | `"M"` + BGMStreamingInit | `"M"` + BGMStreamingInit |
+| **Game dev linije** | **2** (startSubLoader A + B) | **0** | **0** |
+
+### 44.3 Opcija A: "Z" za main, SubLoaderAutoInit za bonus
+
+**Promene u buildTieredJSON.js:**
+```javascript
+// Trenutno:
+if (subLoaderId) manifestEntry.loadType = subLoaderId;  // "A" ili "B"
+
+// Novo:
+if (tierConfig.lazyLoad) {
+    manifestEntry.loadType = "Z";  // lazy — framework auto-triggeruje
+} else if (subLoaderId) {
+    manifestEntry.loadType = subLoaderId;  // "A"/"B" — deferred
+}
+```
+
+**Promene u sprite-config.json:**
+```json
+{
+    "sprites": {
+        "loading": { "priority": 1, "sounds": [...] },
+        "main":    { "priority": 2, "lazyLoad": true, "sounds": [...] },
+        "bonus":   { "priority": 3, "subLoaderId": "B", "unloadable": true, "sounds": [...] }
+    }
+}
+```
+
+**SubLoaderAutoInit.ts (samo za bonus):**
+```typescript
+import { slotProps } from "playa-slot";
+import { soundManager } from "playa-core";
+import { reaction } from "mobx";
+
+(function init(): void {
+    try {
+        let elapsed = 0;
+        function check(): void {
+            const p = (soundManager as any)?.player;
+            if (!(p?._soundSprites?.size > 0)) {
+                elapsed += 100;
+                if (elapsed < 30000) setTimeout(check, 100);
+                return;
+            }
+
+            // Lazy load "Z" se vec triggerovao automatski
+            // Cekaj da "Z" zavrsi pa triggeruj "B"
+            const statusZ = (slotProps.loadStatus as any).Z;
+            if (statusZ) {
+                reaction(
+                    () => statusZ.subLoaderComplete,
+                    (complete) => {
+                        if (complete) {
+                            console.log("[SubLoaderAuto] Lazy Z complete — triggering B");
+                            try { slotProps.startSubLoader("B"); } catch (_e) { /* */ }
+                        }
+                    },
+                    { fireImmediately: true }
+                );
+            } else {
+                // Nema "Z" — triggeruj "B" odmah
+                setTimeout(() => {
+                    try { slotProps.startSubLoader("B"); } catch (_e) { /* */ }
+                }, 500);
+            }
+        }
+        check();
+    } catch (e) {
+        console.warn("[SubLoaderAuto] init error:", e);
+    }
+})();
+
+export const SUB_LOADER_AUTO_INIT = true;
+```
+
+**Prednost Opcije A**:
+- Main pool koristi framework mehanizam ("Z") — najcistije resenje
+- Bonus pool ceka da "Z" zavrsi pre triggerovanja — ne takmice se za bandwidth
+- `reaction()` sa `fireImmediately: true` — ako je "Z" VEC zavrsio, odmah triggeruje "B"
+
+### 44.4 Opcija B: SubLoaderAutoInit za oba (A + B)
+
+Ovo je koncept iz sekcije 42 — oba ostaju deferred ("A"/"B"), SubLoaderAutoInit triggeruje oba.
+
+**Prednost**: Ne menja loadType logiku u build skriptama
+**Mana**: Koristi "A" umesto "Z" — propusta framework automatizaciju
+
+### 44.5 Rizici i edge cases za Opciju A
+
+**1. Bandwidth konkurencija sa grafikom na "Z"**
+
+Ako igra ima i grafiku na loadType "Z", audio i grafika se ucitavaju istovremeno posle main load-a. playa-core koristi `_concurrency: 5` za paralelne download-e — audio i grafika dele tih 5 slotova.
+
+**Mitigation**: Audio sprite od 1-2MB je mali u poredjenju sa grafikom (10-50MB). Na modernoj mrezi (~20Mbps), 2MB se download-uje za ~1s. Grafika je veci bottleneck.
+
+**2. "Z" ne moze biti vise od jednog**
+
+Svi zvuci sa loadType "Z" idu u JEDAN SubLoader. Ne mozemo imati "Z" za main I "Z" za bonus — oba bi bila u istom SubLoader-u i ucitala se zajedno.
+
+**Zato koristimo "Z" samo za main, "B" za bonus** — dva odvojena SubLoader-a, razliciti prioriteti.
+
+**3. Korisnik pogodi bonus pre nego sto "Z" zavrsi (Scenario 2)**
+
+Oficijalni GDK kaze: igra pokazuje secondary loading screen. Ali za audio: SoundSprite placeholder tiho propadne (nema zvuka 1-2s dok se ucitava), pa pocne da radi. Nema crash-a, nema loading screen-a za audio — samo kratka tisina.
+
+**U praksi**: "Z" zavrsi za 2-5 sekundi posle boot-a. Sansa da korisnik pogodi bonus na PRVOM spinu (pre zavrsetka "Z") je statisticki minimalna. A cak i tada — loading sprite pokriva osnovne reel/win zvukove.
+
+**4. SubLoader queue redosled**
+
+Ako su i "Z" (main audio) i "Z" (grafika) u istom SubLoader-u, ucitavaju se paralelno unutar tog SubLoader-a. Nema konflikta — `loadSubLoaderAudio` i graficke load metode rade nezavisno.
+
+Kad "Z" zavrsi, SubLoaderAutoInit triggeruje "B" — ulazi u queue kao prvi deferred. Nema cekanja.
+
+**5. Dupla "Z" + "A" konfiguracija (backward compatibility)**
+
+Ako stari game repo VEC ima `startSubLoader("A")` u kodu, a mi promenimo loadType na "Z":
+- "A" SubLoader se kreira ali je PRAZAN (nema zvukova sa loadType "A")
+- `startSubLoader("A")` poziv je NO-OP (prazan SubLoader, nista za ucitavanje)
+- "Z" SubLoader ucitava sve main zvukove automatski
+- **Bezopasno** — stari game kod ne kvari nista
+
+### 44.6 Implementacione promene za Opciju A
+
+| Fajl | Promena |
+|------|---------|
+| `sprite-config.json` | Novi flag: `"lazyLoad": true` na main tier-u |
+| `buildTieredJSON.js` | Cita `lazyLoad` → postavlja `loadType: "Z"` umesto `subLoaderId` |
+| `SpriteConfigPage.jsx` | Checkbox "Lazy Load (auto)" umesto/pored SubLoader ID dropdown-a |
+| `deployStreaming.js` | Generise `SubLoaderAutoInit.ts` pored BGMStreamingInit.ts |
+| `main.ts` patching | Dodaje import za SubLoaderAutoInit.ts |
+| `CLAUDE.md` | Dokumentuje "Z" strategiju |
+
+### 44.7 Preporuka
+
+**Opcija A (Z + Auto)** je superiorna jer:
+1. Koristi framework mehanizam — `"Z"` je dizajniran upravo za ovo
+2. Eliminise SVE game dev linije (0 linija umesto 2)
+3. MobX `reaction()` je robusniji od `setTimeout` za cekanje zavrsetka
+4. Backward-kompatibilna — stari `startSubLoader("A")` pozivi postaju bezopasni NO-OP
+
+**Pre implementacije treba verifikovati:**
+- [ ] Da li igre koje vec imaju grafiku na "Z" imaju problem sa bandwidth-om kad dodamo i audio na "Z"
+- [ ] Da li playa-core SubLoader queue ispravno hendluje tranziciju "Z" → "B"
+- [ ] Testirati na jednoj igri (npr. cash-eruption) pre roll-out-a
