@@ -356,6 +356,9 @@ export default function BuildPage({ project, setProject, showToast }) {
         setLog(prev => prev + '\nServer ready! Opening browser...');
         setResult({ script: scriptName, ok: true });
         showToast('Server ready!', 'success');
+        // Brief delay — playa responds 200 on HTML shell before game bundle is fully ready
+        await new Promise(r => setTimeout(r, 2000));
+        if (stopped()) return;
         window.api.openGameWindow('http://127.0.0.1:8080');
       } else {
         setLog(prev => prev + '\nTimeout — server did not respond within 2 minutes.');
