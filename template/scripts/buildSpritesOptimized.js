@@ -376,9 +376,12 @@ async function main() {
         }
     }
 
-    // ── Group sprite list members so they stay on the same Howl object ──
-    // DISABLED for testing — using ungrouped file order
-    console.log('── Sprite list grouping: DISABLED ──');
+    // ── Sprite list grouping ──
+    // Disabled: reordering WAV files within chunks causes AAC encoder to produce
+    // corrupt frames with ffmpeg native encoder (-strict -2). Different audio
+    // transitions in concatenated PCM trigger encoder edge cases.
+    // Sprite list cohesion is validated post-build and warned (not blocked).
+    console.log('── Sprite list grouping: disabled (AAC encoder compat) ──');
     const sfxGrouped = { files: sfxFiles, groups: [] };
     const musicGrouped = { files: musicFiles, groups: [] };
 
@@ -530,10 +533,10 @@ async function main() {
                 if (name === '__default') { /* skip */ }
                 else {
                     const entryName = 's_' + name;
-                    const startTime = Math.round(timings[0]);
+                    const startTime = timings[0];
 
                     const wavPath = path.join(sourceDir, name + '.wav');
-                    let duration = Math.round(timings[1]);
+                    let duration = timings[1];
                     if (fs.existsSync(wavPath)) {
                         const soxDur = await getSoxDuration(wavPath);
                         if (soxDur !== null) {
