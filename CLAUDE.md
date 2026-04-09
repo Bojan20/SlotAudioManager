@@ -330,6 +330,7 @@ Patterns are priority-ordered (first match wins), derived from analysis of all I
 - **NIKAD ručno menjati fajlove u game repou** (src/ts/, assets/, dist/, package.json) — SVE promene u game repou moraju ići ISKLJUČIVO kroz aplikaciju ili kroz skripte koje aplikacija pokreće. Ako nešto treba da se promeni u igri, napravi to u skripti (npr. deployStreaming.js) pa neka skripta sama uradi promenu. Nikad `sed`, `echo >`, `node -e` direktno na game repo fajlovima.
 - **NIKAD menjati fajlove u audio ili game repoima (c:\IGT\*) bez eksplicitnog odobrenja korisnika** — SVE promene idu ISKLJUČIVO kroz template skripte u SlotAudioManager app-u. Korisnik sam sinhronizuje template u repo kroz Init from Template. Ako treba nešto kopirati ili menjati u repou, PITAJ korisnika prvo.
 - **NIKAD git commit/push bez eksplicitne komande korisnika** — Ne komituj automatski, ne komituj posle implementacije, ne komituj posle QA. Čekaj da korisnik kaže "komit" ili "komit i push". Bez izuzetka.
+- **Kad korisnik pita pitanje — PRVO pročitaj relevantni kod, proveri podatke, razmisli, PA TEK ONDA odgovori.** Ne odgovaraj na osnovu pretpostavki. Proveri sounds.json manifest format, game repo strukturu, skripte koje se koriste. Svaka igra može imati drugačiji format (M4A sprite, OGG+AAC pojedinačni, itd.). NIKAD ne pretpostavljaj — uvek proveri.
 
 ## QA Review Roles
 
