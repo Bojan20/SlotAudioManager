@@ -95,10 +95,10 @@ for (const dataFile of soundDataFiles) {
         manifestEntry.loadType = "S";
         console.log(`  [Streaming] ${soundId} — loadType "S" (HTML5 Audio)`);
     } else if (subLoaderId && !isStandaloneTier) {
-        manifestEntry.loadType = subLoaderId;
-        const unloadable = tierConfig?.unloadable === true;
-        if (unloadable) manifestEntry.unloadable = true;
-        console.log(`  [SubLoader "${subLoaderId}"] ${soundId} — deferred${unloadable ? ', unloadable after use' : ''}`);
+        // Audio loads on main load (no loadType) — tiered M4A files for organization only.
+        // Deferred loading (A-F/Z) causes timing bugs: game commands fire before SubLoader
+        // finishes, resulting in silent fails. Audio is small (2-5MB total) — no need to defer.
+        console.log(`  [Main load] ${soundId} — tier "${tierName}" (no deferred — all audio loads on boot)`);
     }
     manifestEntries.push(manifestEntry);
 
@@ -106,8 +106,8 @@ for (const dataFile of soundDataFiles) {
     for (const [spriteName, spriteInfo] of Object.entries(spriteMap)) {
         spriteDataMap[spriteName] = {
             soundId: soundId,
-            startTime: spriteInfo[0],
-            duration: spriteInfo[1]
+            startTime: Math.round(spriteInfo[0]),
+            duration: Math.round(spriteInfo[1])
         };
     }
 }

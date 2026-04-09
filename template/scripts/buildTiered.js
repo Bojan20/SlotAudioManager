@@ -202,6 +202,21 @@ function streamingNeedsRebuild(soundName) {
 // ── Ensure output dirs ────────────────────────────────────────────────────────
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
+// ── Clean stale files from previous build systems ────────────────────────────
+// Same approach as buildSpritesOptimized.js: remove all M4A and soundData JSON
+// before building. Cache ensures unchanged tiers are rebuilt quickly.
+// This prevents Deploy from copying stale audioSprite files from size-based builds.
+const existingDistFiles = fs.readdirSync(outDir);
+let cleanedFiles = 0;
+for (const f of existingDistFiles) {
+    if (f.startsWith('.')) continue; // skip hidden (.streaming-cache.json etc.)
+    if (f.endsWith('.m4a') || (f.startsWith('soundData') && f.endsWith('.json'))) {
+        fs.rmSync(path.join(outDir, f));
+        cleanedFiles++;
+    }
+}
+if (cleanedFiles > 0) console.log(`Cleaned ${cleanedFiles} file(s) from dist/soundFiles/`);
+
 // ── Build queue ───────────────────────────────────────────────────────────────
 const buildQueue = [];
 

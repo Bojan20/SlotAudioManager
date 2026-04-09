@@ -131,6 +131,36 @@ function getSoxDuration(wavPath) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// CLEAN SUBLOADER FROM GAME REPO
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// This build has NO loadType/SubLoaders — SubLoaderAutoInit would trigger
+// non-existent SubLoaders. Remove it so it doesn't interfere.
+function cleanGameRepoSubLoaderInit() {
+    const gameRepoAbs = path.resolve(gameProjectPath);
+    const gameSrcTs = path.join(gameRepoAbs, 'src', 'ts');
+    if (!fs.existsSync(gameSrcTs)) return;
+
+    const subLoaderTs = path.join(gameSrcTs, 'utils', 'SubLoaderAutoInit.ts');
+    if (fs.existsSync(subLoaderTs)) {
+        fs.rmSync(subLoaderTs);
+        console.log('  Removed SubLoaderAutoInit.ts from game repo (not needed for this build)');
+    }
+
+    const mainTsPath = path.join(gameSrcTs, 'main.ts');
+    if (fs.existsSync(mainTsPath)) {
+        const mainContent = fs.readFileSync(mainTsPath, 'utf8');
+        if (mainContent.includes('SubLoaderAutoInit') || mainContent.includes('SUB_LOADER_AUTO_INIT')) {
+            const cleanedLines = mainContent.split('\n').filter(l =>
+                !l.includes('SubLoaderAutoInit') && !l.includes('SUB_LOADER_AUTO_INIT')
+            ).join('\n');
+            fs.writeFileSync(mainTsPath, cleanedLines, 'utf8');
+            console.log('  Removed SubLoaderAutoInit import from main.ts');
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -155,15 +185,40 @@ async function main() {
     const structureChanged = (prevCache._fileList || '') !== allFiles.join(',');
     const jsonChanged = templateHash !== (prevCache._templateHash || '') || scHash !== (prevCache._scHash || '');
 
-    if (!filesChanged && !structureChanged && !jsonChanged && fs.existsSync(JSONtarget)) {
+    // Ensure dist/soundFiles/ exists
+    fs.mkdirSync(outDir, { recursive: true });
+
+    // Clean stale files from OTHER build systems (e.g. tiered _loading/_main/_bonus from buildTiered.js)
+    // Must happen BEFORE cache check — otherwise switching build systems leaves stale files
+    const existingFiles = fs.readdirSync(outDir);
+    let cleaned = 0;
+    existingFiles.forEach(f => {
+        if (f.startsWith('.')) return;
+        if (f.endsWith('.m4a') || (f.startsWith('soundData') && f.endsWith('.json'))) {
+            // Keep only our audioSprite files — remove everything else
+            if (!f.match(/_audioSprite\d+\.m4a$/) && !f.match(/^soundData\d+\.json$/)) {
+                try { fs.unlinkSync(path.join(outDir, f)); cleaned++; } catch {}
+            }
+        }
+    });
+    if (cleaned > 0) {
+        console.log('Cleaned ' + cleaned + ' stale file(s) from other build systems');
+        // Force rebuild since output files were removed
+        if (!filesChanged && !structureChanged && !jsonChanged) {
+            console.log('  Forcing rebuild after cleanup');
+        }
+    }
+
+    if (!filesChanged && !structureChanged && !jsonChanged && cleaned === 0 && fs.existsSync(JSONtarget)) {
         console.log('\n✅ No changes detected — skipping build (cached)');
         console.log('   Delete dist/.build-cache.json to force rebuild\n');
+        cleanGameRepoSubLoaderInit();
         process.exit(0);
     }
 
     // If only JSON changed (not WAVs), skip sprite rebuild — just regenerate sounds.json
     // BUT: only if dist/sounds.json exists and is valid (needed for reuse)
-    let onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged;
+    let onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged && cleaned === 0;
     if (onlyJsonChanged) {
         if (!fs.existsSync(JSONtarget)) {
             console.log('  dist/sounds.json missing — forcing full rebuild');
@@ -173,9 +228,6 @@ async function main() {
             catch { console.log('  dist/sounds.json corrupted — forcing full rebuild'); onlyJsonChanged = false; }
         }
     }
-
-    // Ensure dist/soundFiles/ exists — never delete dist/ (avoids EBUSY on Windows)
-    fs.mkdirSync(outDir, { recursive: true });
 
     const gap = spriteConfig?.spriteGap !== undefined ? spriteConfig.spriteGap : 0.05;
     let spriteData = [];
@@ -239,7 +291,7 @@ async function main() {
         }
     }
 
-    // Clean stale M4A from previous builds with different sprite count
+    // Clean stale audioSprite M4A with different sprite count (e.g. had 6, now has 4)
     const existingM4a = fs.readdirSync(outDir).filter(f => f.match(/_audioSprite\d+\.m4a$/));
     existingM4a.forEach(f => {
         try { fs.unlinkSync(path.join(outDir, f)); } catch {}
@@ -523,6 +575,8 @@ async function main() {
     console.log('  Mode:          ' + (onlyJsonChanged ? 'JSON-only rebuild' : 'Full rebuild'));
     if (soxFailCount > 0) console.log('  Sox failures:  ' + soxFailCount + ' (used sprite map fallback)');
     console.log('');
+
+    cleanGameRepoSubLoaderInit();
 }
 
 main().catch(e => {

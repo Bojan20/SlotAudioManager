@@ -1,5 +1,6 @@
 const audiosprite = require('./customAudioSprite');
 const fs = require('fs');
+const path = require('path');
 const _ffmpegStatic = require('ffmpeg-static');
 const _fdkEnvPath = process.env.FFMPEG_FDK_PATH || '';
 const pathToFFmpeg = (_fdkEnvPath && require('fs').existsSync(_fdkEnvPath)) ? _fdkEnvPath : _ffmpegStatic;
@@ -20,6 +21,29 @@ const outDir = '././dist/soundFiles/';
 fs.rmdirSync(distDir, { recursive: true })
 
 fs.mkdirSync(outDir, { recursive: true });
+
+// Clean SubLoaderAutoInit from game repo — this build has no SubLoaders
+if (!gameProjectPath) { console.log('No gameProjectPath — skipping SubLoaderAutoInit cleanup'); }
+const _gameRepoAbs = gameProjectPath ? path.resolve(gameProjectPath) : '';
+const _gameSrcTs = _gameRepoAbs ? path.join(_gameRepoAbs, 'src', 'ts') : '';
+if (fs.existsSync(_gameSrcTs)) {
+    const _subLoaderTs = path.join(_gameSrcTs, 'utils', 'SubLoaderAutoInit.ts');
+    if (fs.existsSync(_subLoaderTs)) {
+        fs.rmSync(_subLoaderTs);
+        console.log('Removed SubLoaderAutoInit.ts from game repo');
+    }
+    const _mainTsPath = path.join(_gameSrcTs, 'main.ts');
+    if (fs.existsSync(_mainTsPath)) {
+        const _mainContent = fs.readFileSync(_mainTsPath, 'utf8');
+        if (_mainContent.includes('SubLoaderAutoInit') || _mainContent.includes('SUB_LOADER_AUTO_INIT')) {
+            const _cleaned = _mainContent.split('\n').filter(l =>
+                !l.includes('SubLoaderAutoInit') && !l.includes('SUB_LOADER_AUTO_INIT')
+            ).join('\n');
+            fs.writeFileSync(_mainTsPath, _cleaned, 'utf8');
+            console.log('Removed SubLoaderAutoInit import from main.ts');
+        }
+    }
+}
 
 const allFiles = fs.readdirSync(sourceSndFiles).filter(f => f.endsWith('.wav'));
 
