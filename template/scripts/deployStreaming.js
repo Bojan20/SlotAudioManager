@@ -136,7 +136,6 @@ const crypto = require('crypto');
 const _ffmpegStatic = require('ffmpeg-static');
 const _fdkStreamPath = process.env.FFMPEG_FDK_PATH || '';
 const _fdkStreamExists = _fdkStreamPath && fs.existsSync(_fdkStreamPath);
-const pathToFFmpeg = _fdkStreamExists ? _fdkStreamPath : _ffmpegStatic;
 const outDir = path.join('.', 'dist', 'soundFiles');
 if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
 
@@ -145,9 +144,35 @@ const channels = musicEnc.channels || 2;
 const samplerate = musicEnc.samplerate || 44100;
 const sox = require('sox');
 
+// ── FDK-AAC detection (same logic as customAudioSprite.js) ──────────────────
+const _fdkAacCache = {};
+function hasFdkAac(ffPath) {
+    if (_fdkAacCache[ffPath] !== undefined) return _fdkAacCache[ffPath];
+    try {
+        const result = require('child_process').execFileSync(ffPath, ['-encoders'], {
+            timeout: 5000, maxBuffer: 1024 * 1024, stdio: ['pipe', 'pipe', 'pipe']
+        }).toString();
+        _fdkAacCache[ffPath] = result.includes('libfdk_aac');
+    } catch (e) {
+        const stderr = e.stderr ? e.stderr.toString() : '';
+        const stdout = e.stdout ? e.stdout.toString() : '';
+        _fdkAacCache[ffPath] = stderr.includes('libfdk_aac') || stdout.includes('libfdk_aac');
+    }
+    return _fdkAacCache[ffPath];
+}
+
+// Per-category encoder from sprite-config.json (same logic as buildTiered.js)
+// Only use FDK binary if music encoder is set to 'fdk' — otherwise use bundled ffmpeg-static
+const musicEncEncoder = musicEnc.encoder || 'native';
+const wantsFdk = (musicEncEncoder === 'fdk') && _fdkStreamExists;
+const pathToFFmpeg = wantsFdk ? _fdkStreamPath : _ffmpegStatic;
+const useFdk = wantsFdk && hasFdkAac(pathToFFmpeg);
+const encoderLabel = useFdk ? 'libfdk_aac (FDK)' : 'aac (native)';
+console.log('  Streaming encoder: ' + encoderLabel + ' @ ' + bitrate + 'kbps ' + channels + 'ch ' + samplerate + 'Hz');
+
 // SHA-256 cache — includes encoding settings so bitrate/channels changes trigger rebuild
 const streamCacheFile = path.join('.', 'dist', '.streaming-cache.json');
-const encSettingsKey = bitrate + '|' + channels + '|' + samplerate;
+const encSettingsKey = bitrate + '|' + channels + '|' + samplerate + '|' + encoderLabel;
 function loadStreamCache() {
     try {
         const c = JSON.parse(fs.readFileSync(streamCacheFile, 'utf8'));
@@ -175,9 +200,14 @@ function getWavDurationMs(wavPath) {
 function encodeOne(name, wavPath, m4aPath) {
     return new Promise((resolve) => {
         getWavDurationMs(wavPath).then(durationMs => {
+            // FDK: -c:a libfdk_aac -afterburner 1 (higher quality at low bitrates)
+            // Native: -c:a aac -strict -2
+            const codecArgs = useFdk
+                ? ['-c:a', 'libfdk_aac', '-b:a', bitrate + 'k', '-afterburner', '1']
+                : ['-c:a', 'aac', '-b:a', bitrate + 'k', '-strict', '-2'];
             execFile(pathToFFmpeg, [
                 '-y', '-i', wavPath,
-                '-c:a', 'aac', '-b:a', bitrate + 'k',
+                ...codecArgs,
                 '-ac', String(channels), '-ar', String(samplerate),
                 '-movflags', '+faststart',
                 m4aPath
