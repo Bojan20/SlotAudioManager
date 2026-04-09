@@ -276,17 +276,21 @@ async function main() {
     const musicFiles = allFiles.filter(f => isMusicSound(f.replace('.wav', ''))).map(f => path.join(sourceDir, f));
     console.log('SFX: ' + sfxFiles.length + ' files, Music: ' + musicFiles.length + ' files');
 
-    // Compute SHA-256 for all WAVs + template sounds.json + sprite-config.json
+    // Compute SHA-256 for all WAVs + template sounds.json + sprite-config.json + this script
     const hashes = {};
     allFiles.forEach(f => { hashes[f] = sha256(path.join(sourceDir, f)); });
     const templateHash = fs.existsSync(JSONtemplate) ? sha256(JSONtemplate) : '';
     const scHash = fs.existsSync('sprite-config.json') ? sha256('sprite-config.json') : '';
+    const scriptHash = sha256(__filename);
     const prevCache = loadCache();
 
-    // Check if WAVs, template JSON, or sprite-config changed
+    // Check if WAVs, template JSON, sprite-config, or build script changed
     const filesChanged = allFiles.some(f => hashes[f] !== prevCache[f]);
     const structureChanged = (prevCache._fileList || '') !== allFiles.join(',');
-    const jsonChanged = templateHash !== (prevCache._templateHash || '') || scHash !== (prevCache._scHash || '');
+    const templateJsonChanged = templateHash !== (prevCache._templateHash || '');
+    const spriteConfigChanged = scHash !== (prevCache._scHash || '');
+    const jsonChanged = templateJsonChanged || spriteConfigChanged;
+    const scriptChanged = scriptHash !== (prevCache._scriptHash || '');
 
     // Ensure dist/soundFiles/ exists
     fs.mkdirSync(outDir, { recursive: true });
@@ -307,12 +311,15 @@ async function main() {
     if (cleaned > 0) {
         console.log('Cleaned ' + cleaned + ' stale file(s) from other build systems');
         // Force rebuild since output files were removed
-        if (!filesChanged && !structureChanged && !jsonChanged) {
+        if (!filesChanged && !structureChanged && !jsonChanged && !scriptChanged) {
             console.log('  Forcing rebuild after cleanup');
         }
     }
 
-    if (!filesChanged && !structureChanged && !jsonChanged && cleaned === 0 && fs.existsSync(JSONtarget)) {
+    if (scriptChanged) console.log('Build script changed — forcing full rebuild');
+    if (spriteConfigChanged) console.log('sprite-config.json changed — forcing full rebuild');
+
+    if (!filesChanged && !structureChanged && !jsonChanged && !scriptChanged && cleaned === 0 && fs.existsSync(JSONtarget)) {
         console.log('\n✅ No changes detected — skipping build (cached)');
         console.log('   Delete dist/.build-cache.json to force rebuild\n');
         cleanGameRepoSubLoaderInit();
@@ -321,7 +328,8 @@ async function main() {
 
     // If only JSON changed (not WAVs), skip sprite rebuild — just regenerate sounds.json
     // BUT: only if dist/sounds.json exists and is valid (needed for reuse)
-    let onlyJsonChanged = jsonChanged && !filesChanged && !structureChanged && cleaned === 0;
+    // sprite-config changes (gap, encoding) require full rebuild — only sounds.json template is safe for JSON-only
+    let onlyJsonChanged = templateJsonChanged && !spriteConfigChanged && !filesChanged && !structureChanged && !scriptChanged && cleaned === 0;
     if (onlyJsonChanged) {
         if (!fs.existsSync(JSONtarget)) {
             console.log('  dist/sounds.json missing — forcing full rebuild');
@@ -715,6 +723,7 @@ async function main() {
     hashes._fileList = allFiles.join(',');
     hashes._templateHash = templateHash;
     hashes._scHash = scHash;
+    hashes._scriptHash = scriptHash;
     saveCache(hashes);
 
     // ═══════════════════════════════════════════════════════════════════════════

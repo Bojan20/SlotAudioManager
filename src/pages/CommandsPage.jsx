@@ -842,9 +842,10 @@ export default function CommandsPage({ project, setProject, showToast }) {
   };
 
   const handleReorderStep = async (cmdName, fromIdx, toIdx) => {
-    if (fromIdx === toIdx) return;
+    if (saving || fromIdx === toIdx) return;
     const j = structuredClone(project.soundsJson);
     const arr = j.soundDefinitions.commands[cmdName];
+    if (!arr || fromIdx < 0 || fromIdx >= arr.length || toIdx < 0 || toIdx >= arr.length) return;
     const [moved] = arr.splice(fromIdx, 1);
     arr.splice(toIdx, 0, moved);
     await saveJson(j, `Step ${fromIdx + 1} → ${toIdx + 1}`);
