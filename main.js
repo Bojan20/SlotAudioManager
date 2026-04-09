@@ -2078,8 +2078,9 @@ function spawnAsync(cmd, args, opts = {}) {
 ipcMain.handle('vpn-connect', async () => {
   if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
   try {
-    await spawnAsync(panGPAPath, ['-c', 'connect'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] });
-    await new Promise(r => setTimeout(r, 1500));
+    // Show panel first — '-c connect' alone doesn't open the UI window
+    await spawnAsync(panGPAPath, ['-c', 'show'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] }).catch(() => {});
+    await new Promise(r => setTimeout(r, 2000));
     const result = await new Promise((resolve, reject) => {
       exec(gpClickButton('Connect'), { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => err ? reject(err) : resolve(stdout.trim()));
     });
@@ -2095,8 +2096,8 @@ ipcMain.handle('vpn-connect', async () => {
 ipcMain.handle('vpn-disconnect', async () => {
   if (!fs.existsSync(panGPAPath)) return { error: 'GlobalProtect not installed' };
   try {
-    await spawnAsync(panGPAPath, ['-c', 'disconnect'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] });
-    await new Promise(r => setTimeout(r, 1500));
+    await spawnAsync(panGPAPath, ['-c', 'show'], { timeout: 10000, stdio: ['ignore', 'ignore', 'ignore'] }).catch(() => {});
+    await new Promise(r => setTimeout(r, 2000));
     const result = await new Promise((resolve, reject) => {
       exec(gpClickButton('Disconnect'), { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout) => err ? reject(err) : resolve(stdout.trim()));
     });
