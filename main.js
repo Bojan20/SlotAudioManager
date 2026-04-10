@@ -518,7 +518,7 @@ function loadProject(dirPath) {
       sprites,
       spriteSizes,
       spriteCount: sprites.length,
-      totalSizeMB: (totalSize / (1024 * 1024)).toFixed(1),
+      totalSizeMB: (totalSize / (1024 * 1024)).toFixed(2),
       hasSoundsJson: fs.existsSync(distSoundsJson),
     };
   } else {
@@ -526,7 +526,7 @@ function loadProject(dirPath) {
       hasDist: false,
       sprites: [],
       spriteCount: 0,
-      totalSizeMB: '0.0',
+      totalSizeMB: '0.00',
       hasSoundsJson: fs.existsSync(distSoundsJson),
     };
   }
@@ -2383,16 +2383,52 @@ ipcMain.handle('wait-for-port', async (event, { port, timeout = 120000 }) => {
   });
 });
 
-// Clear Chrome localStorage for game (127.0.0.1) — resets tutorial prefs etc.
+// Clear Chrome localStorage + webpack cache in game repo
+// Kills Chrome if files are locked, waits, then retries
 ipcMain.handle('clear-game-storage', async () => {
-  try {
-    const lsDir = path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data', 'Default', 'Local Storage', 'leveldb');
-    if (!fs.existsSync(lsDir)) return { error: 'Chrome Local Storage not found' };
-    fs.rmSync(lsDir, { recursive: true, force: true });
-    return { success: true, message: 'Chrome localStorage cleared. Close Chrome tabs and relaunch.' };
-  } catch (e) {
-    return { error: e.message };
+  const cleared = [];
+
+  // 1. Chrome localStorage
+  const lsDir = path.join(process.env.LOCALAPPDATA || '', 'Google', 'Chrome', 'User Data', 'Default', 'Local Storage', 'leveldb');
+  if (fs.existsSync(lsDir)) {
+    try {
+      fs.rmSync(lsDir, { recursive: true, force: true });
+      cleared.push('localStorage');
+    } catch (e) {
+      if (e.code === 'EBUSY') {
+        // Graceful close first (WM_CLOSE), then force after 2s if still locked
+        try {
+          await new Promise(resolve => exec('taskkill /IM chrome.exe', () => resolve()));
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            fs.rmSync(lsDir, { recursive: true, force: true });
+          } catch {
+            // Still locked — force kill
+            await new Promise(resolve => exec('taskkill /F /IM chrome.exe', () => resolve()));
+            await new Promise(r => setTimeout(r, 1500));
+            fs.rmSync(lsDir, { recursive: true, force: true });
+          }
+          cleared.push('localStorage');
+        } catch { cleared.push('localStorage (partial)'); }
+      }
+    }
   }
+
+  // 2. Webpack cache in game repo
+  if (projectPath) {
+    const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
+    if (settings?.gameProjectPath) {
+      const gameRepoPath = path.resolve(projectPath, settings.gameProjectPath);
+      for (const sub of ['node_modules/.cache', '.cache']) {
+        const dir = path.join(gameRepoPath, sub);
+        if (fs.existsSync(dir)) {
+          try { fs.rmSync(dir, { recursive: true, force: true }); cleared.push('webpack cache'); } catch {}
+        }
+      }
+    }
+  }
+
+  return { success: true, message: cleared.length > 0 ? 'Cleared: ' + cleared.join(', ') : 'Nothing to clear' };
 });
 
 // Scan game repo TypeScript source for all soundManager.execute() calls

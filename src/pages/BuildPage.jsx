@@ -461,7 +461,7 @@ export default function BuildPage({ project, setProject, showToast }) {
                 {distInfo?.sprites?.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {distInfo.sprites.map(s => (
-                      <span key={s} className="text-[11px] font-mono text-cyan/60 bg-cyan/[0.05] border border-cyan/[0.08] px-2.5 py-1 rounded-md">{s}</span>
+                      <span key={s} className="inline-flex items-center gap-2.5 text-[11px] font-mono bg-cyan/[0.05] border border-cyan/[0.08] px-2.5 py-1 rounded-md"><span className="text-cyan/60">{s}</span>{distInfo.spriteSizes?.[s] ? <span className="text-text-secondary font-semibold">{distInfo.spriteSizes[s] >= 1000 ? (distInfo.spriteSizes[s] / 1000).toFixed(3) + ' MB' : distInfo.spriteSizes[s] + ' KB'}</span> : ''}</span>
                     ))}
                   </div>
                 )}
@@ -494,23 +494,7 @@ export default function BuildPage({ project, setProject, showToast }) {
                       <button onClick={async () => { const r = await window.api.openFolder('dist/encoder-test'); if (r?.error) showToast(r.error, 'error'); }} style={{ padding: '10px 20px' }} className="inline-flex items-center text-[13px] font-medium rounded-lg border border-white/[0.08] text-text-dim hover:text-text-secondary hover:border-white/15 transition-all" title="Open folder">Open Folder</button>
                     </>)}
                   </div>
-                  {abFiles.length > 0 && (
-                    <div className="pt-2.5 border-t border-purple/10 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold tracking-widest uppercase text-purple/45">Encoder A/B</span>
-                        <span className="text-[11px] text-text-dim">{abFiles.length} sound{abFiles.length !== 1 ? 's' : ''}</span>
-                        <button onClick={() => { stopAbAudio(); setAbFiles([]); }} className="ml-auto text-[11px] text-text-dim hover:text-text-secondary">Close</button>
-                      </div>
-                      {abFiles.map(f => (
-                        <div key={f.name} className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-mono text-text-primary truncate min-w-0 max-w-[140px]" title={f.name}>{f.name}</span>
-                          {f.native && <button onClick={() => playAbAudio(f.native)} className={`text-xs py-1 px-2.5 rounded-md border transition-all ${abPlaying === f.native ? 'bg-cyan/12 text-cyan border-cyan/30' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}>{abPlaying === f.native ? '■ Native' : '▶ Native'}{f.nativeSize ? ` (${(f.nativeSize/1024).toFixed(1)}K)` : ''}</button>}
-                          {f.fdk && <button onClick={() => playAbAudio(f.fdk)} className={`text-xs py-1 px-2.5 rounded-md border transition-all ${abPlaying === f.fdk ? 'bg-green/12 text-green border-green/30' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}>{abPlaying === f.fdk ? '■ FDK' : '▶ FDK'}{f.fdkSize ? ` (${(f.fdkSize/1024).toFixed(1)}K)` : ''}</button>}
-                          {!f.fdk && <span className="text-[11px] text-text-dim italic">FDK n/a</span>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {/* A/B modal rendered at page level */}
                 </div>
                 <div className="flex justify-center"><div className="w-px h-3 bg-white/[0.06]" /></div>
               </>)}
@@ -567,7 +551,7 @@ export default function BuildPage({ project, setProject, showToast }) {
                   <span className={`inline-block w-1.5 h-1.5 rounded-full ${vpnBusy ? 'bg-orange anim-pulse-dot' : vpnConnected ? 'bg-green' : 'bg-danger'}`} /> VPN
                 </button>
                 <button onClick={() => { window.api.killGame(); setGameStarted(false); showToast('Port freed','success'); }} className="text-[11px] py-1 px-2.5 rounded-md border border-border text-text-dim hover:text-danger hover:border-danger/25 transition-colors" title="Kill server">Kill</button>
-                <button onClick={async () => { const r = await window.api.clearGameStorage(); if(r?.error) showToast(r.error,'error'); else showToast('Storage cleared','success'); }} className="text-[11px] py-1 px-2.5 rounded-md border border-border text-text-dim hover:text-orange hover:border-orange/25 transition-colors" title="Clear localStorage">Clear</button>
+                <button onClick={async () => { const r = await window.api.clearGameStorage(); showToast(r?.message || 'Cleared', r?.error ? 'error' : 'success'); }} className="text-[11px] py-1 px-2.5 rounded-md border border-border text-text-dim hover:text-orange hover:border-orange/25 transition-colors" title="Clear Chrome localStorage + webpack cache (kills Chrome if needed)">Clear</button>
                 <button onClick={loadGameScripts} disabled={loadingGameScripts||running!==null||deploying} className="text-[11px] py-1 px-2.5 rounded-md border border-border text-text-dim hover:text-text-secondary hover:border-border-bright transition-colors disabled:opacity-40">{loadingGameScripts ? '...' : 'Refresh'}</button>
               </div>
             </div>
@@ -695,6 +679,64 @@ export default function BuildPage({ project, setProject, showToast }) {
               ? <span key={i} className="text-orange">{line}{'\n'}</span>
               : line + '\n'
           )}</pre>
+        </div>
+      )}
+
+      {/* ═══ A/B Encoder Comparison Modal ═══ */}
+      {abFiles.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => { stopAbAudio(); setAbFiles([]); }}>
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          {/* Panel */}
+          <div className="relative w-auto max-w-[90vw] max-h-[85vh] mx-4 card overflow-hidden anim-fade-up" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-border/40">
+              <span className="text-sm font-bold text-text-primary">Encoder A/B Comparison</span>
+              <span className="text-[11px] text-text-dim">{abFiles.length} sound{abFiles.length !== 1 ? 's' : ''}</span>
+              <button onClick={() => { stopAbAudio(); setAbFiles([]); }} className="ml-auto text-[11px] py-1 px-3 rounded-md border border-border text-text-dim hover:text-text-secondary hover:border-border-bright transition-colors">Close</button>
+            </div>
+            {/* Table */}
+            <div className="overflow-y-auto max-h-[65vh]">
+              <table className="w-auto border-collapse" style={{ marginLeft: '24px', marginRight: '24px' }}>
+                <thead>
+                  <tr className="text-[10px] font-bold tracking-[0.12em] uppercase border-b border-border/20">
+                    <td className="text-text-dim py-2.5 pr-4">Sound</td>
+                    <td className="text-center text-cyan/60 py-2.5 px-1" style={{ width: '68px' }}>Native</td>
+                    <td className="text-center text-cyan/40 py-2.5 px-1" style={{ width: '50px' }}>Size</td>
+                    <td className="text-center text-green/60 py-2.5 px-1" style={{ width: '68px' }}>FDK</td>
+                    <td className="text-center text-green/40 py-2.5 px-1" style={{ width: '50px' }}>Size</td>
+                  </tr>
+                </thead>
+                <tbody>
+                  {abFiles.map((f, idx) => (
+                    <tr key={f.name} className={`${idx % 2 === 0 ? 'bg-white/[0.015]' : ''} hover:bg-white/[0.03] transition-colors`}>
+                      <td className="text-xs font-mono text-text-primary whitespace-nowrap py-2 pr-4">{f.name}</td>
+                      <td className="text-center py-2 px-1">{f.native ? (
+                        <button onClick={() => playAbAudio(f.native)} className={`w-full text-center text-xs py-1.5 rounded-md border transition-all ${abPlaying === f.native ? 'bg-cyan/15 text-cyan border-cyan/30 font-medium' : 'text-cyan/50 border-cyan/15 hover:text-cyan hover:border-cyan/30 hover:bg-cyan/8'}`}>
+                          {abPlaying === f.native ? '■ Stop' : '▶ Play'}
+                        </button>
+                      ) : <span className="text-[11px] text-text-dim">—</span>}</td>
+                      <td className="text-center text-[11px] font-mono text-cyan/50 py-2 px-1">{f.nativeSize ? `${(f.nativeSize/1024).toFixed(1)}K` : '—'}</td>
+                      <td className="text-center py-2 px-1">{f.fdk ? (
+                        <button onClick={() => playAbAudio(f.fdk)} className={`w-full text-center text-xs py-1.5 rounded-md border transition-all ${abPlaying === f.fdk ? 'bg-green/15 text-green border-green/30 font-medium' : 'text-green/50 border-green/15 hover:text-green hover:border-green/30 hover:bg-green/8'}`}>
+                          {abPlaying === f.fdk ? '■ Stop' : '▶ Play'}
+                        </button>
+                      ) : <span className="text-[11px] text-text-dim italic">n/a</span>}</td>
+                      <td className="text-center text-[11px] font-mono text-green/50 py-2 px-1">{f.fdkSize ? `${(f.fdkSize/1024).toFixed(1)}K` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Footer */}
+            <div className="flex items-center gap-4 px-6 py-3 border-t border-border/40 text-[11px] text-text-dim">
+              <span>Native: <span className="text-cyan font-mono">{(abFiles.reduce((s,f) => s + (f.nativeSize||0), 0)/1024).toFixed(1)}K</span> total</span>
+              <span>FDK: <span className="text-green font-mono">{(abFiles.reduce((s,f) => s + (f.fdkSize||0), 0)/1024).toFixed(1)}K</span> total</span>
+              <span className="font-mono">{abFiles.filter(f => f.fdkSize && f.nativeSize && f.fdkSize < f.nativeSize).length}/{abFiles.filter(f => f.fdk).length} FDK smaller</span>
+              <button onClick={async () => { const r = await window.api.openFolder('dist/encoder-test'); if (r?.error) showToast(r.error, 'error'); }}
+                className="ml-auto text-text-dim hover:text-text-secondary transition-colors">Open Folder</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
