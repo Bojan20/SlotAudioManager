@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('api', {
   openGameWindow: (url) => ipcRenderer.invoke('open-game-window', url),
   clearGameStorage: () => ipcRenderer.invoke('clear-game-storage'),
   waitForPort: (opts) => ipcRenderer.invoke('wait-for-port', opts),
+  gitPullAudio: () => ipcRenderer.invoke('git-pull-audio'),
   gitPullGame: () => ipcRenderer.invoke('git-pull-game'),
   checkoutGameBranch: (branch) => ipcRenderer.invoke('checkout-game-branch', branch),
   // Pool measurement

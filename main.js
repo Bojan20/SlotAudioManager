@@ -1953,6 +1953,21 @@ ipcMain.handle('checkout-game-branch', async (event, branchName) => {
 });
 
 // Git pull in game repo
+// Git pull audio repo — fetch + pull current branch
+ipcMain.handle('git-pull-audio', async () => {
+  if (!projectPath) return { error: 'No project open' };
+  try {
+    const branch = (await gitAsync(['rev-parse', '--abbrev-ref', 'HEAD'], { timeout: 5000 })).trim();
+    await gitAsync(['fetch', 'origin', '--prune'], { capture: false }).catch(() => {});
+    const output = await gitAsync(['pull', 'origin', branch, '--ff-only'], { timeout: 20000 });
+    return { success: true, output: output.trim(), branch };
+  } catch (e) {
+    if (e.message?.includes('CONFLICT') || e.stderr?.includes('CONFLICT')) return { error: 'Merge conflict — resolve manually' };
+    if (e.message?.includes('not a git repository')) return { error: 'Not a git repository' };
+    return { error: e.message || 'git pull failed' };
+  }
+});
+
 ipcMain.handle('git-pull-game', async () => {
   console.log('[git-pull-game] start');
   if (!projectPath) return { error: 'No project open' };

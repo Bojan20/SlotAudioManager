@@ -10,11 +10,14 @@ const Dot = ({ color = 'bg-accent' }) => <span className={`inline-block w-1.5 h-
 
 const ActionBtn = ({ onClick, disabled, loading, loadingText, idleText, variant = 'ghost', color, className = '', title }) => {
   const base = variant === 'primary'
-    ? 'btn-primary text-xs !py-2.5 !px-5 !rounded-xl'
-    : 'btn-ghost text-xs !py-2.5 !px-5 !rounded-xl';
+    ? 'btn-primary text-xs !py-2 !px-4 !rounded-lg'
+    : 'btn-ghost text-xs !py-2 !px-4 !rounded-lg';
   const colorClass = loading && color ? `!border-${color}/30 !text-${color}` : '';
   return (
-    <button onClick={onClick} disabled={disabled} className={`${base} ${colorClass} ${loading ? '!cursor-wait' : ''} ${className}`} title={title}>
+    <button onClick={onClick} disabled={disabled} className={`${base} ${colorClass} ${loading ? '!cursor-wait' : ''} ${className}`} title={title}
+      style={{ transition: 'all 0.15s ease' }}
+      onMouseEnter={e => { if (!disabled) { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(124,106,239,0.15)'; } }}
+      onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = ''; }}>
       {loading && <Dot color={`bg-${color || 'accent'}`} />}
       <span className={loading ? 'ml-1.5' : ''}>{loading ? loadingText : idleText}</span>
     </button>
@@ -61,9 +64,9 @@ export default function SetupPage({ project, setProject, showToast }) {
   const [branchLog, setBranchLog] = useState('');
 
   useEffect(() => {
-    setInitLog([]);
-    setGameInstallLog('');
-    setConfirmSync(false);
+    setInitLog([]); setInitializing(false); setNpmInstalling(false);
+    setGameInstallLog(''); setGameInstalling(false);
+    setConfirmSync(false); setPulling(false); setSwitching(false);
     setBranchLog('');
     setSelectedBranch(project?.gameRepoBranch || '');
   }, [project?.path, project?._reloadKey]);
@@ -171,260 +174,187 @@ export default function SetupPage({ project, setProject, showToast }) {
   const gameOperationBusy = switching || gameInstalling || pulling;
   const hasGame = project?.settings?.gameProjectPath && project?.gameRepoExists;
 
+  const anyBusy = initializing || npmInstalling || gameOperationBusy;
+  const health = project?.healthCheck;
+  const hasNodeModules = health?.nodeModules !== false;
+  const gameHasNodeModules = project?.gameNodeModulesExists !== false;
+
   return (
     <div className="anim-fade-up h-full flex flex-col">
-
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between pb-5">
-        <div>
-          <h2 className="text-xl font-bold text-text-primary">Project Setup</h2>
-          <p className="text-xs text-text-dim mt-1">Link, sync, install — then build</p>
-        </div>
+      <div className="shrink-0 flex flex-col items-center justify-center pt-2 pb-6">
+        <h2 className="text-xl font-bold text-text-primary tracking-tight">Project Setup</h2>
+        <p className="text-xs text-text-dim mt-1">Follow each step from top to bottom</p>
       </div>
 
-      {/* Body — responsive 2-col grid */}
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-4">
+      {/* Single column flow — centered */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ maxWidth: '600px', width: '100%', padding: '40px 16px 32px' }} className="space-y-5">
 
-        {/* ═══ LEFT — Audio Project ═══ */}
-        <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pr-0.5">
-
-          {/* ── 1. Sync Template ── */}
-          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-1 min-h-0 flex flex-col">
-            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20 shrink-0 flex-wrap">
-              <svg className="w-4 h-4 shrink-0 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim" title="Overwrites scripts, configs, and package.json dependencies from the bundled template">Sync Template</span>
-              <div className="flex-1" />
-              {!confirmSync && (
-                <ActionBtn
-                  onClick={() => setConfirmSync(true)}
-                  disabled={initializing || npmInstalling}
-                  loading={initializing}
-                  loadingText="Syncing..."
-                  idleText="Sync Template"
-                  color="accent"
-                  title="Overwrite scripts and configs from bundled template"
-                />
-              )}
+          {/* ═══ SECTION: CONNECT ═══ */}
+          <div>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-purple/25 to-transparent" />
+              <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-purple/60">Connect</span>
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-purple/25 to-transparent" />
             </div>
 
-            {/* Sync confirmation inline */}
-            {confirmSync && (
-              <div className="px-5 py-4 border-b border-orange/20 bg-orange/5 shrink-0">
-                <p className="text-xs text-orange font-semibold mb-2">Sync Template</p>
-                <p className="text-[11px] text-text-secondary mb-3 leading-relaxed">
-                  Overwrite <span className="text-text-primary font-semibold">sprite-config.json</span> and <span className="text-text-primary font-semibold">sounds.json</span> from template? If you've already configured sounds — choose "Skip Configs".
-                </p>
-                <div className="flex gap-2.5">
-                  <button onClick={() => { setConfirmSync(false); initFromTemplate(); }} disabled={initializing} className="btn-primary text-xs !py-2.5 !px-5 !rounded-xl flex-1" title="Overwrite all scripts, configs, and sounds.json from template">Sync All</button>
-                  <button onClick={() => { setConfirmSync(false); initFromTemplate({ skipConfigs: true }); }} disabled={initializing} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl !border-cyan/30 !text-cyan flex-1" title="Overwrite scripts and dependencies only — keep existing sprite-config.json and sounds.json">Skip Configs</button>
-                  <button onClick={() => setConfirmSync(false)} className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl">Cancel</button>
-                </div>
-              </div>
-            )}
-
-            {/* Sync description */}
-            {!confirmSync && initLog.length === 0 && (
-              <div className="px-5 py-4 flex-1 flex items-start">
-                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-bg-primary/30 border border-border/20">
-                  <svg className="w-3.5 h-3.5 text-text-dim/50 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <p className="text-[11px] text-text-dim leading-relaxed">Overwrites scripts, configs, and dependencies from the bundled template. Run <span className="font-mono text-text-secondary">npm install</span> separately after sync if dependencies changed.</p>
-                </div>
-              </div>
-            )}
-
-            {/* Sync log inline */}
-            {initLog.length > 0 && (
-              <div className="px-5 py-4 shrink-0">
-                <LogLines lines={initLog} maxH="max-h-32" />
-              </div>
-            )}
-
-            {/* npm install — separate from sync */}
-            <div className="px-5 py-3 border-t border-border/20 flex items-center gap-3">
-              <ActionBtn
-                onClick={async () => {
-                  setNpmInstalling(true);
-                  setInitLog(prev => [...prev, '', 'Running npm install...']);
-                  try {
-                    const r = await window.api.npmInstall();
-                    if (r?.success) {
-                      if (r.project) setProject(r.project);
-                      setInitLog(prev => [...prev, '✔ Dependencies installed']);
-                      showToast('npm install complete', 'success');
-                    } else {
-                      setInitLog(prev => [...prev, '✖ npm install failed: ' + (r?.error || 'unknown')]);
-                      showToast('npm install failed', 'error');
-                    }
-                  } catch (e) {
-                    setInitLog(prev => [...prev, '✖ ' + e.message]);
-                    showToast('npm install failed', 'error');
-                  }
-                  setNpmInstalling(false);
-                }}
-                disabled={initializing || npmInstalling}
-                loading={npmInstalling}
-                loadingText="Installing..."
-                idleText="npm install"
-                color="cyan"
-                title="Install audio project dependencies"
-              />
-              <span className="text-[10px] text-text-dim">Run after Sync if dependencies changed</span>
-            </div>
-          </div>
-
-        </div>
-
-        {/* ═══ RIGHT — Game Repo Actions ═══ */}
-        <div className="flex flex-col gap-4 min-h-0 overflow-y-auto pl-0.5">
-
-          {/* ── 0. Game Branch Selector ── */}
-          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
-            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
-              <svg className="w-4 h-4 text-purple shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim">Game Branch</span>
-              {project?.gameRepoBranch && (
-                <span className="badge bg-purple-dim text-purple text-[10px]">{project.gameRepoBranch}</span>
-              )}
-              {project?.gameNodeVersion && (
-                <span className="badge bg-green/10 text-green text-[10px]" title="Detected Node version for this game repo">Node {project.gameNodeVersion}</span>
-              )}
-              <div className="flex-1" />
-            </div>
-            <div className="px-5 py-4">
-              {hasGame && project?.gameRepoBranches?.length > 0 ? (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2.5">
-                    <select
-                      value={selectedBranch}
-                      onChange={e => setSelectedBranch(e.target.value)}
-                      disabled={gameOperationBusy}
-                      className="input-base text-xs flex-1 !py-2 !rounded-xl"
-                    >
-                      {project.gameRepoBranch && !project.gameRepoBranches.includes(project.gameRepoBranch) && (
-                        <option value={project.gameRepoBranch}>{project.gameRepoBranch} (local)</option>
-                      )}
-                      {project.gameRepoBranches.map(b => (
-                        <option key={b} value={b}>{b}</option>
-                      ))}
-                    </select>
-                    <ActionBtn
-                      onClick={checkoutBranch}
-                      disabled={gameOperationBusy || !selectedBranch}
-                      loading={switching}
-                      loadingText={selectedBranch === project?.gameRepoBranch ? 'Pulling...' : 'Switching...'}
-                      idleText={selectedBranch === project?.gameRepoBranch ? 'Pull' : 'Switch & Pull'}
-                      color={selectedBranch === project?.gameRepoBranch ? 'cyan' : 'purple'}
-                      title={selectedBranch === project?.gameRepoBranch ? 'Fetch + pull current branch' : 'Checkout selected branch and pull latest changes'}
-                    />
+            <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* 1. Game Branch */}
+              <div className="py-5">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-purple/10 text-purple text-sm font-bold shrink-0">1</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-text-primary">Game Branch</p>
+                    <p className="text-[11px] text-text-dim mt-0.5">Select branch and pull latest changes</p>
                   </div>
-                  <LogBlock text={branchLog} maxH="max-h-20" />
+                  {hasGame && project?.gameRepoBranches?.length > 0 ? (
+                    <div className="flex items-center gap-2.5 shrink-0">
+                      <select value={selectedBranch} onChange={e => setSelectedBranch(e.target.value)} disabled={anyBusy}
+                        className="input-base text-xs !py-2 !px-2.5 !rounded-lg font-mono max-w-[180px]">
+                        {project.gameRepoBranch && !project.gameRepoBranches.includes(project.gameRepoBranch) && <option value={project.gameRepoBranch}>{project.gameRepoBranch} (local)</option>}
+                        {project.gameRepoBranches.map(b => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                      <ActionBtn onClick={checkoutBranch} disabled={anyBusy || !selectedBranch} loading={switching}
+                        loadingText={selectedBranch === project?.gameRepoBranch ? 'Pulling...' : 'Switching...'}
+                        idleText={selectedBranch === project?.gameRepoBranch ? 'Pull' : 'Switch & Pull'}
+                        color={selectedBranch === project?.gameRepoBranch ? 'cyan' : 'purple'} />
+                    </div>
+                  ) : <span className="text-[10px] text-text-dim italic shrink-0">{hasGame ? 'No branches' : 'Link repo first'}</span>}
                 </div>
-              ) : !hasGame ? (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-bg-primary/40 border border-border/30">
-                  <svg className="w-3.5 h-3.5 text-text-dim/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <p className="text-xs text-text-dim/60">Link a game repository in Project tab first</p>
-                </div>
-              ) : (
-                <p className="text-[11px] text-text-dim">No remote branches found</p>
-              )}
+                {branchLog && <div className="mt-3"><LogBlock text={branchLog} maxH="max-h-16" /></div>}
+              </div>
             </div>
           </div>
 
-          {/* ── 1. Pull sounds.json ── */}
-          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
-            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
-              <svg className="w-4 h-4 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-              </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim" title="Copies sounds.json from game repo deploy folder to audio repo root">Pull sounds.json</span>
-              <div className="flex-1" />
-              {hasGame ? (
-                <ActionBtn
-                  onClick={pullGameJson}
-                  disabled={gameOperationBusy || !hasGame}
-                  loading={pulling}
-                  loadingText="Pulling..."
-                  idleText="Pull from Game"
-                  color="green"
-                  title="Copy sounds.json from game/assets/sounds/ to audio repo root"
-                />
-              ) : (
-                <span className="text-[10px] text-text-dim/40 italic">Link repo first</span>
-              )}
+          {/* ═══ SECTION: SYNC ═══ */}
+          <div>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
+              <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-accent/60">Sync</span>
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-accent/25 to-transparent" />
             </div>
 
-            <div className="px-5 py-4">
-              <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${hasGame ? 'bg-bg-primary/30 border-border/20' : 'bg-bg-primary/40 border-border/30'}`}>
-                <svg className="w-3.5 h-3.5 text-text-dim/50 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                <div className="space-y-1">
-                  <p className="text-[11px] text-text-dim leading-relaxed">Copies <span className="font-mono text-text-secondary">sounds.json</span> from game repo deploy folder to audio repo root.</p>
-                  <p className="text-[11px] text-text-dim leading-relaxed">Useful after first init to pull existing commands and sprite definitions.</p>
+            <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* 2. Sync Template */}
+              <div className="py-5 border-b border-border/20">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-accent/10 text-accent text-sm font-bold shrink-0">2</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-text-primary">Sync Template</p>
+                    <p className="text-[11px] text-text-dim mt-0.5">Overwrite scripts, configs, dependencies from app template</p>
+                  </div>
+                  {!confirmSync ? (
+                    <ActionBtn onClick={() => setConfirmSync(true)} disabled={anyBusy} loading={initializing}
+                      loadingText="Syncing..." idleText="Sync" color="accent" />
+                  ) : (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => { setConfirmSync(false); initFromTemplate(); }} disabled={initializing}
+                        className="btn-primary text-xs !py-2.5 !px-5 !rounded-xl">Sync All</button>
+                      <button onClick={() => { setConfirmSync(false); initFromTemplate({ skipConfigs: true }); }} disabled={initializing}
+                        className="btn-ghost text-xs !py-2.5 !px-5 !rounded-xl !border-cyan/30 !text-cyan">Skip Configs</button>
+                      <button onClick={() => setConfirmSync(false)}
+                        className="btn-ghost text-xs !py-2.5 !px-4 !rounded-xl">Cancel</button>
+                    </div>
+                  )}
+                </div>
+                {initLog.length > 0 && <div className="mt-4"><LogLines lines={initLog} maxH="max-h-28" /></div>}
+              </div>
+
+              {/* 3. Pull sounds.json */}
+              <div className="py-5">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green/10 text-green text-sm font-bold shrink-0">3</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-text-primary">Pull sounds.json</p>
+                    <p className="text-[11px] text-text-dim mt-0.5">Copy commands and sprite definitions from game repo</p>
+                  </div>
+                  {hasGame ? (
+                    <ActionBtn onClick={pullGameJson} disabled={anyBusy} loading={pulling}
+                      loadingText="Pulling..." idleText="Pull" color="green" />
+                  ) : <span className="text-[10px] text-text-dim italic shrink-0">Link repo first</span>}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* ── 2. Yarn Install (Game) ── */}
-          <div className="rounded-2xl border border-border/40 overflow-hidden bg-bg-card/60 flex-none">
-            <div className="px-5 py-4 flex items-center gap-3 bg-bg-hover/20 border-b border-border/20">
-              <svg className="w-4 h-4 text-sky-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              <span className="text-xs font-bold uppercase tracking-wider text-text-dim" title="Installs npm packages in the game repo (yarn install) — requires VPN for internal registry">Game Dependencies</span>
-              <span className="text-[10px] font-mono text-text-dim/50">yarn install</span>
-              <div className="flex-1" />
-              {hasGame ? (
-                <ActionBtn
-                  onClick={yarnInstallGame}
-                  disabled={gameOperationBusy || !hasGame}
-                  loading={gameInstalling}
-                  loadingText="Installing..."
-                  idleText="Install"
-                  variant={project?.gameNodeModulesExists === false ? 'primary' : 'ghost'}
-                  color="cyan"
-                  title="Run yarn install in game repo — requires VPN access to internal npm registry"
-                />
-              ) : (
-                <span className="text-[10px] text-text-dim/40 italic">Link repo first</span>
-              )}
+          {/* ═══ SECTION: INSTALL ═══ */}
+          <div>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-cyan/25 to-transparent" />
+              <span className="text-[11px] font-bold tracking-[0.2em] uppercase text-cyan/60">Install</span>
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-cyan/25 to-transparent" />
             </div>
 
-            <div className="px-5 py-4">
-              {!hasGame ? (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-bg-primary/40 border border-border/30">
-                  <svg className="w-3.5 h-3.5 text-text-dim/40 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <p className="text-xs text-text-dim/60">Link a game repository in Project tab to enable game actions</p>
+            <div className="card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {/* 4. npm install */}
+              <div className="py-5 border-b border-border/20">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-cyan/10 text-cyan text-sm font-bold shrink-0">4</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-text-primary">npm install</p>
+                    <p className="text-[11px] text-text-dim mt-0.5">Audio dependencies — ffmpeg, sox, audiosprite</p>
+                  </div>
+                  {hasNodeModules && <span className="text-[10px] font-semibold text-green bg-green/8 px-2.5 py-1 rounded-lg shrink-0">node_modules ✓</span>}
+                  <ActionBtn
+                    onClick={async () => {
+                      setNpmInstalling(true);
+                      setInitLog(prev => [...prev, '', 'Running npm install...']);
+                      try {
+                        const r = await window.api.npmInstall();
+                        if (r?.success) {
+                          if (r.project) setProject(r.project);
+                          setInitLog(prev => [...prev, '✔ Dependencies installed']);
+                          showToast('npm install complete', 'success');
+                        } else {
+                          setInitLog(prev => [...prev, '✖ npm install failed: ' + (r?.error || 'unknown')]);
+                          showToast('npm install failed', 'error');
+                        }
+                      } catch (e) {
+                        setInitLog(prev => [...prev, '✖ ' + e.message]);
+                        showToast('npm install failed', 'error');
+                      }
+                      setNpmInstalling(false);
+                    }}
+                    disabled={anyBusy} loading={npmInstalling}
+                    loadingText="Installing..." idleText="Install" color="cyan" />
                 </div>
-              ) : project?.gameNodeModulesExists === false ? (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-orange/5 border border-orange/15">
-                  <svg className="w-3.5 h-3.5 text-orange shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  <p className="text-xs text-orange font-medium">node_modules missing — install required before build/launch</p>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-green/5 border border-green/15">
-                  <Check ok />
-                  <p className="text-xs text-green font-medium">Game dependencies installed</p>
-                </div>
-              )}
-              <LogBlock text={gameInstallLog} maxH="max-h-32" />
-            </div>
-          </div>
-
-          {/* ── Flow hint ── */}
-          <div className="flex-1 flex items-end justify-center pb-4">
-            <div className="text-center space-y-2 opacity-30">
-              <div className="flex items-center justify-center gap-3">
-                <div className="w-8 h-px bg-border" />
-                <span className="text-[10px] font-bold tracking-[0.25em] uppercase text-text-dim">Setup Flow</span>
-                <div className="w-8 h-px bg-border" />
               </div>
-              <p className="text-[10px] text-text-dim font-mono">Link → Sync → Install → Build</p>
+
+              {/* 5. yarn install Game */}
+              <div className="py-5">
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-orange/10 text-orange text-sm font-bold shrink-0">5</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-text-primary">yarn install</p>
+                    <p className="text-[11px] text-text-dim mt-0.5">Game dependencies — playa, webpack (needs VPN)</p>
+                  </div>
+                  {hasGame && gameHasNodeModules && <span className="text-[10px] font-semibold text-green bg-green/8 px-2.5 py-1 rounded-lg shrink-0">node_modules ✓</span>}
+                  {hasGame && !gameHasNodeModules && <span className="text-[10px] font-semibold text-orange bg-orange/8 px-2.5 py-1 rounded-lg shrink-0">missing</span>}
+                  {hasGame ? (
+                    <ActionBtn onClick={yarnInstallGame} disabled={anyBusy} loading={gameInstalling}
+                      loadingText="Installing..." idleText="Install"
+                      variant={!gameHasNodeModules ? 'primary' : 'ghost'} color="orange" />
+                  ) : <span className="text-[10px] text-text-dim italic shrink-0">Link repo first</span>}
+                </div>
+                {gameInstallLog && <div className="mt-3"><LogBlock text={gameInstallLog} maxH="max-h-28" /></div>}
+              </div>
             </div>
           </div>
+
+          {/* ═══ SETUP COMPLETE ═══ */}
+          {hasGame && hasNodeModules && (
+            <div className="flex justify-center" style={{ paddingTop: '40px', paddingBottom: '24px' }}>
+              <div className="inline-flex items-center gap-4 rounded-2xl bg-green/6 border border-green/15" style={{ padding: '24px 40px' }}>
+                <svg className="w-7 h-7 text-green shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                <div>
+                  <p className="text-[15px] font-semibold text-green">Setup complete</p>
+                  <p className="text-xs text-text-secondary mt-1">Go to <span className="text-text-primary font-medium">Sounds</span> to import WAVs or <span className="text-text-primary font-medium">Build</span> to build & deploy</p>
+                </div>
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
