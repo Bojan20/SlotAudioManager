@@ -34,18 +34,15 @@ function EncoderFooter({ config, project, fdkAvailable, setFdkAvailable }) {
   }, [config?.encoding, project?.sounds, config?.streaming?.sounds]);
 
   return (
-    <div className="flex items-center gap-3 pt-3 border-t border-border/30 flex-wrap">
+    <div className="flex items-center gap-3 pt-2.5 border-t border-border/20 flex-wrap">
       {!fdkAvailable && (
-        <button
-          onClick={download}
-          disabled={downloading}
-          className={`text-xs py-1 px-2.5 rounded border transition-all ${downloading ? 'text-orange border-orange/30 cursor-wait' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}
-        >
-          {downloading ? 'Downloading FDK...' : 'Download FDK-AAC'}
+        <button onClick={download} disabled={downloading}
+          className={`text-[11px] py-1 px-2.5 rounded-md border transition-all ${downloading ? 'text-orange border-orange/30 cursor-wait' : 'text-text-dim border-border hover:text-text-secondary hover:border-border-bright'}`}>
+          {downloading ? 'Downloading...' : 'Download FDK-AAC'}
         </button>
       )}
       {estimate && (
-        <span className="text-xs text-text-dim ml-auto" title={`SFX: ~${estimate.sfxKB} KB · Music: ~${estimate.musicKB} KB`}>
+        <span className="text-[11px] text-text-dim ml-auto font-mono" title={`SFX: ~${estimate.sfxKB} KB · Music: ~${estimate.musicKB} KB`}>
           ~{estimate.totalMB} MB estimated
         </span>
       )}
@@ -275,12 +272,12 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
   });
 }
 
-// Pool color schemes
+// Pool color schemes — accent CSS color used for inline styles on sound chips
 const POOL_THEME = {
-  immediate: { accent: 'text-emerald-400', accentBg: 'bg-emerald-400', border: 'border-emerald-500/30', headerBg: 'bg-emerald-500/8', badge: 'bg-emerald-500/15 text-emerald-400', glow: 'shadow-emerald-500/5', label: 'IMMEDIATE', dot: 'bg-emerald-400' },
-  deferred:  { accent: 'text-sky-400',     accentBg: 'bg-sky-400',     border: 'border-sky-500/30',     headerBg: 'bg-sky-500/8',     badge: 'bg-sky-500/15 text-sky-400',     glow: 'shadow-sky-500/5',     label: 'DEFERRED',  dot: 'bg-sky-400' },
-  lazy:      { accent: 'text-amber-400',   accentBg: 'bg-amber-400',   border: 'border-amber-500/30',   headerBg: 'bg-amber-500/8',   badge: 'bg-amber-500/15 text-amber-400', glow: 'shadow-amber-500/5',   label: 'LAZY',      dot: 'bg-amber-400' },
-  streaming: { accent: 'text-rose-400',    accentBg: 'bg-rose-400',    border: 'border-rose-500/30',    headerBg: 'bg-rose-500/8',    badge: 'bg-rose-500/15 text-rose-400',    glow: 'shadow-rose-500/5',   label: 'STREAMING', dot: 'bg-rose-400' },
+  immediate: { accent: 'text-emerald-400', accentBg: 'bg-emerald-400', accentColor: '#34d399', badge: 'bg-emerald-500/12 text-emerald-400', label: 'IMMEDIATE', dot: 'bg-emerald-400' },
+  deferred:  { accent: 'text-sky-400',     accentBg: 'bg-sky-400',     accentColor: '#38bdf8', badge: 'bg-sky-500/12 text-sky-400',     label: 'DEFERRED',  dot: 'bg-sky-400' },
+  lazy:      { accent: 'text-amber-400',   accentBg: 'bg-amber-400',   accentColor: '#fbbf24', badge: 'bg-amber-500/12 text-amber-400', label: 'LAZY',      dot: 'bg-amber-400' },
+  streaming: { accent: 'text-rose-400',    accentBg: 'bg-rose-400',    accentColor: '#fb7185', badge: 'bg-rose-500/12 text-rose-400',   label: 'STREAMING', dot: 'bg-rose-400' },
 };
 
 function getTheme(tierCfg, tierName) {
@@ -328,111 +325,135 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
     setMeasuring(false);
   };
 
+  const accentC = theme.accentColor;
+
   return (
     <div
-      className={`rounded-2xl border ${dragOver ? 'border-accent !bg-accent/5' : theme.border} overflow-hidden shadow-lg ${theme.glow} transition-all duration-200 hover:shadow-xl h-full flex flex-col`}
+      className="card overflow-hidden h-full flex flex-col transition-all duration-200"
+      style={dragOver ? { borderColor: 'var(--color-accent)', background: 'rgba(139,124,248,0.04)' } : {}}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => { e.preventDefault(); setDragOver(false); const d = e.dataTransfer.getData('text/plain'); if (d) { try { const { sound, from } = JSON.parse(d); if (from !== tierName) onMove(sound, from, tierName); } catch {} } }}
     >
       {/* Header */}
-      <div className={`${theme.headerBg} px-6 py-4 flex items-center gap-3 flex-wrap`}>
-        <span className={`w-3 h-3 rounded-full ${theme.dot} shrink-0`} />
-        <h3 className={`text-base font-bold ${theme.accent} uppercase tracking-wide`} title={`Audio pool: ${tierName} — sounds in this tier are grouped into one M4A sprite`}>{tierName}</h3>
-        <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg uppercase tracking-wider`} title={`Loading strategy: ${theme.label.toLowerCase()} — determines when this pool is loaded by playa-core`}>{theme.label}</span>
+      <div className="flex items-center gap-2.5 border-b border-border/40" style={{ padding: '12px 18px' }}>
+        <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: accentC }} />
+        <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: accentC }}>{tierName}</span>
+        <span className="text-[9px] font-bold px-2 py-[3px] rounded uppercase tracking-widest" style={{ background: `${accentC}14`, color: accentC }}>{theme.label}</span>
         {isDeferred && tierCfg.subLoaderId && (
-          <span className={`${theme.badge} text-xs font-bold px-2.5 py-1 rounded-lg`} title={`playa-core SubLoader ID — call startSubLoader("${tierCfg.subLoaderId}") to load this pool`}>"{tierCfg.subLoaderId}"</span>
+          <span className="text-[9px] font-bold font-mono px-2 py-[3px] rounded" style={{ background: `${accentC}14`, color: accentC }}>"{tierCfg.subLoaderId}"</span>
         )}
         {tierCfg?.unloadable && (
-          <span className="bg-amber-500/15 text-amber-400 text-xs font-bold px-2.5 py-1 rounded-lg" title="This pool can be unloaded from RAM when no longer needed (e.g., after bonus ends)">UNLOADABLE</span>
+          <span className="text-[9px] font-bold px-2 py-[3px] rounded" style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24' }}>UNLOAD</span>
         )}
         <div className="flex-1" />
-        <span className="text-sm text-text-dim font-mono tabular-nums">{sounds.length} sounds</span>
+        <span className="text-[11px] text-text-dim font-mono tabular-nums">{sounds.length} snd</span>
         {displayKB ? (
-          <span className={`text-sm font-mono tabular-nums font-semibold ${over ? 'text-danger' : theme.accent}`}>
-            {fmtSize(displayKB)}
-          </span>
+          <span className="text-[11px] font-mono tabular-nums font-semibold" style={{ color: over ? 'var(--color-danger)' : accentC }}>{fmtSize(displayKB)}</span>
         ) : null}
         {measuredRAM ? (
-          <span className="text-xs font-mono tabular-nums text-orange" title="Estimated decoded RAM when Web Audio API loads this audio">
-            ~{measuredRAM} MB RAM
-          </span>
+          <span className="text-[10px] font-mono tabular-nums text-orange">~{measuredRAM} MB</span>
         ) : null}
-        <button
-          onClick={handleMeasure}
-          disabled={measuring || sounds.length === 0}
-          className={`btn-ghost !text-xs !py-2 !px-4 ${measuring ? '!text-text-dim !cursor-wait' : ''} disabled:!opacity-20`}
-          title="Estimate compressed M4A size for this tier based on encoding settings"
-        >
-          {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
-        </button>
-
       </div>
 
-      {/* Size bar — only show when we have data */}
+      {/* Size bar */}
       {maxKB > 0 && displayKB > 0 && (
-        <div className="px-6 pt-3 pb-2">
-          <div className="h-2 bg-bg-hover rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-danger' : theme.accentBg}`} style={{ width: `${pct}%` }} />
+        <div style={{ padding: '8px 18px 4px' }}>
+          <div className="h-[5px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
+            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: over ? 'var(--color-danger)' : accentC }} />
           </div>
-          <div className="flex justify-between mt-1.5">
-            <span className={`text-xs font-mono ${over ? 'text-danger font-semibold' : 'text-text-dim'}`}>{Math.round(pct)}% used</span>
-            <span className="text-xs text-text-dim font-mono">limit: {fmtSize(maxKB)}</span>
+          <div className="flex justify-between mt-1">
+            <span className="text-[9px] font-mono" style={{ color: over ? 'var(--color-danger)' : 'var(--color-text-dim)' }}>{Math.round(pct)}%</span>
+            <span className="text-[9px] text-text-dim font-mono">limit {fmtSize(maxKB)}</span>
           </div>
         </div>
       )}
 
       {/* Sounds */}
-      <div className="px-6 py-4 flex-1">
-        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 text-xs text-text-dim hover:text-text-secondary transition-colors mb-3 uppercase tracking-widest font-bold">
-          <svg className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-          Sounds ({sounds.length})
+      <div className="flex-1" style={{ padding: '12px 18px' }}>
+        <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-1.5 hover:opacity-80 transition-opacity mb-2">
+          <svg className={`w-2.5 h-2.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} style={{ color: accentC, opacity: 0.5 }}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+          <span className="text-[9px] font-bold uppercase tracking-[0.14em]" style={{ color: accentC, opacity: 0.5 }}>Sounds ({sounds.length})</span>
         </button>
         {expanded && (
-          <div className="flex flex-wrap gap-2">
-            {sounds.map(s => (
-              <span
-                key={s}
-                draggable
-                onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ sound: s, from: tierName })); e.dataTransfer.effectAllowed = 'move'; }}
-                className={`inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-mono border cursor-grab active:cursor-grabbing transition-all ${!wavSet.has(s) ? 'text-danger border-danger/30 bg-danger/5 line-through' : 'text-text-secondary border-border/60 bg-bg-primary/50 hover:border-border-bright hover:bg-bg-hover/50'}`}
-              >
-                {s}
-              </span>
-            ))}
-            {sounds.length === 0 && <span className="text-sm text-text-dim/50 italic py-3">Drop sounds here</span>}
+          <div style={sounds.length <= 12 ? { display: 'flex', flexDirection: 'column' } : { display: 'grid', gridAutoFlow: 'column', gridTemplateRows: `repeat(${Math.min(sounds.length, Math.max(6, Math.ceil(sounds.length / 4)))}, auto)`, gap: '0' }}>
+            {sounds.map((s, i) => {
+              const missing = !wavSet.has(s);
+              return (
+                <div key={s} draggable
+                  onDragStart={(e) => { e.currentTarget.style.opacity = '0.3'; e.dataTransfer.setData('text/plain', JSON.stringify({ sound: s, from: tierName })); e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragEnd={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  className="cursor-grab active:cursor-grabbing transition-all truncate"
+                  onMouseEnter={e => { e.currentTarget.style.background = `${accentC}18`; e.currentTarget.style.color = missing ? '' : '#fff'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = i % 2 === 0 ? `${accentC}05` : 'transparent'; e.currentTarget.style.color = missing ? 'var(--color-danger)' : `${accentC}bb`; }}
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: '10.5px', fontFamily: 'monospace', lineHeight: 1.5,
+                    color: missing ? 'var(--color-danger)' : `${accentC}bb`,
+                    background: i % 2 === 0 ? `${accentC}05` : 'transparent',
+                    borderBottom: `1px solid ${accentC}06`,
+                    textDecoration: missing ? 'line-through' : 'none',
+                    borderRadius: '3px',
+                    transition: 'background 0.1s, color 0.1s',
+                  }}
+                  title={s}
+                >{s}</div>
+              );
+            })}
+            {sounds.length === 0 && <span className="text-[10px] italic" style={{ color: `${accentC}40`, padding: '8px 0' }}>Drop sounds here</span>}
           </div>
         )}
       </div>
 
-      {/* Settings footer */}
-      {!isStreaming && (
-        <div className="px-6 py-4 border-t border-border/20 bg-bg-primary/30 flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-text-dim uppercase tracking-wider font-semibold">Limit</span>
-            <input type="number" value={maxKB || 0} onChange={(e) => onUpdate(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base !w-24 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
-            <span className="text-xs text-text-dim">KB</span>
+      {/* Measure + Settings footer */}
+      {!isStreaming ? (
+        <div className="border-t flex flex-col" style={{ borderColor: 'rgba(255,255,255,0.04)', background: 'rgba(0,0,0,0.12)' }}>
+          {/* Measure row */}
+          <div className="flex items-center gap-2" style={{ padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+            <button onClick={handleMeasure} disabled={measuring || sounds.length === 0}
+              className="transition-all disabled:opacity-20"
+              style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: `1px solid ${accentC}25`, color: `${accentC}90`, background: `${accentC}06`, cursor: measuring ? 'wait' : 'pointer' }}>
+              {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
+            </button>
           </div>
-
-          <select value={tierCfg.subLoaderId || ''} onChange={(e) => onUpdate(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base text-sm !py-1.5 !px-3 !w-52 !rounded-lg">
-            {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-
-          {isDeferred && (
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input type="checkbox" checked={tierCfg.unloadable === true} onChange={(e) => onUpdate(() => { tierCfg.unloadable = e.target.checked; })} className="w-4 h-4 accent-amber-400 rounded cursor-pointer" />
-              <span className="text-sm text-text-dim">Unloadable after use</span>
-            </label>
-          )}
-
-          {isDeferred && (
-            <div className="flex items-center gap-3 ml-auto">
-              <code className={`text-xs font-mono ${theme.accent}`}>
-                startSubLoader("{tierCfg.subLoaderId}")
-              </code>
-              <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))} className="btn-ghost !text-xs !py-1.5 !px-4" title="Copy SubLoader integration code snippet to clipboard">{copied === tierName ? '✓ Copied' : 'Copy Snippet'}</button>
+          {/* Settings row */}
+          <div className="flex items-center gap-2.5 flex-wrap" style={{ padding: '10px 18px' }}>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[9px] text-text-dim uppercase tracking-wider font-bold">Limit</span>
+              <input type="number" value={maxKB || 0} onChange={(e) => onUpdate(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base text-center" style={{ width: '68px', fontSize: '11px', padding: '3px 6px', borderRadius: '6px' }} />
+              <span className="text-[9px] text-text-dim">KB</span>
             </div>
-          )}
+            <div className="h-3 w-px bg-white/[0.06]" />
+            <select value={tierCfg.subLoaderId || ''} onChange={(e) => onUpdate(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base" style={{ fontSize: '11px', padding: '3px 6px', width: '160px', borderRadius: '6px' }}>
+              {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {isDeferred && (<>
+              <div className="h-3 w-px bg-white/[0.06]" />
+              <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <input type="checkbox" checked={tierCfg.unloadable === true} onChange={(e) => onUpdate(() => { tierCfg.unloadable = e.target.checked; })} className="w-3 h-3 accent-amber-400 rounded cursor-pointer" />
+                <span className="text-[10px] text-text-dim">Unloadable</span>
+              </label>
+            </>)}
+            {isDeferred && (
+              <div className="flex items-center gap-2 ml-auto">
+                <code className="text-[9px] font-mono" style={{ color: `${accentC}90` }}>startSubLoader("{tierCfg.subLoaderId}")</code>
+                <button onClick={() => onCopy(tierName, buildSnippet(tierName, tierCfg))}
+                  className="transition-all"
+                  style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--color-text-dim)', cursor: 'pointer' }}>
+                  {copied === tierName ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* Streaming — just measure button */
+        <div className="border-t flex items-center gap-2" style={{ padding: '8px 18px', borderColor: 'rgba(255,255,255,0.04)', background: 'rgba(0,0,0,0.12)' }}>
+          <button onClick={handleMeasure} disabled={measuring || sounds.length === 0}
+            className="transition-all disabled:opacity-20"
+            style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: `1px solid ${accentC}25`, color: `${accentC}90`, background: `${accentC}06`, cursor: measuring ? 'wait' : 'pointer' }}>
+            {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
+          </button>
         </div>
       )}
     </div>
@@ -511,8 +532,8 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
 
   if (!config) {
     return (
-      <div className="anim-fade-up flex flex-col items-center justify-center h-64 text-text-dim text-sm">
-        No sprite-config.json found in project.
+      <div className="anim-fade-up flex flex-col items-center justify-center h-64">
+        <span className="text-[13px] text-text-dim">No sprite-config.json found in project.</span>
       </div>
     );
   }
@@ -616,23 +637,23 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
   const streamingSoundsArr = config.streaming?.sounds || [];
 
   return (
-    <div className="anim-fade-up h-full flex flex-col">
+    <div className="anim-fade-up h-full flex flex-col" style={{ gap: '16px', padding: '8px 0' }}>
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between pb-4">
-        <div>
-          <h2 className="text-xl font-bold text-text-primary">Sprite Config</h2>
-          <p className="text-sm text-text-dim mt-1">Audio pools, loading strategy, encoding</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => handleOpenPreview(true)} className="btn-ghost text-xs" title="Clear all tier assignments and re-run auto-assign from scratch based on naming patterns">
-            Re-assign All
-          </button>
-          <label className="flex items-center gap-2 text-xs text-text-dim font-semibold uppercase tracking-wider" title="Silence gap between sounds in the sprite (milliseconds)">
+      <div className="shrink-0" style={{ textAlign: 'center' }}>
+        <h2 className="text-text-primary" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>Sprite Config</h2>
+        <div className="flex items-center justify-center" style={{ marginTop: '10px', gap: '10px' }}>
+          <label className="flex items-center gap-1.5 text-[10px] text-text-dim font-bold uppercase tracking-wider">
             Gap
-            <input type="number" step="1" min="0" value={Math.round((config.spriteGap ?? 0.05) * 1000)} onChange={(e) => update(() => { config.spriteGap = (parseInt(e.target.value) || 0) / 1000; })} className="input-base !w-16 text-center text-sm !py-1.5 !px-2 !rounded-lg" />
+            <input type="number" step="1" min="0" value={Math.round((config.spriteGap ?? 0.05) * 1000)} onChange={(e) => update(() => { config.spriteGap = (parseInt(e.target.value) || 0) / 1000; })} className="input-base text-center" style={{ width: '48px', fontSize: '11px', padding: '4px 6px', borderRadius: '6px' }} />
             ms
           </label>
-          <button onClick={handleSave} disabled={!dirty || saving} className={dirty && !saving ? 'btn-primary' : 'btn-ghost opacity-40 cursor-not-allowed'} title="Save sprite-config.json with current tier assignments and encoding settings">
+          <div className="h-4 w-px" style={{ background: 'rgba(255,255,255,0.06)' }} />
+          <button onClick={() => handleOpenPreview(true)}
+            style={{ fontSize: '10px', fontWeight: 600, padding: '5px 14px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)', color: 'var(--color-text-dim)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all 0.15s' }}>
+            Re-assign All
+          </button>
+          <button onClick={handleSave} disabled={!dirty || saving}
+            style={{ fontSize: '10px', fontWeight: 700, padding: '5px 16px', borderRadius: '6px', cursor: dirty && !saving ? 'pointer' : 'not-allowed', transition: 'all 0.15s', ...(dirty && !saving ? { background: 'var(--color-accent)', color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(139,124,248,0.25)' } : { background: 'transparent', color: 'var(--color-text-dim)', border: '1px solid rgba(255,255,255,0.06)', opacity: 0.4 }) }}>
             {saving ? 'Saving...' : dirty ? 'Save Changes' : 'Saved'}
           </button>
         </div>
@@ -640,163 +661,151 @@ export default function SpriteConfigPage({ project, setProject, showToast }) {
 
       {/* Unassigned banner */}
       {unassigned.length > 0 && (
-        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 shrink-0 mb-4">
-          <div className="flex items-center gap-3 mb-4">
-            <span className="w-3 h-3 rounded-full bg-amber-400 shrink-0 anim-pulse-dot" />
-            <span className="text-sm font-bold text-amber-400 uppercase tracking-wide">{unassigned.length} Unassigned Sound{unassigned.length !== 1 ? 's' : ''}</span>
+        <div className="shrink-0 card overflow-hidden" style={{ borderColor: 'rgba(251,191,36,0.2)' }}>
+          <div className="flex items-center gap-2.5" style={{ padding: '10px 18px', borderBottom: '1px solid rgba(251,191,36,0.12)', background: 'rgba(251,191,36,0.03)' }}>
+            <span className="w-[7px] h-[7px] rounded-full shrink-0 anim-pulse-dot" style={{ background: '#fbbf24' }} />
+            <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#fbbf24' }}>{unassigned.length} Unassigned</span>
             <div className="flex-1" />
-            <button onClick={handleOpenPreview} className="btn-primary py-2.5 px-5" title="Automatically assign unassigned sounds to tiers based on naming patterns (loading, main, bonus, streaming)">Auto-Assign All</button>
+            <button onClick={handleOpenPreview}
+              style={{ fontSize: '10px', fontWeight: 600, padding: '4px 14px', borderRadius: '6px', background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: 'none', cursor: 'pointer', transition: 'all 0.15s' }}>
+              Auto-Assign
+            </button>
           </div>
-          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-1">
+          <div className="flex flex-wrap max-h-32 overflow-y-auto" style={{ padding: '12px 18px', gap: '5px' }}>
             {unassigned.map(s => (
-              <span
-                key={s.name}
-                draggable
+              <span key={s.name} draggable
                 onDragStart={(e) => { e.dataTransfer.setData('text/plain', JSON.stringify({ sound: s.name, from: '__unassigned__' })); e.dataTransfer.effectAllowed = 'move'; }}
-                className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-mono text-amber-300 border border-amber-500/30 bg-amber-500/8 cursor-grab active:cursor-grabbing hover:border-amber-400/50 hover:bg-amber-500/12 transition-all"
-              >
-                {s.name}
-              </span>
+                className="cursor-grab active:cursor-grabbing transition-all"
+                style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '6px', fontSize: '10.5px', fontFamily: 'monospace', lineHeight: 1.4, color: 'rgba(251,191,36,0.75)', background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)' }}
+              >{s.name}</span>
             ))}
           </div>
         </div>
       )}
 
-      {/* Pool cards — fill remaining height */}
-      <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-        <div className="flex flex-col gap-3 min-h-full">
+      {/* Pool cards */}
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
 
-          {/* Immediate pools */}
-          {immediateTiers.length > 0 && (
-            <div className="flex flex-col gap-3 flex-1">
-              {immediateTiers.map(([name, cfg]) => (
-                <PoolCard key={name + '_' + configKey} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-              ))}
-            </div>
-          )}
-
-          {/* Streaming — HTML5 Audio, excluded from manifest */}
-          {(streamingSoundsArr.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
-            <div className="flex-1">
-              <div className="flex items-center gap-3 px-1 pt-1 mb-3">
-                <div className="h-px flex-1 bg-gradient-to-r from-rose-500/30 to-transparent" />
-                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-rose-400/60" title="Music loaded via HTML5 Audio — streams from disk, ~3 MB RAM instead of ~40 MB. Excluded from soundManifest. Auto-generates BGMStreaming.ts for game developer.">Streaming (HTML5 Audio)</span>
-                <div className="h-px flex-1 bg-gradient-to-l from-rose-500/30 to-transparent" />
+        {/* Immediate + Streaming — side by side */}
+        {(immediateTiers.length > 0 || streamingSoundsArr.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
+          <div className="flex" style={{ gap: '14px', alignItems: 'stretch' }}>
+            {immediateTiers.map(([name, cfg]) => (
+              <div key={name + '_' + configKey} className="flex-1 min-w-0">
+                <PoolCard tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
               </div>
-              <PoolCard key={'streaming_' + configKey} tierName="streaming" tierCfg={{}} sounds={streamingSoundsArr} theme={POOL_THEME.streaming} maxKB={0} sizeInfo={poolSizeInfo('streaming', streamingSoundsArr)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-            </div>
-          )}
-
-          {/* Deferred pools */}
-          {deferredOnly.length > 0 && (
-            <div className="flex flex-col gap-3 flex-1">
-              <div className="flex items-center gap-3 px-1 pt-1">
-                <div className="h-px flex-1 bg-gradient-to-r from-sky-500/30 to-transparent" />
-                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-sky-400/60" title="Pools loaded on demand via startSubLoader() — not loaded at game start">Deferred Pools</span>
-                <div className="h-px flex-1 bg-gradient-to-l from-sky-500/30 to-transparent" />
+            ))}
+            {(streamingSoundsArr.length > 0 || Object.keys(config.sprites || {}).length > 0) && (
+              <div className="flex-1 min-w-0">
+                <PoolCard key={'streaming_' + configKey} tierName="streaming" tierCfg={{}} sounds={streamingSoundsArr} theme={POOL_THEME.streaming} maxKB={0} sizeInfo={poolSizeInfo('streaming', streamingSoundsArr)} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
               </div>
-              {deferredOnly.map(([name, cfg]) => (
-                <PoolCard key={name + '_' + configKey} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-              ))}
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* Lazy pools */}
-          {lazyTiers.length > 0 && (
-            <div className="flex flex-col gap-3 flex-1">
-              <div className="flex items-center gap-3 px-1 pt-1">
-                <div className="h-px flex-1 bg-gradient-to-r from-amber-500/30 to-transparent" />
-                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-400/60" title="Pools loaded lazily (SubLoader Z) — loaded just before the sounds are needed">Lazy Pools</span>
-                <div className="h-px flex-1 bg-gradient-to-l from-amber-500/30 to-transparent" />
+        {/* SubLoader pools — side by side */}
+        {(deferredOnly.length > 0 || lazyTiers.length > 0) && (<>
+          <div className="flex items-center gap-3 px-1">
+            <div className="h-px flex-1 bg-gradient-to-r from-sky-500/20 to-transparent" />
+            <span className="text-[10px] font-bold tracking-[0.16em] uppercase text-sky-400/50">SubLoader Pools</span>
+            <div className="h-px flex-1 bg-gradient-to-l from-sky-500/20 to-transparent" />
+          </div>
+          <div className="flex" style={{ gap: '14px', alignItems: 'stretch' }}>
+            {[...deferredOnly, ...lazyTiers].map(([name, cfg]) => (
+              <div key={name + '_' + configKey} className="flex-1 min-w-0">
+                <PoolCard tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
               </div>
-              {lazyTiers.map(([name, cfg]) => (
-                <PoolCard key={name + '_' + configKey} tierName={name} tierCfg={cfg} sounds={cfg.sounds || []} theme={getTheme(cfg, name)} maxKB={cfg.maxSizeKB || 0} sizeInfo={poolSizeInfo(name, cfg.sounds || [])} wavSet={wavSet} tierOptions={tierOptions} onMove={handleMove} onUpdate={update} onCopy={handleCopy} copied={copied} config={config} showToast={showToast} />
-              ))}
-            </div>
-          )}
+            ))}
+          </div>
+        </>)}
 
-          {/* Encoding */}
-          <div className="flex-none">
-            <div className="flex items-center gap-3 px-1 pt-1 pb-3">
-              <div className="h-px flex-1 bg-gradient-to-r from-border/50 to-transparent" />
-              <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-text-dim/60" title="M4A encoding settings for SFX and Music — bitrate, channels, and sample rate">Encoding</span>
-              <div className="h-px flex-1 bg-gradient-to-l from-border/50 to-transparent" />
-            </div>
-            <div className="rounded-2xl border border-border/50 overflow-hidden">
-              <div className="px-6 py-4 space-y-4">
-                {Object.entries(config.encoding || {}).map(([key, enc]) => (
-                  <div key={key} className="flex items-center gap-4 flex-wrap">
-                    <span className={`text-sm font-bold uppercase tracking-wider w-14 ${key === 'sfx' ? 'text-sky-400' : 'text-violet-400'}`}>{key}</span>
-                    <select
-                      value={enc.encoder || 'native'}
-                      onChange={(e) => update(() => { enc.encoder = e.target.value; })}
-                      className="input-base !w-auto text-sm !py-1.5 !px-2 !rounded-lg"
-                    >
+        {/* Encoding */}
+        <div>
+          <div className="flex items-center gap-3 px-1" style={{ paddingBottom: '10px' }}>
+            <div className="h-px flex-1" style={{ background: 'linear-gradient(to right, rgba(139,124,248,0.2), transparent)' }} />
+            <span className="text-[9px] font-bold tracking-[0.18em] uppercase" style={{ color: 'rgba(139,124,248,0.4)' }}>Encoding</span>
+            <div className="h-px flex-1" style={{ background: 'linear-gradient(to left, rgba(139,124,248,0.2), transparent)' }} />
+          </div>
+          <div className="card overflow-hidden">
+            <div style={{ padding: '14px 18px' }} className="space-y-2.5">
+              {Object.entries(config.encoding || {}).map(([key, enc]) => {
+                const keyColor = key === 'sfx' ? '#38bdf8' : key === 'vo' ? '#fb923c' : '#a78bfa';
+                return (
+                  <div key={key} className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-[11px] font-bold uppercase tracking-wider w-10" style={{ color: keyColor }}>{key}</span>
+                    <select value={enc.encoder || 'native'} onChange={(e) => update(() => { enc.encoder = e.target.value; })} className="input-base" style={{ width: 'auto', fontSize: '11px', padding: '3px 6px', borderRadius: '6px' }}>
                       <option value="native">Native</option>
-                      <option value="fdk" disabled={!fdkAvailable}>FDK{!fdkAvailable ? ' — not downloaded' : ''}</option>
+                      <option value="fdk" disabled={!fdkAvailable}>FDK{!fdkAvailable ? ' — n/a' : ''}</option>
                     </select>
-                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                      <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-4 h-4 accent-accent rounded cursor-pointer" />
-                      <span className="text-sm text-text-dim">Keep Original</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                      <input type="checkbox" checked={enc.keepOriginal === true} onChange={(e) => update(() => { enc.keepOriginal = e.target.checked; })} className="w-3 h-3 accent-accent rounded cursor-pointer" />
+                      <span className="text-[10px] text-text-dim">Keep Original</span>
                     </label>
                     {enc.keepOriginal ? (
-                      <span className="text-sm text-text-dim italic">320 kbps, source channels & sample rate</span>
-                    ) : (
-                      <>
-                        <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
-                          {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
-                        </select>
-                        <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
-                          <option value={1}>Mono</option>
-                          <option value={2}>Stereo</option>
-                        </select>
-                        <select value={enc.samplerate || 44100} onChange={(e) => update(() => { enc.samplerate = parseInt(e.target.value); })} className="input-base !w-28 text-sm !py-1.5 !px-2 !rounded-lg">
-                          <option value={22050}>22050 Hz</option>
-                          <option value={32000}>32000 Hz</option>
-                          <option value={44100}>44100 Hz</option>
-                          <option value={48000}>48000 Hz</option>
-                        </select>
-                      </>
-                    )}
+                      <span className="text-[10px] text-text-dim italic">320 kbps, source ch & sr</span>
+                    ) : (<>
+                      <select value={enc.bitrate || 64} onChange={(e) => update(() => { enc.bitrate = parseInt(e.target.value); })} className="input-base" style={{ width: '88px', fontSize: '11px', padding: '3px 6px', borderRadius: '6px' }}>
+                        {[32, 48, 64, 96, 128, 160, 192, 256, 320].map(b => <option key={b} value={b}>{b} kbps</option>)}
+                      </select>
+                      <select value={enc.channels || 2} onChange={(e) => update(() => { enc.channels = parseInt(e.target.value); })} className="input-base" style={{ width: '80px', fontSize: '11px', padding: '3px 6px', borderRadius: '6px' }}>
+                        <option value={1}>Mono</option>
+                        <option value={2}>Stereo</option>
+                      </select>
+                      <select value={enc.samplerate || 44100} onChange={(e) => update(() => { enc.samplerate = parseInt(e.target.value); })} className="input-base" style={{ width: '88px', fontSize: '11px', padding: '3px 6px', borderRadius: '6px' }}>
+                        <option value={22050}>22050 Hz</option>
+                        <option value={32000}>32000 Hz</option>
+                        <option value={44100}>44100 Hz</option>
+                        <option value={48000}>48000 Hz</option>
+                      </select>
+                    </>)}
                   </div>
-                ))}
-                <EncoderFooter config={config} project={project} fdkAvailable={fdkAvailable} setFdkAvailable={setFdkAvailable} />
-              </div>
+                );
+              })}
+              <EncoderFooter config={config} project={project} fdkAvailable={fdkAvailable} setFdkAvailable={setFdkAvailable} />
             </div>
           </div>
-
-          {/* Copy all snippets */}
-          {deferredTiers.length > 0 && (
-            <div className="flex-none flex justify-end pb-2">
-              <button onClick={handleCopyAll} className="btn-ghost" title="Copy all SubLoader integration code snippets for all deferred pools to clipboard">
-                {copied === '__all__' ? '✓ All Snippets Copied' : 'Copy All SubLoader Snippets'}
-              </button>
-            </div>
-          )}
         </div>
+
+        {/* Copy all snippets */}
+        {deferredTiers.length > 0 && (
+          <div className="flex justify-end" style={{ paddingBottom: '6px' }}>
+            <button onClick={handleCopyAll}
+              style={{ fontSize: '10px', fontWeight: 600, padding: '4px 14px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--color-text-dim)', background: 'rgba(255,255,255,0.02)', cursor: 'pointer', transition: 'all 0.15s' }}>
+              {copied === '__all__' ? '✓ Copied All' : 'Copy All Snippets'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Auto-Assign Preview Modal */}
       {preview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] mx-4 flex flex-col">
-            <div className="p-5 border-b border-border">
-              <h3 className="text-sm font-bold text-text-primary">Auto-Assign Preview</h3>
-              <p className="text-xs text-text-dim mt-0.5">Review before applying. Change any tier below.</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setPreview(null)}>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className="relative card overflow-hidden w-full max-w-lg max-h-[80vh] mx-4 flex flex-col anim-fade-up" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3" style={{ padding: '12px 18px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <span className="text-[13px] font-bold text-text-primary">Auto-Assign Preview</span>
+              <span className="text-[10px] text-text-dim font-mono">{preview.length} sounds</span>
+              <button onClick={() => setPreview(null)} className="ml-auto"
+                style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--color-text-dim)', cursor: 'pointer', transition: 'all 0.15s' }}>Close</button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
-              {preview.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-2 bg-bg-primary/30 rounded-lg px-3 py-1.5">
-                  <span className="font-mono text-xs text-text-primary flex-1 truncate">{item.name}</span>
-                  <select value={item.tier || ''} onChange={e => setPreview(prev => prev.map((p, j) => j === i ? { ...p, tier: e.target.value } : p))} className="input-base text-xs !py-1 !px-2 !w-32 !rounded-lg">
-                    {tierOptions.map(t => <option key={t} value={t}>{t === 'streaming' ? 'Streaming' : t}</option>)}
-                  </select>
-                </div>
-              ))}
+            <div className="flex-1 overflow-y-auto" style={{ padding: '10px 18px' }}>
+              {preview.map((item, i) => {
+                const tierTheme = item.tier === 'streaming' ? POOL_THEME.streaming : getTheme(config.sprites?.[item.tier] || {}, item.tier);
+                return (
+                  <div key={item.name} className="flex items-center gap-2 transition-colors hover:bg-white/[0.015]" style={{ padding: '4px 8px', borderRadius: '6px' }}>
+                    <span className="w-[5px] h-[5px] rounded-full shrink-0" style={{ background: tierTheme.accentColor }} />
+                    <span className="font-mono text-[10.5px] text-text-primary flex-1 truncate">{item.name}</span>
+                    <select value={item.tier || ''} onChange={e => setPreview(prev => prev.map((p, j) => j === i ? { ...p, tier: e.target.value } : p))} className="input-base" style={{ fontSize: '10px', padding: '2px 6px', width: '110px', borderRadius: '5px' }}>
+                      {tierOptions.map(t => <option key={t} value={t}>{t === 'streaming' ? 'Streaming' : t}</option>)}
+                    </select>
+                  </div>
+                );
+              })}
             </div>
-            <div className="p-4 border-t border-border flex gap-2 justify-end">
-              <button onClick={() => setPreview(null)} className="btn-ghost text-xs px-4 py-2">Cancel</button>
-              <button onClick={handleApplyPreview} className="btn-primary text-xs px-4 py-2">Apply All</button>
+            <div className="flex gap-2 justify-end" style={{ padding: '10px 18px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+              <button onClick={() => setPreview(null)}
+                style={{ fontSize: '10px', fontWeight: 600, padding: '5px 14px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--color-text-dim)', cursor: 'pointer', transition: 'all 0.15s' }}>Cancel</button>
+              <button onClick={handleApplyPreview}
+                style={{ fontSize: '10px', fontWeight: 700, padding: '5px 16px', borderRadius: '6px', background: 'var(--color-accent)', color: '#fff', border: 'none', cursor: 'pointer', boxShadow: '0 2px 8px rgba(139,124,248,0.25)', transition: 'all 0.15s' }}>Apply All</button>
             </div>
           </div>
         </div>
