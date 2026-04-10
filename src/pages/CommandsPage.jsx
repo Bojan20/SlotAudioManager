@@ -63,7 +63,7 @@ function StepForm({ state, setState, soundSprites, spriteLists, commands, onCrea
   const isFade = cmd === 'Fade';
   const isStop = cmd === 'Stop';
   const showVolume = ['Play', 'Fade', 'Set'].includes(cmd);
-  const showDelay = ['Play', 'Stop', 'Fade', 'Pause', 'Resume', 'ResetSpriteList'].includes(cmd);
+  const showDelay = ['Play', 'Stop', 'Fade', 'Set', 'Pause', 'Resume', 'ResetSpriteList'].includes(cmd);
   const showRate = ['Play', 'Set'].includes(cmd);
 
   return (
