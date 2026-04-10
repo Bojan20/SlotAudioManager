@@ -107,91 +107,94 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
   const gameOk = project.gameRepoExists;
   const gameMods = project.gameNodeModulesExists;
 
+  const projectName = project.path?.split(/[/\\]/).pop() || 'Audio Project';
+
   return (
     <div className="anim-fade-up h-full flex flex-col">
-
-      {/* Header */}
-      <div className="shrink-0 flex items-center justify-between" style={{ marginBottom: '20px' }}>
-        <div className="min-w-0 flex-1 mr-4">
-          <h2 className="text-text-primary" style={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-0.02em' }}>Dashboard</h2>
-          <p style={{ fontSize: '12px', fontFamily: "'SF Mono', 'Fira Code', monospace", color: 'rgba(255,255,255,0.22)', marginTop: '6px' }} className="truncate" title={project.path}>{project.path}</p>
-        </div>
-        <button onClick={onReload} className="btn-ghost" style={{ padding: '10px 22px', borderRadius: '12px' }} title="Reload project data from disk — re-reads all config files and sound lists">Reload</button>
+      {/* Header — centered */}
+      <div className="shrink-0" style={{ textAlign: 'center', paddingTop: '8px', paddingBottom: '24px', position: 'relative' }}>
+        <h2 className="text-text-primary" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>Dashboard</h2>
+        <p className="text-text-dim" style={{ fontSize: '12px', marginTop: '4px' }}>{projectName}</p>
+        <button onClick={onReload} className="btn-ghost" style={{ position: 'absolute', right: 0, top: '8px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px' }} title="Reload project data from disk">Reload</button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 shrink-0" style={{ gap: '12px', marginBottom: '20px' }}>
-        <StatCard label="WAV Files" value={sounds.length} color="#38bdf8"
-          icon="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
-          title="Total WAV files in sourceSoundFiles/ directory" />
-        <StatCard label="Commands" value={Object.keys(commands).length} color="#fb923c"
-          icon="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-          title="Total sound commands defined in sounds.json" />
-        <StatCard label="Sprites" value={Object.keys(soundSprites).length} color="#4ade80"
-          icon="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-          title="Total sound sprites defined in soundSprites" />
-        <StatCard label="Unassigned" value={unassigned} color={unassigned > 0 ? '#f87171' : '#4ade80'}
-          icon="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-          title="WAV files not yet assigned to any tier in sprite-config.json" />
-      </div>
+      {/* Content — centered */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ maxWidth: '800px', width: '100%', padding: '0 16px 32px' }}>
 
-      {/* Info panels — single row, no separate cards */}
-      <div className="glass-panel shrink-0" style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr' }}>
-        {/* Game Repo */}
-        <div style={{ padding: '14px 20px' }}>
-          <div className="flex items-center" style={{ gap: '8px', marginBottom: '10px' }}>
-            <svg style={{ width: '12px', height: '12px', flexShrink: 0, color: hasGame && gameOk ? '#4ade80' : 'rgba(255,255,255,0.25)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)' }} title="Linked game repository — used for deploy, launch, and GLR testing">Game Repo</span>
+          {/* Stats — 4 cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '24px' }}>
+            <StatCard label="WAV Files" value={sounds.length} color="#38bdf8"
+              icon="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"
+              title="Total WAV files in sourceSoundFiles/" />
+            <StatCard label="Commands" value={Object.keys(commands).length} color="#fb923c"
+              icon="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              title="Total commands in sounds.json" />
+            <StatCard label="Sprites" value={Object.keys(soundSprites).length} color="#4ade80"
+              icon="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+              title="Total sound sprites" />
+            <StatCard label="Unassigned" value={unassigned} color={unassigned > 0 ? '#f87171' : '#4ade80'}
+              icon="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              title="WAVs not assigned to any tier" />
           </div>
-          {hasGame ? (
-            <>
-              <button onClick={pickAndLink} disabled={linking} className="flex items-center w-full truncate" style={{ gap: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', cursor: linking ? 'wait' : 'pointer', transition: 'all 0.15s', textAlign: 'left', marginBottom: '8px' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.04)'; }}>
-                <StatusDot ok={gameOk} />
-                <span className="truncate" style={{ fontSize: '11px', fontFamily: "'SF Mono', monospace", color: '#eeeeff', flex: 1, minWidth: 0 }}>{linking ? 'Linking...' : project.settings.gameProjectPath}</span>
-                <svg style={{ width: '10px', height: '10px', color: 'rgba(255,255,255,0.12)', flexShrink: 0 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-              </button>
-              <div className="flex items-center" style={{ gap: '6px', fontSize: '11px', color: 'rgba(255,255,255,0.35)' }}>
-                <StatusDot ok={gameMods} warn={!gameMods} />
-                {gameMods ? 'Ready' : 'node_modules missing'}
-              </div>
-            </>
-          ) : (
-            <button onClick={pickAndLink} disabled={linking} className="flex items-center w-full" style={{ gap: '8px', padding: '10px 12px', borderRadius: '8px', border: '1px dashed rgba(255,255,255,0.06)', cursor: linking ? 'wait' : 'pointer', transition: 'all 0.15s', background: 'transparent' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,124,248,0.2)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)'; }}>
-              <svg style={{ width: '12px', height: '12px', color: 'rgba(255,255,255,0.2)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)' }} title="Pick a game repo folder to link — enables deploy, launch, and GLR features">{linking ? 'Linking...' : 'Link game repository'}</span>
-            </button>
-          )}
-        </div>
 
-        {/* Divider */}
-        <div style={{ background: 'rgba(255,255,255,0.04)', margin: '12px 0' }} />
+          {/* Two panels side by side */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
 
-        {/* Last Build */}
-        <div style={{ padding: '14px 20px' }}>
-          <div className="flex items-center" style={{ gap: '8px', marginBottom: '10px' }}>
-            <svg style={{ width: '12px', height: '12px', flexShrink: 0, color: distInfo?.hasDist ? '#4ade80' : 'rgba(255,255,255,0.25)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-            <span style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.28)' }} title="Status of the last audio build — sprite count, total size, and output files in dist/">Last Build</span>
-            {distInfo?.hasDist && (
-              <span style={{ marginLeft: 'auto', fontSize: '10px', fontWeight: 700, fontFamily: "'SF Mono', monospace", padding: '2px 8px', borderRadius: '6px', background: 'rgba(74,222,128,0.07)', color: '#4ade80' }} title="Total size of all built M4A sprites in dist/">{distInfo.totalSizeMB} MB</span>
-            )}
-          </div>
-          {distInfo?.hasDist ? (
-            <>
-              <div className="flex items-center" style={{ gap: '6px', fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginBottom: '4px' }}>
-                <StatusDot ok />
-                {distInfo.spriteCount} sprites · {distInfo.hasSoundsJson ? 'JSON OK' : 'JSON missing'}
+            {/* Game Repo */}
+            <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="flex items-center" style={{ gap: '10px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: hasGame && gameOk ? '#4ade80' : 'rgba(255,255,255,0.15)', boxShadow: hasGame && gameOk ? '0 0 8px rgba(74,222,128,0.4)' : 'none' }} />
+                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.3)' }}>Game Repo</span>
               </div>
-              {distInfo.sprites?.length > 0 && (
-                <div className="flex flex-wrap" style={{ gap: '4px', marginTop: '8px' }}>
-                  {distInfo.sprites.map(s => (
-                    <span key={s} style={{ fontSize: '10px', fontFamily: "'SF Mono', monospace", color: 'rgba(255,255,255,0.2)', padding: '4px 8px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)' }}>{s}</span>
-                  ))}
+              {hasGame ? (<>
+                <button onClick={pickAndLink} disabled={linking} className="flex items-center w-full truncate" style={{ gap: '10px', padding: '12px 16px', borderRadius: '10px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', cursor: linking ? 'wait' : 'pointer', transition: 'all 0.15s', textAlign: 'left' }} onMouseEnter={e => { if(!linking) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; } }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.05)'; e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}>
+                  <StatusDot ok={gameOk} />
+                  <span className="truncate" style={{ fontSize: '13px', fontFamily: "'SF Mono', monospace", color: '#e0e0e8', flex: 1, minWidth: 0 }}>{linking ? 'Linking...' : project.settings.gameProjectPath}</span>
+                </button>
+                <div className="flex items-center" style={{ gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                  <StatusDot ok={gameMods} warn={!gameMods} />
+                  <span>{gameMods ? 'Ready' : 'node_modules missing'}</span>
+                  {project?.gameNodeVersion && <span style={{ fontSize: '10px', fontWeight: 600, color: '#4ade80', background: 'rgba(74,222,128,0.08)', padding: '2px 8px', borderRadius: '5px' }}>Node {project.gameNodeVersion}</span>}
                 </div>
+              </>) : (
+                <button onClick={pickAndLink} disabled={linking} className="flex items-center justify-center w-full" style={{ gap: '10px', padding: '14px', borderRadius: '10px', border: '1px dashed rgba(255,255,255,0.08)', cursor: linking ? 'wait' : 'pointer', transition: 'all 0.15s', background: 'transparent' }} onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(139,124,248,0.25)'; }} onMouseLeave={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; }}>
+                  <svg style={{ width: '14px', height: '14px', color: 'rgba(255,255,255,0.25)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)' }}>{linking ? 'Linking...' : 'Link game repository'}</span>
+                </button>
               )}
-            </>
-          ) : (
-            <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>No build yet</span>
-          )}
+            </div>
+
+            {/* Last Build */}
+            <div className="card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div className="flex items-center" style={{ gap: '10px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: distInfo?.hasDist ? '#4ade80' : 'rgba(255,255,255,0.15)', boxShadow: distInfo?.hasDist ? '0 0 8px rgba(74,222,128,0.4)' : 'none' }} />
+                <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'rgba(255,255,255,0.3)' }}>Last Build</span>
+                {distInfo?.hasDist && (
+                  <span style={{ marginLeft: 'auto', fontSize: '11px', fontWeight: 700, fontFamily: "'SF Mono', monospace", padding: '4px 12px', borderRadius: '8px', background: 'rgba(74,222,128,0.08)', color: '#4ade80' }}>{distInfo.totalSizeMB} MB</span>
+                )}
+              </div>
+              {distInfo?.hasDist ? (<>
+                <div className="flex items-center" style={{ gap: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                  <StatusDot ok />
+                  <span>{distInfo.spriteCount} sprites · {distInfo.hasSoundsJson ? 'JSON OK' : 'JSON missing'}</span>
+                </div>
+                {distInfo.sprites?.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    {distInfo.sprites.map(s => (
+                      <div key={s} style={{ fontSize: '12px', fontFamily: "'SF Mono', monospace", display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.55)' }}>{s}</span>
+                        {distInfo.spriteSizes?.[s] && <span style={{ color: '#b0b0c0', fontWeight: 600, marginLeft: 'auto' }}>{distInfo.spriteSizes[s] >= 1000 ? (distInfo.spriteSizes[s] / 1000).toFixed(3) + ' MB' : distInfo.spriteSizes[s] + ' KB'}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>) : (
+                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.25)', textAlign: 'center', padding: '8px 0' }}>No build yet</span>
+              )}
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
