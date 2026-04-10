@@ -686,7 +686,15 @@ export default function BuildPage({ project, setProject, showToast }) {
               className={`ml-auto text-[11px] py-1 px-2.5 rounded-md border transition-colors ${running ? 'border-danger/25 text-danger hover:bg-danger/8' : 'border-border text-text-dim hover:text-text-secondary hover:border-border-bright'}`}
             >{running ? 'Stop' : 'Clear'}</button>
           </div>
-          <pre ref={logRef} className="px-5 py-3.5 text-xs font-mono text-text-secondary whitespace-pre-wrap leading-relaxed overflow-auto max-h-64">{log || ' '}</pre>
+          <pre ref={logRef} className="px-5 py-3.5 text-xs font-mono text-text-secondary whitespace-pre-wrap leading-relaxed overflow-auto max-h-64">{(log || ' ').split('\n').map((line, i) =>
+            /✔.*[Cc]omplete|BUILD COMPLETE/.test(line)
+              ? <span key={i} className="text-green font-medium">{line}{'\n'}</span>
+              : /[✖✗]|failed|ERROR/.test(line)
+              ? <span key={i} className="text-danger">{line}{'\n'}</span>
+              : /⚠|OVER LIMIT|WARNING/.test(line)
+              ? <span key={i} className="text-orange">{line}{'\n'}</span>
+              : line + '\n'
+          )}</pre>
         </div>
       )}
     </div>
