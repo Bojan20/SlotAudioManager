@@ -145,10 +145,10 @@ export default function App() {
     if (!project) return {};
     const sc = project.spriteConfig;
     const tiers = sc?.sprites || {};
-    const standalone = sc?.standalone?.sounds || [];
+    const streaming = sc?.streaming?.sounds || [];
     const allAssigned = new Set();
     for (const cfg of Object.values(tiers)) for (const s of (cfg.sounds || [])) allAssigned.add(s);
-    for (const s of standalone) allAssigned.add(s);
+    for (const s of streaming) allAssigned.add(s);
     const unassigned = (project.sounds || []).filter(s => !allAssigned.has(s.name.replace(/\.wav$/i, ''))).length;
     return {
       sprites: unassigned > 0 ? unassigned : null,

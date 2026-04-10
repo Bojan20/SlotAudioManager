@@ -105,14 +105,13 @@ console.log(`SFX encoding: ${sfxEnc.bitrate}kbps ${sfxEnc.channels}ch ${sfxEnc.s
 console.log(`Music encoding: ${musicEnc.bitrate}kbps ${musicEnc.channels}ch ${musicEnc.samplerate}Hz`);
 console.log('');
 
-const standaloneSounds = new Set(spriteConfig.standalone?.sounds || []);
 const streamingSounds = new Set(spriteConfig.streaming?.sounds || []);
 
 let totalNative = 0, totalFdk = 0, totalWav = 0, fileCount = 0;
 
 for (const name of wavFiles) {
     const inputPath = path.join(sourceDir, name + '.wav');
-    const isMusic = standaloneSounds.has(name) || streamingSounds.has(name);
+    const isMusic = streamingSounds.has(name);
     const enc = isMusic ? musicEnc : sfxEnc;
     const typeLabel = isMusic ? 'MUSIC' : 'SFX';
     const wavSize = fileSize(inputPath);

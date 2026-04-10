@@ -58,7 +58,6 @@ if (soundDataFiles.length === 0) {
 // Build a map: spriteId -> { soundId, startTime } from soundData files
 const spriteDataMap = {};
 const manifestEntries = [];
-const standaloneSounds = spriteConfig.standalone?.sounds || [];
 const streamingSounds = new Set(spriteConfig.streaming?.sounds || []);
 
 for (const dataFile of soundDataFiles) {
@@ -89,12 +88,11 @@ for (const dataFile of soundDataFiles) {
     const isStreamingTier = streamingSounds.has(tierName);
     const tierConfig = spriteConfig.sprites[tierName];
     const subLoaderId = tierConfig?.subLoaderId;
-    const isStandaloneTier = standaloneSounds.includes(tierName);
     const manifestEntry = { id: soundId, src: ["soundFiles/" + m4aFile] };
     if (isStreamingTier) {
         manifestEntry.loadType = "S";
         console.log(`  [Streaming] ${soundId} — loadType "S" (HTML5 Audio)`);
-    } else if (subLoaderId && !isStandaloneTier) {
+    } else if (subLoaderId) {
         // Audio loads on main load (no loadType) — tiered M4A files for organization only.
         // Deferred loading (A-F/Z) causes timing bugs: game commands fire before SubLoader
         // finishes, resulting in silent fails. Audio is small (2-5MB total) — no need to defer.
@@ -112,20 +110,18 @@ for (const dataFile of soundDataFiles) {
     }
 }
 
-// Sort manifest by sprite config priority
+// Sort manifest by sprite config priority, streaming last
 const spriteOrder = Object.keys(spriteConfig.sprites);
-const standaloneNames = spriteConfig.standalone.sounds || [];
 
 manifestEntries.sort((a, b) => {
     const aIdx = spriteOrder.findIndex(tier => a.id.endsWith('_' + tier));
     const bIdx = spriteOrder.findIndex(tier => b.id.endsWith('_' + tier));
-    const aStandalone = standaloneNames.some(s => a.id.includes(s));
-    const bStandalone = standaloneNames.some(s => b.id.includes(s));
+    const aStreaming = streamingSounds.has(a.id.replace(/\.m4a$/, ''));
+    const bStreaming = streamingSounds.has(b.id.replace(/\.m4a$/, ''));
 
-    // Sprite tiers first (by priority), then standalone
-    if (!aStandalone && !bStandalone) return aIdx - bIdx;
-    if (aStandalone && bStandalone) return 0;
-    if (aStandalone) return 1;
+    if (!aStreaming && !bStreaming) return aIdx - bIdx;
+    if (aStreaming && bStreaming) return 0;
+    if (aStreaming) return 1;
     return -1;
 });
 
@@ -171,8 +167,8 @@ for (const file of normalFiles) {
         newEntry.overlap = origEntry.overlap;
     }
 
-    // Preserve tags from template; standalone/streaming sounds get Music tag, everything else gets SFX tag
-    const isMusicSound = standaloneSounds.includes(soundName) || streamingSounds.has(soundName);
+    // Preserve tags from template; streaming sounds get Music tag, everything else gets SFX tag
+    const isMusicSound = streamingSounds.has(soundName);
     newEntry.tags = origEntry.tags || (isMusicSound ? spriteConfig.musicTags || ["Music"] : spriteConfig.sfxTags || ["SoundEffects"]);
 
     newSoundSprites[entryName] = newEntry;

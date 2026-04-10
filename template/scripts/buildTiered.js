@@ -4,7 +4,7 @@
  * buildTiered.js — Tier-based audio sprite builder
  *
  * Reads sprite-config.json and builds audio sprites grouped by game state priority.
- * Music files are exported as standalone M4A files (not in sprites).
+ * Streaming music is exported as individual M4A files via deployStreaming.js.
  * Supports incremental builds via SHA256 hash cache (.build-cache.json).
  * Sprite tiers are built in parallel for faster builds.
  */
@@ -78,7 +78,6 @@ const allWavFiles = fs.readdirSync(sourceSndFiles)
 
 console.log(`Found ${allWavFiles.length} WAV files in source directory`);
 
-const standaloneSounds = spriteConfig.standalone.sounds || [];
 const streamingSounds = spriteConfig.streaming?.sounds || [];
 const spriteGroups = spriteConfig.sprites;
 const encoding = spriteConfig.encoding || {};
@@ -109,7 +108,6 @@ if (encoding) {
 // Collect assigned sounds
 const assignedSounds = new Set();
 for (const tierConfig of Object.values(spriteGroups)) tierConfig.sounds.forEach(s => assignedSounds.add(s));
-standaloneSounds.forEach(s => assignedSounds.add(s));
 streamingSounds.forEach(s => assignedSounds.add(s));
 
 // Auto-add unassigned to last tier
@@ -129,10 +127,6 @@ for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
         missing.forEach(s => console.log(`  - ${s}`));
         tierConfig.sounds = tierConfig.sounds.filter(s => allWavFiles.includes(s));
     }
-}
-const missingStandalone = standaloneSounds.filter(s => !allWavFiles.includes(s));
-if (missingStandalone.length > 0) {
-    console.log(`NOTE: Standalone references ${missingStandalone.length} missing WAV files (skipped)`);
 }
 const missingStreaming = streamingSounds.filter(s => !allWavFiles.includes(s));
 if (missingStreaming.length > 0) {
@@ -177,16 +171,6 @@ function tierNeedsRebuild(tierName, sounds) {
     if (hasMusicSplit && !fs.existsSync(outDir + `${gameName}_${tierName}_music.m4a`)) return true;
     const cachedKey = sounds.map(s => cache[s]).join('|');
     return key !== cachedKey;
-}
-
-function standaloneNeedsRebuild(soundName) {
-    const p = sourceSndFiles + soundName + '.wav';
-    const h = fileHash(p);
-    newCache[soundName] = h; // Always compute — populates newCache for save
-    if (configChanged) return true;
-    const outputPath = outDir + `${gameName}_${soundName}.m4a`;
-    if (!fs.existsSync(outputPath)) return true;
-    return cache[soundName] !== h;
 }
 
 function streamingNeedsRebuild(soundName) {
@@ -263,21 +247,7 @@ for (const [tierName, tierConfig] of Object.entries(spriteGroups)) {
     // If tier has ONLY sfx or ONLY music, single sprite (no split needed — handled above)
 }
 
-const existingStandalone = standaloneSounds.filter(s => allWavFiles.includes(s));
-for (const soundName of existingStandalone) {
-    if (!standaloneNeedsRebuild(soundName)) {
-        console.log(`[SKIP] Standalone '${soundName}' — no changes detected`);
-        continue;
-    }
-    buildQueue.push({
-        type: 'standalone',
-        name: soundName,
-        files: [sourceSndFiles + soundName + '.wav'],
-        outputName: `${gameName}_${soundName}`
-    });
-}
-
-// Streaming music — builds individual M4A like standalone, manifest entry with loadType "S"
+// Streaming music — builds individual M4A, manifest entry with loadType "S"
 const existingStreaming = streamingSounds.filter(s => allWavFiles.includes(s));
 if (existingStreaming.length > 0) {
     console.log(`\nStreaming: ${existingStreaming.length} music files (HTML5 Audio, loadType S)`);
@@ -307,12 +277,12 @@ console.log("=".repeat(50));
 // ── Parallel build ────────────────────────────────────────────────────────────
 function buildOne(build, index, total) {
     return new Promise((resolve) => {
-        const isStandalone = build.type === 'standalone' || build.type === 'streaming';
-        // Encoding: music for standalone/streaming/music-tagged splits, sfx for everything else
-        const useMusic = isStandalone || build.encType === 'music';
+        const isStreaming = build.type === 'streaming';
+        // Encoding: music for streaming/music-tagged splits, sfx for everything else
+        const useMusic = isStreaming || build.encType === 'music';
         const enc = useMusic ? encoding.music : encoding.sfx;
-        const gap = isStandalone ? 0 : spriteConfig.spriteGap;
-        const typeLabel = build.type === 'streaming' ? 'Streaming' : build.type === 'standalone' ? 'Standalone' : 'Sprite';
+        const gap = isStreaming ? 0 : spriteConfig.spriteGap;
+        const typeLabel = isStreaming ? 'Streaming' : 'Sprite';
 
         const encEncoder = enc.encoder || spriteConfig.encoder || 'native';
         const usesFdkForThis = (encEncoder === 'fdk') && _fdkExists;
@@ -343,7 +313,7 @@ function buildOne(build, index, total) {
             // Write soundData for all types (streaming needs it for sprite definitions in sounds.json)
             fs.writeFileSync(outDir + "soundData_" + build.name + ".json", JSON.stringify(obj, null, 2));
 
-            if (!isStandalone) {
+            if (!isStreaming) {
                 const m4aPath = outDir + build.outputName + ".m4a";
                 if (fs.existsSync(m4aPath)) {
                     const sizeKB = Math.round(fs.statSync(m4aPath).size / 1024);

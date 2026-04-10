@@ -23,10 +23,6 @@
       "sounds": []
     }
   },
-  "standalone": {
-    "description": "Music loops — too large for sprites, each exported as individual M4A. Loaded via Web Audio (full decode into RAM).",
-    "sounds": []
-  },
   "streaming": {
     "description": "Background music — built as individual M4A, manifest gets loadType 'S'. deployStreaming.js generates BGMStreamingInit.ts that creates HTML5 Audio Howl instances (~3 MB RAM instead of ~40 MB per track). Auto-patches game main.ts — zero developer involvement.",
     "sounds": [],

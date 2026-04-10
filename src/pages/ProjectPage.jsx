@@ -93,14 +93,14 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
   const sounds = project.sounds || [];
   const spriteConfig = project.spriteConfig;
   const tiers = spriteConfig?.sprites || {};
-  const standalone = spriteConfig?.standalone?.sounds || [];
+  const streaming = spriteConfig?.streaming?.sounds || [];
   const commands = project.soundsJson?.soundDefinitions?.commands || {};
   const soundSprites = project.soundsJson?.soundDefinitions?.soundSprites || {};
   const distInfo = project.distInfo;
 
   const assigned = new Set();
   for (const cfg of Object.values(tiers)) for (const s of (cfg.sounds || [])) assigned.add(s);
-  for (const s of standalone) assigned.add(s);
+  for (const s of streaming) assigned.add(s);
   const unassigned = sounds.filter(s => !assigned.has(s.name.replace(/\.wav$/i, ''))).length;
 
   const hasGame = !!project.settings?.gameProjectPath;

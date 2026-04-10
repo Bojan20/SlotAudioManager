@@ -1133,12 +1133,6 @@ ipcMain.handle('rename-sound', async (event, { oldName, newName }) => {
         }
       }
 
-      // Standalone
-      if (spriteConfig.standalone?.sounds) {
-        const idx = spriteConfig.standalone.sounds.indexOf(oldName);
-        if (idx !== -1) { spriteConfig.standalone.sounds[idx] = trimmed; changed = true; }
-      }
-
       // Streaming
       if (spriteConfig.streaming?.sounds) {
         const idx = spriteConfig.streaming.sounds.indexOf(oldName);
@@ -2844,8 +2838,8 @@ ipcMain.handle('npm-install', async () => {
 });
 
 // Measure pool: run audiosprite on a tier's sounds in temp dir to get actual M4A size
-// Standalone mode: builds each sound as a separate M4A (matching buildTiered.js) and sums sizes
-ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc, isStandalone }) => {
+// Streaming mode: builds each sound as a separate M4A (matching buildTiered.js) and sums sizes
+ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc, isStreaming }) => {
   if (!projectPath) return { error: 'No project open' };
   const settings = readJsonSafe(path.join(projectPath, 'settings.json'));
   const srcDir = path.resolve(projectPath, settings?.SourceSoundDirectory || './sourceSoundFiles');
@@ -2871,16 +2865,16 @@ ipcMain.handle('measure-pool', async (event, { tierName, sounds, encoding: enc, 
 
   const e = enc || { bitrate: 64, channels: 1, samplerate: 44100 };
   const sc = readJsonSafe(path.join(projectPath, 'sprite-config.json'));
-  // Standalone uses gap=0 (each sound = separate file), sprite tiers use spriteGap
-  const gap = isStandalone ? 0 : (sc?.spriteGap ?? 0.05);
+  // Streaming uses gap=0 (each sound = separate file), sprite tiers use spriteGap
+  const gap = isStreaming ? 0 : (sc?.spriteGap ?? 0.05);
 
   const bitrateVal = e.keepOriginal ? 320 : (e.bitrate || 64);
   const channelsLine = !e.keepOriginal ? `opts.channels=${e.channels||1};opts.samplerate=${e.samplerate||44100};` : '';
 
   const scriptPath = path.join(tmpDir, 'measure.js');
 
-  if (isStandalone) {
-    // Build each sound as a separate M4A (matches buildTiered.js standalone behavior)
+  if (isStreaming) {
+    // Build each sound as a separate M4A (matches buildTiered.js streaming behavior)
     const builds = files.map((f, i) => ({ file: f.replace(/\\/g, '/'), outBase: path.join(tmpDir, 'm_' + i).replace(/\\/g, '/') }));
     fs.writeFileSync(scriptPath, `
 const as = require(${JSON.stringify(customAS.replace(/\\/g, '/'))});
