@@ -148,55 +148,62 @@ function groupSpriteListFiles(files, parsedTemplate) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// CHUNK BY SIZE (~30MB per sprite)
+// CHUNK BY COUNT — split by number of sounds, not file size.
+// Immune to WAV metadata changes (file size doesn't affect boundaries).
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// groups: [{ startIdx, count, name }] — atomic units that must not be split.
-function chunkBySize(files, maxMB, groups) {
-    // Build index→group lookup
-    const groupAt = {};
-    for (const g of (groups || [])) groupAt[g.startIdx] = g;
+// spriteListMembers: Map<basename, listName> — sounds that must stay in the same chunk
+function chunkByCount(files, maxCount, spriteListMembers) {
+    // Build groups: listName → [indices in files array]
+    const listIndices = {};
+    files.forEach((f, i) => {
+        const bn = path.basename(f, '.wav');
+        const list = spriteListMembers?.get(bn);
+        if (list) {
+            if (!listIndices[list]) listIndices[list] = [];
+            listIndices[list].push(i);
+        }
+    });
 
+    const claimed = new Set(); // indices already assigned to a chunk
     const chunks = [];
     let current = [];
-    let currentSize = 0;
-    let i = 0;
 
-    while (i < files.length) {
-        const g = groupAt[i];
+    for (let i = 0; i < files.length; i++) {
+        if (claimed.has(i)) continue;
 
-        if (g) {
-            // Atomic group — measure total size
-            let groupSize = 0;
-            for (let j = i; j < i + g.count; j++) {
-                groupSize += fs.statSync(files[j]).size / (1024 * 1024);
-            }
+        const bn = path.basename(files[i], '.wav');
+        const list = spriteListMembers?.get(bn);
 
-            // Start new chunk if group doesn't fit (but always accept into empty chunk)
-            if (currentSize + groupSize >= maxMB && current.length > 0) {
+        if (list && listIndices[list]) {
+            // This file belongs to a sprite list — pull ALL members into current chunk
+            const members = listIndices[list];
+            const groupSize = members.length;
+
+            // If adding this group would exceed limit, start new chunk (unless empty)
+            if (current.length > 0 && current.length + groupSize > maxCount) {
                 chunks.push(current);
                 current = [];
-                currentSize = 0;
             }
 
-            // If group alone exceeds maxMB, warn but keep together — splitting is worse
-            if (groupSize >= maxMB) {
-                console.warn('  ⚠ Group ' + g.name + ' (' + groupSize.toFixed(1) + ' MB) exceeds chunk limit — keeping together');
+            // Add all group members (in their original alphabetical order)
+            for (const idx of members) {
+                current.push(files[idx]);
+                claimed.add(idx);
             }
+            delete listIndices[list]; // processed
 
-            for (let j = i; j < i + g.count; j++) current.push(files[j]);
-            currentSize += groupSize;
-            i += g.count;
+            if (groupSize > maxCount) {
+                console.warn('  ⚠ Sprite list ' + list + ' (' + groupSize + ' sounds) exceeds max per sprite — keeping together');
+            }
         } else {
-            const size = fs.statSync(files[i]).size / (1024 * 1024);
-            if (currentSize + size >= maxMB && current.length > 0) {
+            // Regular file
+            if (current.length >= maxCount) {
                 chunks.push(current);
                 current = [];
-                currentSize = 0;
             }
             current.push(files[i]);
-            currentSize += size;
-            i++;
+            claimed.add(i);
         }
     }
 
@@ -376,17 +383,27 @@ async function main() {
         }
     }
 
-    // ── Sprite list grouping ──
-    // Disabled: reordering WAV files within chunks causes AAC encoder to produce
-    // corrupt frames with ffmpeg native encoder (-strict -2). Different audio
-    // transitions in concatenated PCM trigger encoder edge cases.
-    // Sprite list cohesion is validated post-build and warned (not blocked).
-    console.log('── Sprite list grouping: disabled (AAC encoder compat) ──');
-    const sfxGrouped = { files: sfxFiles, groups: [] };
-    const musicGrouped = { files: musicFiles, groups: [] };
+    // ── Sprite list cohesion — build a map of which sounds must stay together ──
+    const maxSoundsPerSprite = spriteConfig?.maxSoundsPerSprite ?? 30;
+    let spriteListMembers = null; // Map<basename, listName>
+    if (templateJsonForGroups) {
+        const sl = templateJsonForGroups.soundDefinitions?.spriteList || {};
+        spriteListMembers = new Map();
+        for (const [listName, list] of Object.entries(sl)) {
+            const items = Array.isArray(list) ? list : (list?.items || []);
+            if (items.length < 2) continue;
+            for (const item of items) {
+                const bn = item.replace(/^s_/, '');
+                if (!spriteListMembers.has(bn)) spriteListMembers.set(bn, listName);
+            }
+        }
+        console.log('── Chunk by count: max ' + maxSoundsPerSprite + ' sounds/sprite, ' + spriteListMembers.size + ' sounds in sprite lists ──');
+    } else {
+        console.log('── Chunk by count: max ' + maxSoundsPerSprite + ' sounds/sprite ──');
+    }
 
     // ── Build SFX sprites ──
-    const sfxChunks = chunkBySize(sfxGrouped.files, 30, sfxGrouped.groups);
+    const sfxChunks = chunkByCount(sfxFiles, maxSoundsPerSprite, spriteListMembers);
     const sfxEncEncoder = sfxEnc.encoder || 'native';
     const sfxUseNative = !((sfxEncEncoder === 'fdk') && fdkExists);
 
@@ -415,7 +432,7 @@ async function main() {
     }
 
     if (musicFiles.length > 0) {
-        const musicChunks = chunkBySize(musicGrouped.files, 30, musicGrouped.groups);
+        const musicChunks = chunkByCount(musicFiles, maxSoundsPerSprite, spriteListMembers);
         const musicEncEncoder = musicEnc.encoder || 'native';
         const musicUseNative = !((musicEncEncoder === 'fdk') && fdkExists);
 

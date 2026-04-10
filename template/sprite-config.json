@@ -49,6 +49,7 @@
     }
   },
   "spriteGap": 0.05,
+  "maxSoundsPerSprite": 30,
   "musicTags": ["Music"],
   "sfxTags": ["SoundEffects"]
 }
