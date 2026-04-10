@@ -183,13 +183,13 @@ export default function SetupPage({ project, setProject, showToast }) {
     <div className="anim-fade-up h-full flex flex-col">
       {/* Header */}
       <div className="shrink-0 flex flex-col items-center justify-center pt-2 pb-6">
-        <h2 className="text-xl font-bold text-text-primary tracking-tight">Project Setup</h2>
+        <h2 className="text-xl font-bold text-text-primary tracking-tight">Setup Project</h2>
         <p className="text-xs text-text-dim mt-1">Follow each step from top to bottom</p>
       </div>
 
       {/* Single column flow — centered */}
       <div className="flex-1 min-h-0 overflow-y-auto" style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ maxWidth: '600px', width: '100%', padding: '40px 16px 32px' }} className="space-y-5">
+        <div style={{ width: '100%', maxWidth: '900px', padding: '40px 24px 32px' }} className="space-y-5">
 
           {/* ═══ SECTION: CONNECT ═══ */}
           <div>

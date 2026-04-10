@@ -404,25 +404,25 @@ export default function BuildPage({ project, setProject, showToast }) {
   const stepNum = (() => { let n = 1; return () => n++; })();
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-3">
+    <div className="anim-fade-up h-full flex flex-col" style={{ gap: '16px', padding: '8px 0' }}>
       {/* Header */}
-      <div className="shrink-0 flex items-center gap-3">
-        <h2 className="text-lg font-bold text-text-primary tracking-tight">Build & Deploy</h2>
+      <div className="shrink-0" style={{ textAlign: 'center' }}>
+        <h2 className="text-text-primary" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>Build & Deploy</h2>
         {result && !running && (
-          <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${result.ok ? 'bg-green/10 text-green' : 'bg-danger/10 text-danger'}`}>
+          <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${result.ok ? 'bg-green/10 text-green' : 'bg-danger/10 text-danger'}`} style={{ display: 'inline-block', marginTop: '6px' }}>
             {result.script}: {result.ok ? 'OK' : 'FAILED'}
           </span>
         )}
       </div>
 
       {/* 2-column — always side by side */}
-      <div className="flex-1 min-h-0 grid grid-cols-2 gap-3">
+      <div className="flex-1 min-h-0 grid grid-cols-2" style={{ gap: '16px' }}>
 
         {/* ═══ LEFT: Audio Pipeline ═══ */}
         <div className="flex flex-col min-h-0 min-w-0 overflow-y-auto">
           <div className="card overflow-hidden">
             {/* Panel header */}
-            <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-border/40">
+            <div className="flex items-center gap-2.5 px-6 py-4 border-b border-border/40">
               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-cyan/10 text-cyan text-sm shrink-0">&#9835;</span>
               <span className="text-sm font-bold text-text-primary">Audio Pipeline</span>
               <span className="ml-auto flex items-center gap-2 text-xs font-mono text-text-secondary">
@@ -435,7 +435,7 @@ export default function BuildPage({ project, setProject, showToast }) {
               </span>
             </div>
             {/* Panel body */}
-            <div className="p-5 space-y-3">
+            <div style={{ padding: '24px' }} className="space-y-4">
 
               {/* ── Build ── */}
               <div className="rounded-lg border border-white/[0.04] bg-white/[0.015] p-4 space-y-3">
@@ -536,11 +536,11 @@ export default function BuildPage({ project, setProject, showToast }) {
         </div>
 
         {/* ═══ RIGHT: Game ═══ */}
-        <div className="flex flex-col gap-3 min-h-0 min-w-0 overflow-y-auto">
+        <div className="flex flex-col min-h-0 min-w-0 overflow-y-auto" style={{ gap: '16px' }}>
 
           {/* LAUNCH */}
           <div className="card overflow-hidden">
-            <div className="flex items-center gap-2.5 px-5 py-3.5 border-b border-border/40">
+            <div className="flex items-center gap-2.5 px-6 py-4 border-b border-border/40">
               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-purple/10 text-purple text-sm shrink-0">&#9654;</span>
               <span className="text-sm font-bold text-text-primary">Game</span>
               {gameRepoPath && <span className="text-xs font-mono text-text-dim truncate" title={gameRepoPath}>{gameRepoPath.split(/[/\\]/).pop()}</span>}
@@ -555,7 +555,7 @@ export default function BuildPage({ project, setProject, showToast }) {
                 <button onClick={loadGameScripts} disabled={loadingGameScripts||running!==null||deploying} className="text-[11px] py-1 px-2.5 rounded-md border border-border text-text-dim hover:text-text-secondary hover:border-border-bright transition-colors disabled:opacity-40">{loadingGameScripts ? '...' : 'Refresh'}</button>
               </div>
             </div>
-            <div className="p-5 space-y-4">
+            <div style={{ padding: '24px' }} className="space-y-4">
               {deployTarget && project?.gameRepoBranches?.length > 0 && (
                 <div className="flex items-center gap-2.5">
                   <span className="text-[10px] font-bold tracking-[0.12em] uppercase text-text-dim">Branch</span>
@@ -595,13 +595,14 @@ export default function BuildPage({ project, setProject, showToast }) {
           {/* GAME GIT */}
           {deployTarget && (
             <div className="card overflow-hidden">
-              <div className="flex items-center gap-2.5 px-5 py-3 border-b border-border/40">
+              <div className="flex items-center gap-2.5 px-6 py-4 border-b border-border/40">
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-orange/10 text-orange text-sm shrink-0">&#9733;</span>
                 <span className="text-sm font-bold text-text-primary">Game Git</span>
                 {gameGit && <span className="text-xs font-mono text-purple">{gameGit.branch}</span>}
                 {gameGit && gameGit.files.length > 0 && <span className="text-[10px] font-semibold text-orange bg-orange/10 px-1.5 py-0.5 rounded">{gameGit.files.length}</span>}
                 <button onClick={loadGameGitStatus} disabled={gameGitLoading} className="ml-auto text-[11px] py-1 px-2.5 rounded-md border border-border text-text-dim hover:text-text-secondary hover:border-border-bright transition-colors disabled:opacity-40">{gameGitLoading ? '...' : 'Refresh'}</button>
               </div>
-              <div className="p-5">
+              <div style={{ padding: '24px' }}>
                 {!gameGit ? <p className="text-sm text-text-dim">Click Refresh to load status</p>
                 : gameGit.files.length === 0 ? <p className="text-sm text-green">No changes — deploy first</p>
                 : (
@@ -659,7 +660,7 @@ export default function BuildPage({ project, setProject, showToast }) {
       {/* LOG */}
       {(log || running || deploying) && (
         <div className="card overflow-hidden shrink-0">
-          <div className="flex items-center gap-2.5 px-5 py-2.5 border-b border-border/40">
+          <div className="flex items-center gap-2.5 px-6 py-3 border-b border-border/40">
             <span className="text-[10px] font-bold tracking-[0.14em] uppercase text-text-dim">Output</span>
             {(running || deploying) && (
               <span className="flex items-center gap-1.5 text-[11px] text-cyan">
@@ -670,7 +671,7 @@ export default function BuildPage({ project, setProject, showToast }) {
               className={`ml-auto text-[11px] py-1 px-2.5 rounded-md border transition-colors ${running ? 'border-danger/25 text-danger hover:bg-danger/8' : 'border-border text-text-dim hover:text-text-secondary hover:border-border-bright'}`}
             >{running ? 'Stop' : 'Clear'}</button>
           </div>
-          <pre ref={logRef} className="px-5 py-3.5 text-xs font-mono text-text-secondary whitespace-pre-wrap leading-relaxed overflow-auto max-h-64">{(log || ' ').split('\n').map((line, i) =>
+          <pre ref={logRef} className="px-6 py-4 text-xs font-mono text-text-secondary whitespace-pre-wrap leading-relaxed overflow-auto max-h-64">{(log || ' ').split('\n').map((line, i) =>
             /✔.*[Cc]omplete|BUILD COMPLETE/.test(line)
               ? <span key={i} className="text-green font-medium">{line}{'\n'}</span>
               : /[✖✗]|failed|ERROR/.test(line)

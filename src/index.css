@@ -197,6 +197,14 @@ button, input, select, textarea, a, label { -webkit-app-region: no-drag; }
 }
 .btn-ghost:disabled { opacity: 0.35; cursor: not-allowed; pointer-events: none; }
 
+/* Tag select dropdown styling */
+select option {
+  background: #13132a;
+  color: #e0e0e8;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
 .section-label {
   font-size: 11px;
   font-weight: 700;

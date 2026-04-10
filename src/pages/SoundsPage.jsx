@@ -97,6 +97,9 @@ export default function SoundsPage({ project, setProject, showToast }) {
   const [renaming, setRenaming] = useState(null); // null | sound name being renamed
   const [renameValue, setRenameValue] = useState('');
   const [renameError, setRenameError] = useState('');
+  const [trashPlaying, setTrashPlaying] = useState(null);
+  const [tagDropdown, setTagDropdown] = useState(null); // sound name with open tag dropdown
+  const trashAudioRef = useRef(null);
   const ctxRef = useRef(null);
   const sourceRef = useRef(null);
   const playStartRef = useRef(0);  // ctx.currentTime when playback started
@@ -167,7 +170,7 @@ export default function SoundsPage({ project, setProject, showToast }) {
     return map;
   }, [project?.soundsJson]);
 
-  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); setShowTrash(false); setOrphanResult(null); setAddModal(null); setBulkAdd(null); setSelectedSound(null); }, [project?.path, project?._reloadKey]);
+  useEffect(() => { setFilter(''); setDeleting(null); stopAudio(); setWaveform(null); setPaused(false); { if (trashAudioRef.current) { trashAudioRef.current.pause(); trashAudioRef.current.src = ''; } setTrashPlaying(null); setShowTrash(false); }; setOrphanResult(null); setAddModal(null); setBulkAdd(null); setSelectedSound(null); }, [project?.path, project?._reloadKey]);
   useEffect(() => () => stopAudio(), []);
 
   const stopAudio = () => {
@@ -483,129 +486,55 @@ export default function SoundsPage({ project, setProject, showToast }) {
   };
 
   return (
-    <div className="anim-fade-up h-full flex flex-col gap-2">
-      <div className="shrink-0 flex items-center gap-3 flex-wrap">
-        <h2 className="text-xl font-bold text-text-primary">Source Sounds</h2>
-        <span className="badge bg-cyan-dim text-cyan" title="Total WAV files in sourceSoundFiles/ directory">{project?.sounds?.length || 0}</span>
-        <span className="badge bg-bg-hover text-text-dim" title="Total size of all source WAV files">{totalSizeMB} MB</span>
-        <div className="flex items-center gap-2">
-          <button onClick={handleReload} className="btn-ghost text-xs" title="Reload sound files from sourceSoundFiles/ directory">Refresh</button>
-          <button onClick={handleShowTrash} className="btn-ghost text-xs flex items-center gap-1.5" title="View and restore deleted sounds from .deleted/ folder">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-            Trash
+    <div className="anim-fade-up h-full flex flex-col" style={{ gap: '10px' }}>
+      {/* Header — centered */}
+      <div className="shrink-0" style={{ textAlign: 'center', paddingTop: '8px' }}>
+        <h2 className="text-text-primary" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>Sounds</h2>
+        <div style={{ fontSize: '12px', color: 'var(--color-text-dim, #5c5c72)', marginTop: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px' }}>
+          <span>{sounds.length} files</span>
+          <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'currentColor' }} />
+          <span>{totalSizeMB} MB</span>
+          <span style={{ width: '3px', height: '3px', borderRadius: '50%', background: 'currentColor' }} />
+          <span>{inJsonSet.size} in JSON</span>
+        </div>
+      </div>
+
+      {/* Toolbar — search + pill buttons */}
+      <div className="shrink-0 flex items-center" style={{ gap: '8px', padding: '0 0 4px' }}>
+        <div style={{ width: '220px', position: 'relative', flexShrink: 0 }}>
+          <svg style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', width: '14px', height: '14px', color: 'var(--color-text-dim, #606078)', pointerEvents: 'none' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+          <input type="text" placeholder="Search sounds..." value={filter} onChange={(e) => setFilter(e.target.value)}
+            className="input-base" style={{ width: '100%', paddingLeft: '34px' }} />
+        </div>
+        <button onClick={handleAnalyzeOrphans} disabled={analyzing}
+          className="btn-ghost text-xs" style={{ borderColor: 'rgba(56,189,248,0.2)', color: '#38bdf8' }}>
+          {analyzing ? 'Analyzing...' : 'Analyze'}
+        </button>
+        {(project?.sounds || []).some(s => !inJsonSet.has(s.name)) && (
+          <button onClick={() => setBulkAdd({ overlap: false, saving: false })}
+            className="btn-ghost text-xs" style={{ borderColor: 'rgba(245,158,11,0.2)', color: '#f59e0b' }}>
+            + Add All to JSON
           </button>
-          {(project?.sounds || []).some(s => !inJsonSet.has(s.name)) && (
-            <button
-              onClick={() => setBulkAdd({ overlap: false, saving: false })}
-              className="btn-ghost text-xs flex items-center gap-1.5"
-              title="Add all WAV files not yet in sounds.json to soundSprites definitions"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              Add All to JSON
-            </button>
-
-          )}
-          <button onClick={handleImport} className="btn-primary text-xs" title="Select WAV files to copy into sourceSoundFiles/ directory">+ Import WAVs</button>
-        </div>
-      </div>
-
-      <input
-        type="text"
-        placeholder="Search sounds..."
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        className="input-base shrink-0"
-      />
-
-      {/* JSON CLEANUP */}
-      <div className="card p-3 shrink-0 space-y-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="badge bg-orange-dim text-orange text-xs" title="Find and remove sounds.json references to WAV files that no longer exist in sourceSoundFiles/">JSON Cleanup</span>
-          <span className="text-xs text-text-dim">Find sounds in JSON that don't exist in sourceSoundFiles</span>
-          <div className="flex items-center gap-2">
-            {orphanResult && orphanResult.orphanedSprites.length > 0 && (
-              <button
-                onClick={handleCleanOrphans}
-                disabled={cleaning}
-                className="btn-primary text-xs py-1 px-3 bg-danger/80 hover:bg-danger border-danger/50"
-              >
-                {cleaning ? 'Cleaning...' : `Delete ${orphanResult.orphanedSprites.length} orphan(s)`}
-              </button>
-            )}
-            <button
-              onClick={handleAnalyzeOrphans}
-              disabled={analyzing}
-              className="btn-ghost text-xs py-1 px-3"
-              title="Find WAV files referenced in sounds.json but missing from sourceSoundFiles/"
-            >
-              {analyzing ? 'Analyzing...' : 'Analyze'}
-            </button>
-          </div>
-        </div>
-
-        {orphanResult && (
-          orphanResult.orphanedSprites.length === 0 ? (
-            <div className="flex items-center gap-2 text-green text-xs">
-              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-              sounds.json is clean — all spriteIds have a WAV in sourceSoundFiles
-            </div>
-          ) : (
-            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-
-              {/* Orphaned sprites */}
-              <div>
-                <p className="text-xs text-danger font-semibold mb-1">
-                  {orphanResult.orphanedSprites.length} orphaned sprite(s) — will be removed from soundSprites:
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {orphanResult.orphanedSprites.map(k => (
-                    <span key={k} className="badge bg-danger-dim text-danger font-mono text-xs">{k}</span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Affected spriteLists */}
-              {Object.keys(orphanResult.affectedSpriteLists).length > 0 && (
-                <div className="pt-1.5 border-t border-border/50">
-                  <p className="text-xs text-orange font-semibold mb-1">SpriteLists:</p>
-                  <div className="space-y-0.5">
-                    {Object.entries(orphanResult.affectedSpriteLists).map(([k, bad]) => (
-                      <div key={k} className="flex items-center gap-2 flex-wrap">
-                        <span className={`badge font-mono text-xs ${orphanResult.removedSpriteLists.includes(k) ? 'bg-danger-dim text-danger' : 'bg-orange-dim text-orange'}`}>
-                          {k} {orphanResult.removedSpriteLists.includes(k) ? '(entire list removed)' : `(${bad.length} ID(s) removed)`}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Affected commands */}
-              {Object.keys(orphanResult.affectedCommands).length > 0 && (
-                <div className="pt-1.5 border-t border-border/50">
-                  <p className="text-xs text-orange font-semibold mb-1">Commands (only steps removed, command stays):</p>
-                  <div className="flex flex-wrap gap-1">
-                    {Object.keys(orphanResult.affectedCommands).map(cmd => (
-                      <span key={cmd} className="badge bg-orange-dim text-orange font-mono text-xs">
-                        {cmd} (~{orphanResult.affectedCommands[cmd].length})
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            </div>
-          )
         )}
+        <button onClick={handleShowTrash}
+          className="btn-ghost text-xs" style={{ borderColor: 'rgba(239,68,68,0.2)', color: '#ef4444' }}>
+          Trash{showTrash && deleted.length > 0 ? ` (${deleted.length})` : ''}
+        </button>
+        <button onClick={handleImport} className="btn-primary text-xs">+ Import</button>
+        <button onClick={handleReload} className="btn-ghost text-xs" style={{ marginLeft: 'auto' }}>Refresh</button>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto pr-1" style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto auto', gap: '0 12px', alignItems: 'center', justifyContent: 'start' }}>
+      {/* Main content — table + optional analyze panel */}
+      <div className="flex-1 min-h-0 flex" style={{ gap: '14px', overflow: 'hidden' }}>
+
+      {/* Sound list */}
+      <div className="flex-1 min-h-0 min-w-0 overflow-y-auto card" style={{ display: 'grid', gridTemplateColumns: 'auto auto auto auto auto auto auto auto', gap: '0 16px', alignItems: 'center', justifyContent: 'start', padding: '0 12px' }}>
+        {/* Table header — sticky */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'subgrid', gridColumn: '1 / -1', position: 'sticky', top: 0, zIndex: 10, background: 'var(--color-bg-card)', backdropFilter: 'blur(16px)', padding: '0 12px', borderBottom: '1px solid rgba(50,50,90,0.25)' }}>
+          {['', 'Name', 'Status', 'Tag', 'Size', 'Dur', 'Fmt', ''].map((h, i) => (
+            <span key={i} style={{ padding: '10px 0 8px', fontSize: '10px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#9090b0', textAlign: i >= 2 && i <= 6 ? 'center' : 'left' }}>{h}</span>
+          ))}
+        </div>
         {sounds.map((s) => {
           const inJson = inJsonSet.has(s.name);
           const isPlaying = playing === s.filename;
@@ -676,44 +605,57 @@ export default function SoundsPage({ project, setProject, showToast }) {
                     const sprite = project.soundsJson?.soundDefinitions?.soundSprites?.[`s_${s.name}`];
                     const currentTag = sprite?.tags?.[0] || 'SoundEffects';
                     const tagOptions = ['SoundEffects', 'Music', 'Voice'];
-                    return (
-                      <div className="flex items-center gap-1.5">
-                        <span className="badge bg-green-dim text-green" title="In soundSprites">in JSON</span>
-                        <select
-                          value={currentTag}
-                          onChange={async (e) => {
-                            const newTag = e.target.value;
-                            const newSoundsJson = structuredClone(project.soundsJson);
-                            newSoundsJson.soundDefinitions.soundSprites[`s_${s.name}`].tags = [newTag];
-                            const r = await window.api.saveSoundsJson(newSoundsJson);
-                            if (r?.success) {
-                              const updated = structuredClone(project);
-                              updated.soundsJson = newSoundsJson;
-                              setProject(updated);
-                            } else {
-                              showToast(r?.error || 'Save failed', 'error');
-                            }
-                          }}
-                          className="text-[10px] font-mono bg-bg-hover border border-border rounded px-1.5 py-0.5 text-text-dim hover:border-border-bright cursor-pointer"
-                          title="Sound tag"
-                        >
-                          {tagOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                    return (<>
+                      <span className="badge bg-green-dim text-green" style={{ justifySelf: 'center' }} title="In soundSprites">in JSON</span>
+                      <div style={{ justifySelf: 'center', position: 'relative' }}>
+                        <button onClick={() => setTagDropdown(tagDropdown === s.name ? null : s.name)}
+                          className="text-[10px] font-mono rounded-md cursor-pointer font-semibold"
+                          style={{ padding: '4px 10px', width: '110px', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.06)', background: currentTag === 'Music' ? 'rgba(192,132,252,0.1)' : currentTag === 'Voice' ? 'rgba(251,146,60,0.1)' : 'rgba(34,211,238,0.1)', color: currentTag === 'Music' ? '#c084fc' : currentTag === 'Voice' ? '#fb923c' : '#22d3ee', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {currentTag}
+                          <svg width="8" height="5" viewBox="0 0 8 5" fill="none"><path d="M1 1l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                        </button>
+                        {tagDropdown === s.name && (
+                          <div style={{ position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)', marginTop: '4px', zIndex: 10, background: '#13132a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', width: '130px' }}>
+                            {tagOptions.map(t => {
+                              const tc = t === 'Music' ? '#c084fc' : t === 'Voice' ? '#fb923c' : '#22d3ee';
+                              const bg = t === 'Music' ? 'rgba(192,132,252,0.08)' : t === 'Voice' ? 'rgba(251,146,60,0.08)' : 'rgba(34,211,238,0.08)';
+                              return (
+                                <button key={t} onClick={async () => {
+                                  setTagDropdown(null);
+                                  if (t === currentTag) return;
+                                  const newSoundsJson = structuredClone(project.soundsJson);
+                                  newSoundsJson.soundDefinitions.soundSprites[`s_${s.name}`].tags = [t];
+                                  const r = await window.api.saveSoundsJson(newSoundsJson);
+                                  if (r?.success) { const updated = structuredClone(project); updated.soundsJson = newSoundsJson; setProject(updated); }
+                                  else showToast(r?.error || 'Save failed', 'error');
+                                }} style={{ display: 'block', width: '100%', padding: '8px 14px', border: 'none', background: t === currentTag ? bg : 'transparent', color: tc, fontSize: '11px', fontFamily: "'SF Mono', monospace", fontWeight: 600, cursor: 'pointer', textAlign: 'left', transition: 'background 0.1s' }}
+                                onMouseEnter={e => e.currentTarget.style.background = bg}
+                                onMouseLeave={e => e.currentTarget.style.background = t === currentTag ? bg : 'transparent'}>
+                                  {t === currentTag ? '✓ ' : ''}{t}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
-                    );
+                    </>);
                   })()
-                : (
+                : (<>
                   <button
                     onClick={() => setAddModal({ name: s.name, tags: autoTag(s.name), overlap: false, saving: false })}
                     className="badge bg-orange-dim text-orange cursor-pointer hover:bg-orange/20 transition-colors"
+                    style={{ justifySelf: 'center' }}
                     title="Add to sounds.json"
                   >
                     + Add
                   </button>
-                )
+                  <span></span>
+                </>)
               }
 
-              <span className="text-sm text-text-secondary text-right tabular-nums font-mono whitespace-nowrap">{s.sizeKB} KB</span>
+              <span className="text-[11px] text-text-secondary text-center tabular-nums font-mono whitespace-nowrap">{s.sizeKB >= 1000 ? (s.sizeKB / 1000).toFixed(1) + ' MB' : s.sizeKB + ' KB'}</span>
+              <span className="text-[11px] text-text-dim text-center tabular-nums font-mono whitespace-nowrap">{s.duration ? s.duration + 's' : ''}</span>
+              <span className="text-[10px] text-text-dim text-center font-mono whitespace-nowrap">{s.sampleRate ? (s.sampleRate / 1000) + '/' + s.bitDepth : ''}</span>
 
               <div className="flex items-center gap-0.5">
                 <button
@@ -852,6 +794,71 @@ export default function SoundsPage({ project, setProject, showToast }) {
         )}
       </div>
 
+      {/* Analyze Panel — right sidebar */}
+      {orphanResult && (
+        <div className="card" style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div className="flex items-center gap-2" style={{ padding: '14px 18px', borderBottom: '1px solid var(--color-border, rgba(255,255,255,0.05))' }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#38bdf8', boxShadow: '0 0 6px rgba(56,189,248,0.4)' }} />
+            <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'rgba(255,255,255,0.3)' }}>JSON Cleanup</span>
+            <button onClick={() => setOrphanResult(null)} style={{ marginLeft: 'auto', width: '24px', height: '24px', borderRadius: '6px', border: 'none', background: 'transparent', color: 'var(--color-text-dim)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {orphanResult.orphanedSprites.length === 0 ? (
+              <div className="flex items-center gap-2" style={{ padding: '12px', borderRadius: '8px', background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.1)' }}>
+                <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#34d399" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                <span style={{ fontSize: '12px', color: '#34d399', fontWeight: 600 }}>All clean</span>
+              </div>
+            ) : (<>
+              <div>
+                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#ef4444', marginBottom: '8px' }}>{orphanResult.orphanedSprites.length} Orphaned Sprite{orphanResult.orphanedSprites.length !== 1 ? 's' : ''}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {orphanResult.orphanedSprites.map(k => (
+                    <span key={k} style={{ fontSize: '11px', fontFamily: "'SF Mono', monospace", color: 'var(--color-text-secondary)', padding: '5px 10px', borderRadius: '6px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.08)' }}>{k}</span>
+                  ))}
+                </div>
+              </div>
+              {Object.keys(orphanResult.affectedSpriteLists).length > 0 && (
+                <div>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-text-dim)', marginBottom: '8px' }}>Affected Lists</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {Object.entries(orphanResult.affectedSpriteLists).map(([k, bad]) => (
+                      <div key={k} style={{ fontSize: '11px', fontFamily: "'SF Mono', monospace", padding: '5px 10px', borderRadius: '6px', background: 'rgba(192,132,252,0.06)', border: '1px solid rgba(192,132,252,0.08)' }}>
+                        <span style={{ color: '#c084fc', fontWeight: 600 }}>{k}</span>
+                        <span style={{ color: 'var(--color-text-dim)', marginLeft: '6px', fontSize: '10px' }}>{orphanResult.removedSpriteLists.includes(k) ? 'removed' : `${bad.length} ID(s)`}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {Object.keys(orphanResult.affectedCommands).length > 0 && (
+                <div>
+                  <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-text-dim)', marginBottom: '8px' }}>Affected Commands</div>
+                  <div className="flex flex-wrap" style={{ gap: '4px' }}>
+                    {Object.keys(orphanResult.affectedCommands).map(cmd => (
+                      <span key={cmd} style={{ fontSize: '10px', fontFamily: "'SF Mono', monospace", color: '#38bdf8', padding: '3px 8px', borderRadius: '4px', background: 'rgba(56,189,248,0.08)' }}>
+                        {cmd} ~{orphanResult.affectedCommands[cmd].length}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>)}
+          </div>
+          {orphanResult.orphanedSprites.length > 0 && (
+            <div style={{ padding: '14px 18px', borderTop: '1px solid var(--color-border, rgba(255,255,255,0.05))' }}>
+              <button onClick={handleCleanOrphans} disabled={cleaning}
+                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: 'rgba(239,68,68,0.12)', color: '#ef4444', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                {cleaning ? 'Cleaning...' : `Delete ${orphanResult.orphanedSprites.length} Orphan(s)`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      </div>{/* end flex row */}
+
       {/* Add to JSON Modal */}
       {addModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -965,38 +972,81 @@ export default function SoundsPage({ project, setProject, showToast }) {
 
       {/* Trash Modal */}
       {showTrash && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <div className="bg-bg-secondary border border-border rounded-2xl shadow-2xl w-[440px] max-h-[70vh] flex flex-col">
-            <div className="p-5 border-b border-border flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-text-primary">Trash</h3>
-                <p className="text-xs text-text-dim mt-0.5">Restore sounds back to sourceSoundFiles</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)' }} onClick={() => { if (trashAudioRef.current) { trashAudioRef.current.pause(); trashAudioRef.current.src = ''; } setTrashPlaying(null); setShowTrash(false); }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: '480px', maxHeight: '75vh', display: 'flex', flexDirection: 'column', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)', background: 'var(--color-bg-card, #0d0d18)', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+            {/* Header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.04)', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(239,68,68,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg style={{ width: '18px', height: '18px', color: '#ef4444' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
               </div>
-              <button onClick={() => setShowTrash(false)} className="text-text-dim hover:text-text-primary transition-colors">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
+              <div style={{ flex: 1 }}>
+                <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-primary, #e8e8f0)' }}>Trash</h3>
+                <p style={{ fontSize: '12px', color: 'var(--color-text-dim, #606078)', marginTop: '2px' }}>
+                  {deleted.length === 0 ? 'No deleted sounds' : `${deleted.length} sound${deleted.length !== 1 ? 's' : ''} in trash`}
+                </p>
+              </div>
+              <button onClick={() => { if (trashAudioRef.current) { trashAudioRef.current.pause(); trashAudioRef.current.src = ''; } setTrashPlaying(null); setShowTrash(false); }} style={{ width: '32px', height: '32px', borderRadius: '8px', border: 'none', background: 'transparent', color: 'var(--color-text-dim)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--color-text-primary)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--color-text-dim)'; }}>
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-4 space-y-1">
+            {/* List */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 12px' }}>
               {deleted.length === 0 ? (
-                <p className="text-center text-text-dim text-sm py-8">Trash is empty</p>
+                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--color-text-dim, #606078)' }}>
+                  <svg style={{ width: '32px', height: '32px', margin: '0 auto 12px', opacity: 0.3 }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  <p style={{ fontSize: '13px' }}>Trash is empty</p>
+                </div>
               ) : deleted.map(f => (
-                <div key={f} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-bg-hover transition-colors">
-                  <span className="font-mono text-xs text-text-primary flex-1 truncate">{f.replace('.wav', '')}</span>
-                  <button
-                    onClick={() => handleRestore(f)}
-                    disabled={restoring === f}
-                    className="btn-primary text-xs py-1 px-3"
-                  >
+                <div key={f} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', borderRadius: '10px', marginBottom: '4px', transition: 'background 0.12s' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <button onClick={e => {
+                    e.stopPropagation();
+                    const url = `audio://deleted/${encodeURIComponent(f)}`;
+                    if (trashAudioRef.current?.src?.includes(encodeURIComponent(f))) { trashAudioRef.current.pause(); trashAudioRef.current.src = ''; setTrashPlaying(null); return; }
+                    if (trashAudioRef.current) { trashAudioRef.current.pause(); trashAudioRef.current.src = ''; }
+                    const a = new Audio(url);
+                    a.onended = () => setTrashPlaying(null);
+                    a.play().catch(() => {});
+                    trashAudioRef.current = a;
+                    setTrashPlaying(f);
+                  }} style={{ width: '28px', height: '28px', borderRadius: '7px', border: 'none', background: trashPlaying === f ? 'rgba(124,106,239,0.12)' : 'transparent', color: trashPlaying === f ? '#7c6aef' : 'rgba(255,255,255,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.15s', flexShrink: 0 }}>
+                    {trashPlaying === f
+                      ? <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                      : <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
+                  </button>
+                  <span style={{ fontSize: '13px', fontFamily: "'SF Mono', monospace", fontWeight: 500, color: 'var(--color-text-primary, #e8e8f0)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.replace('.wav', '')}</span>
+                  <button onClick={() => handleRestore(f)} disabled={restoring === f}
+                    style={{ fontSize: '11px', fontWeight: 600, padding: '6px 14px', borderRadius: '7px', border: '1px solid rgba(52,211,153,0.2)', background: 'rgba(52,211,153,0.06)', color: '#34d399', cursor: restoring === f ? 'wait' : 'pointer', fontFamily: 'inherit', transition: 'all 0.15s', whiteSpace: 'nowrap' }}
+                    onMouseEnter={e => { if (restoring !== f) { e.currentTarget.style.background = 'rgba(52,211,153,0.12)'; e.currentTarget.style.borderColor = 'rgba(52,211,153,0.35)'; } }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(52,211,153,0.06)'; e.currentTarget.style.borderColor = 'rgba(52,211,153,0.2)'; }}>
                     {restoring === f ? '...' : 'Restore'}
                   </button>
                 </div>
               ))}
             </div>
+            {/* Footer */}
+            {deleted.length > 0 && (
+              <div style={{ padding: '14px 24px', borderTop: '1px solid rgba(255,255,255,0.04)', textAlign: 'center' }}>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-dim, #606078)' }}>Restored sounds return to sourceSoundFiles/</span>
+              </div>
+            )}
           </div>
         </div>
       )}
+      {/* Footer — format breakdown */}
+      {sounds.length > 0 && (() => {
+        const fmts = {};
+        sounds.forEach(s => { if (s.sampleRate && s.bitDepth) { const k = (s.sampleRate/1000) + 'k/' + s.bitDepth; fmts[k] = (fmts[k] || 0) + 1; } });
+        return (
+          <div className="shrink-0 flex items-center" style={{ gap: '16px', padding: '8px 0', fontSize: '11px', color: 'var(--color-text-dim, #5c5c72)' }}>
+            {Object.entries(fmts).map(([k, v]) => <span key={k}>{k}: <span style={{ color: '#a0a0b8', fontWeight: 600 }}>{v}</span></span>)}
+            <span style={{ marginLeft: 'auto', fontStyle: 'italic' }}>Click name for usage · Double-click to rename</span>
+          </div>
+        );
+      })()}
     </div>
   );
 }

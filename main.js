@@ -125,6 +125,18 @@ app.whenReady().then(() => {
       return net.fetch(pathToFileURL(filePath).toString());
     }
 
+    if (host === 'deleted') {
+      // Deleted WAV files from .deleted/
+      if (!filename || !filename.endsWith('.wav') || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      const delDir = path.join(projectPath, 'sourceSoundFiles', '.deleted');
+      const filePath = path.join(delDir, filename);
+      if (!filePath.startsWith(delDir + path.sep)) return new Response('Forbidden', { status: 403 });
+      if (!fs.existsSync(filePath)) return new Response('Not found', { status: 404 });
+      return net.fetch(pathToFileURL(filePath).toString());
+    }
+
     // Default: WAV from sourceSoundFiles/
     if (!filename || !filename.endsWith('.wav') || filename.includes('/') || filename.includes('\\') || filename.includes('..')) {
       return new Response('Forbidden', { status: 403 });
@@ -478,11 +490,52 @@ function loadProject(dirPath) {
       .reduce((arr, f) => {
         try {
           const stats = fs.statSync(path.join(sourceDir, f));
+          // Read WAV header for sample rate, bit depth, duration
+          let sr = 0, bits = 0, ch = 0, dur = 0;
+          try {
+            let fd = null;
+            try {
+            fd = fs.openSync(path.join(sourceDir, f), 'r');
+            const hdr = Buffer.alloc(128);
+            fs.readSync(fd, hdr, 0, 128, 0);
+            if (hdr.toString('ascii', 0, 4) === 'RIFF' && hdr.toString('ascii', 8, 12) === 'WAVE') {
+              let p = 12;
+              while (p + 8 <= hdr.length) {
+                const id = hdr.toString('ascii', p, p + 4);
+                const sz = hdr.readUInt32LE(p + 4);
+                if (!id || id === '\0\0\0\0') break;
+                if (id === 'fmt ' && hdr.length >= p + 24) { sr = hdr.readUInt32LE(p + 12); bits = hdr.readUInt16LE(p + 22); ch = hdr.readUInt16LE(p + 10); }
+                if (id === 'data') { dur = ch && sr && bits ? sz / sr / ch / (bits / 8) : 0; break; }
+                if (sz === 0) { p += 8; continue; }
+                p += 8 + sz + (sz % 2);
+                if (p > hdr.length) {
+                  const bigHdr = Buffer.alloc(Math.min(stats.size, 4096));
+                  fs.readSync(fd, bigHdr, 0, bigHdr.length, 0);
+                  let bp = 12;
+                  while (bp + 8 <= bigHdr.length) {
+                    const bid = bigHdr.toString('ascii', bp, bp + 4);
+                    const bsz = bigHdr.readUInt32LE(bp + 4);
+                    if (!bid || bid === '\0\0\0\0') break;
+                    if (bid === 'fmt ' && bigHdr.length >= bp + 24) { sr = bigHdr.readUInt32LE(bp + 12); bits = bigHdr.readUInt16LE(bp + 22); ch = bigHdr.readUInt16LE(bp + 10); }
+                    if (bid === 'data') { dur = ch && sr && bits ? bsz / sr / ch / (bits / 8) : 0; break; }
+                    if (bsz === 0) { bp += 8; continue; }
+                    bp += 8 + bsz + (bsz % 2);
+                  }
+                  break;
+                }
+              }
+            }
+            } finally { if (fd !== null) fs.closeSync(fd); }
+          } catch {}
           arr.push({
             name: f.slice(0, -4),
             filename: f,
             sizeKB: Math.round(stats.size / 1024),
-            sizeMB: (stats.size / (1024 * 1024)).toFixed(2)
+            sizeMB: (stats.size / (1024 * 1024)).toFixed(2),
+            sampleRate: sr,
+            bitDepth: bits,
+            channels: ch,
+            duration: Math.round(dur * 10) / 10
           });
         } catch (e) { /* file deleted between readdir and stat — skip */ }
         return arr;

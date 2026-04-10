@@ -113,14 +113,14 @@ export default function ProjectPage({ project, setProject, onOpen, onReload, sho
     <div className="anim-fade-up h-full flex flex-col">
       {/* Header — centered */}
       <div className="shrink-0" style={{ textAlign: 'center', paddingTop: '8px', paddingBottom: '24px', position: 'relative' }}>
-        <h2 className="text-text-primary" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>Dashboard</h2>
+        <h2 className="text-text-primary" style={{ fontSize: '20px', fontWeight: 700, letterSpacing: '-0.02em' }}>Project Dashboard</h2>
         <p className="text-text-dim" style={{ fontSize: '12px', marginTop: '4px' }}>{projectName}</p>
         <button onClick={onReload} className="btn-ghost" style={{ position: 'absolute', right: 0, top: '8px', padding: '8px 16px', borderRadius: '10px', fontSize: '12px' }} title="Reload project data from disk">Reload</button>
       </div>
 
       {/* Content — centered */}
       <div className="flex-1 min-h-0 overflow-y-auto" style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ maxWidth: '800px', width: '100%', padding: '0 16px 32px' }}>
+        <div style={{ width: '100%', padding: '0 24px 32px' }}>
 
           {/* Stats — 4 cards */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '14px', marginBottom: '24px' }}>
