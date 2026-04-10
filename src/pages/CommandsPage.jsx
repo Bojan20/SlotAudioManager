@@ -1505,11 +1505,11 @@ export default function CommandsPage({ project, setProject, showToast }) {
                           )}
 
                           {/* Extra fields */}
-                          {action.volume !== undefined && action.volume !== 1 && <span className="text-text-dim text-xs">vol:{action.volume}</span>}
+                          {action.volume !== undefined && <span className="text-text-dim text-xs">vol:{action.volume}</span>}
                           {action.delay !== undefined && action.delay !== 0 && <span className="text-text-dim text-xs">+{action.delay}ms</span>}
                           {action.duration !== undefined && action.duration !== 0 && <span className="text-text-dim text-xs">dur:{action.duration}ms</span>}
-                          {action.pan !== undefined && action.pan !== 0 && <span className="text-text-dim text-xs">pan:{action.pan}</span>}
-                          {action.rate !== undefined && action.rate !== 1 && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
+                          {action.pan !== undefined && <span className="text-text-dim text-xs">pan:{action.pan}</span>}
+                          {action.rate !== undefined && <span className="text-text-dim text-xs">rate:{action.rate}</span>}
                           {action.loop === -1 && <span className="text-cyan text-xs">loop</span>}
                           {action.spriteToPlay && <span className="text-green text-xs font-mono">{action.spriteToPlay}</span>}
                           {action.command === 'Play' && (action.cancelDelay === true || action.cancelDelay === 'true') && <span className="text-orange text-xs">cancelDelay</span>}
