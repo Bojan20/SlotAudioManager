@@ -75,7 +75,7 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 | SetupPage | `project, setProject, showToast` | `healthCheck`, `initFromTemplate(opts?)`, `npmInstall`, `pickGameRepo`, `configureGame`, `yarnInstallGame` |
 | SoundsPage | `project, setProject, showToast` | `importSounds`, `deleteSound`, `listDeletedSounds`, `restoreSound` — WAV list, import dialog, trash/restore |
 | SpriteConfigPage | `project, showToast` | `saveSpriteConfig` — tier editor, auto-assign unassigned sounds, subLoaderId/unloadable flags |
-| CommandsPage | `project, setProject, showToast` | `saveSoundsJson` — reads `project.soundsJson`, edits commands/spriteList/soundSprites in-memory |
+| CommandsPage | `project, setProject, showToast` | `saveSoundsJson`, `scanGameHooks` — 3-panel layout: command list (left), detail+game hooks (center), sprite lists (right). Inline rename (double-click), inline new command, inline add step, inline sprite list editor |
 | BuildPage | `project, setProject, reloadProject, showToast` | `runScript`, `runDeploy`, `cleanDist`, `getGameScripts`, `runGameScript`, `buildGame`, `pullGameJson`, `listGlr`, `launchLocalGlr`, `gitPullGame`, `killGame`, `waitForPort`, `openUrl`, `scanGameHooks`, `analyzeOrphans`, `cleanOrphans` |
 | GitPage | `project, showToast` | `gitStatus`, `gitCommitPush` — branch, changed files (NEW/ADD/MOD/DEL/REN badges), commit msg input, commit+push, last 10 commits log |
 
@@ -259,6 +259,7 @@ vite.config.js       — output to dist-renderer/, port 5173 strict
 - Disabled states: `.btn-primary:disabled`, `.btn-ghost:disabled` with opacity + cursor
 - Animations: `.anim-fade-up` (page transitions), `.anim-fade-in`, `.anim-pulse-dot` (loading)
 - `.drag-region` for window dragging, interactive elements have `no-drag`
+- Global `input::placeholder` forced dim via `!important` — all placeholders are dim, not white
 
 ## Electron Builder
 - **macOS:** DMG target, icon at `assets/icon.icns`

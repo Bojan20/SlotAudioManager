@@ -51,13 +51,12 @@ function EncoderFooter({ config, project, fdkAvailable, setFdkAvailable }) {
 }
 
 const SUBLOADER_OPTIONS = [
-  { value: '',  label: 'Main load  —  immediate' },
-  { value: 'A', label: 'SubLoader A  —  deferred' },
-  { value: 'B', label: 'SubLoader B  —  deferred' },
-  { value: 'C', label: 'SubLoader C  —  deferred' },
-  { value: 'D', label: 'SubLoader D  —  deferred' },
-  { value: 'E', label: 'SubLoader E  —  deferred' },
-  { value: 'F', label: 'SubLoader F  —  deferred' },
+  { value: 'A', label: 'SubLoader A' },
+  { value: 'B', label: 'SubLoader B' },
+  { value: 'C', label: 'SubLoader C' },
+  { value: 'D', label: 'SubLoader D' },
+  { value: 'E', label: 'SubLoader E' },
+  { value: 'F', label: 'SubLoader F' },
   { value: 'Z', label: 'SubLoader Z  —  lazy' },
 ];
 
@@ -272,18 +271,27 @@ function computeAutoAssign(unassigned, config, soundsJson, musicTags) {
   });
 }
 
-// Pool color schemes — accent CSS color used for inline styles on sound chips
+// Pool color schemes — per SubLoader letter
 const POOL_THEME = {
-  immediate: { accent: 'text-emerald-400', accentBg: 'bg-emerald-400', accentColor: '#34d399', badge: 'bg-emerald-500/12 text-emerald-400', label: 'IMMEDIATE', dot: 'bg-emerald-400' },
-  deferred:  { accent: 'text-sky-400',     accentBg: 'bg-sky-400',     accentColor: '#38bdf8', badge: 'bg-sky-500/12 text-sky-400',     label: 'DEFERRED',  dot: 'bg-sky-400' },
-  lazy:      { accent: 'text-amber-400',   accentBg: 'bg-amber-400',   accentColor: '#fbbf24', badge: 'bg-amber-500/12 text-amber-400', label: 'LAZY',      dot: 'bg-amber-400' },
-  streaming: { accent: 'text-rose-400',    accentBg: 'bg-rose-400',    accentColor: '#fb7185', badge: 'bg-rose-500/12 text-rose-400',   label: 'STREAMING', dot: 'bg-rose-400' },
+  immediate: { accentColor: '#34d399', label: 'IMMEDIATE' },
+  streaming: { accentColor: '#fb7185', label: 'STREAMING' },
+};
+const SUBLOADER_COLORS = {
+  A: '#38bdf8', // sky
+  B: '#c084fc', // purple
+  C: '#fb923c', // orange
+  D: '#2dd4bf', // teal
+  E: '#f472b6', // pink
+  F: '#a3e635', // lime
+  Z: '#fbbf24', // amber
 };
 
 function getTheme(tierCfg, tierName) {
   if (tierName === 'streaming') return POOL_THEME.streaming;
-  if (tierCfg?.subLoaderId === 'Z') return POOL_THEME.lazy;
-  if (tierCfg?.subLoaderId) return POOL_THEME.deferred;
+  const id = tierCfg?.subLoaderId;
+  if (id === 'Z') return { accentColor: SUBLOADER_COLORS.Z, label: 'LAZY' };
+  if (id && SUBLOADER_COLORS[id]) return { accentColor: SUBLOADER_COLORS[id], label: 'DEFERRED' };
+  if (id) return { accentColor: '#38bdf8', label: 'DEFERRED' };
   return POOL_THEME.immediate;
 }
 
@@ -347,27 +355,8 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
           <span className="text-[9px] font-bold px-2 py-[3px] rounded" style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24' }}>UNLOAD</span>
         )}
         <div className="flex-1" />
-        <span className="text-[11px] text-text-dim font-mono tabular-nums">{sounds.length} snd</span>
-        {displayKB ? (
-          <span className="text-[11px] font-mono tabular-nums font-semibold" style={{ color: over ? 'var(--color-danger)' : accentC }}>{fmtSize(displayKB)}</span>
-        ) : null}
-        {measuredRAM ? (
-          <span className="text-[10px] font-mono tabular-nums text-orange">~{measuredRAM} MB</span>
-        ) : null}
+        <span className="text-[11px] font-mono tabular-nums" style={{ color: `${accentC}90` }}>{sounds.length} sounds</span>
       </div>
-
-      {/* Size bar */}
-      {maxKB > 0 && displayKB > 0 && (
-        <div style={{ padding: '8px 18px 4px' }}>
-          <div className="h-[5px] rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.04)' }}>
-            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: over ? 'var(--color-danger)' : accentC }} />
-          </div>
-          <div className="flex justify-between mt-1">
-            <span className="text-[9px] font-mono" style={{ color: over ? 'var(--color-danger)' : 'var(--color-text-dim)' }}>{Math.round(pct)}%</span>
-            <span className="text-[9px] text-text-dim font-mono">limit {fmtSize(maxKB)}</span>
-          </div>
-        </div>
-      )}
 
       {/* Sounds */}
       <div className="flex-1" style={{ padding: '12px 18px' }}>
@@ -409,12 +398,19 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
       {!isStreaming ? (
         <div className="border-t flex flex-col" style={{ borderColor: 'rgba(255,255,255,0.04)', background: 'rgba(0,0,0,0.12)' }}>
           {/* Measure row */}
-          <div className="flex items-center gap-2" style={{ padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+          <div className="flex items-center gap-3" style={{ padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
             <button onClick={handleMeasure} disabled={measuring || sounds.length === 0}
               className="transition-all disabled:opacity-20"
               style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: `1px solid ${accentC}25`, color: `${accentC}90`, background: `${accentC}06`, cursor: measuring ? 'wait' : 'pointer' }}>
               {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
             </button>
+            {displayKB && (
+              <span className="text-[11px] font-mono tabular-nums font-semibold" style={{ color: over ? 'var(--color-danger)' : accentC }}>{fmtSize(displayKB)}</span>
+            )}
+            {measuredRAM && (
+              <span className="text-[10px] font-mono tabular-nums text-orange">~{measuredRAM} MB RAM</span>
+            )}
+            {over && <span className="text-[9px] font-bold text-danger uppercase tracking-wider">Over limit</span>}
           </div>
           {/* Settings row */}
           <div className="flex items-center gap-2.5 flex-wrap" style={{ padding: '10px 18px' }}>
@@ -423,10 +419,12 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
               <input type="number" value={maxKB || 0} onChange={(e) => onUpdate(() => { tierCfg.maxSizeKB = parseInt(e.target.value) || 0; })} className="input-base text-center" style={{ width: '68px', fontSize: '11px', padding: '3px 6px', borderRadius: '6px' }} />
               <span className="text-[9px] text-text-dim">KB</span>
             </div>
-            <div className="h-3 w-px bg-white/[0.06]" />
-            <select value={tierCfg.subLoaderId || ''} onChange={(e) => onUpdate(() => { if (e.target.value === '') { delete tierCfg.subLoaderId; delete tierCfg.unloadable; } else { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; } })} className="input-base" style={{ fontSize: '11px', padding: '3px 6px', width: '160px', borderRadius: '6px' }}>
-              {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            {isDeferred && (<>
+              <div className="h-3 w-px bg-white/[0.06]" />
+              <select value={tierCfg.subLoaderId || 'A'} onChange={(e) => onUpdate(() => { tierCfg.subLoaderId = e.target.value; if (tierCfg.unloadable === undefined) tierCfg.unloadable = false; })} className="input-base" style={{ fontSize: '11px', padding: '3px 6px', width: '130px', borderRadius: '6px' }}>
+                {SUBLOADER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </>)}
             {isDeferred && (<>
               <div className="h-3 w-px bg-white/[0.06]" />
               <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -447,13 +445,22 @@ function PoolCard({ tierName, tierCfg, sounds, theme, maxKB, sizeInfo, wavSet, t
           </div>
         </div>
       ) : (
-        /* Streaming — just measure button */
-        <div className="border-t flex items-center gap-2" style={{ padding: '8px 18px', borderColor: 'rgba(255,255,255,0.04)', background: 'rgba(0,0,0,0.12)' }}>
-          <button onClick={handleMeasure} disabled={measuring || sounds.length === 0}
-            className="transition-all disabled:opacity-20"
-            style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: `1px solid ${accentC}25`, color: `${accentC}90`, background: `${accentC}06`, cursor: measuring ? 'wait' : 'pointer' }}>
-            {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
-          </button>
+        /* Streaming — measure + info, 2-row footer to align with neighbor */
+        <div className="border-t flex flex-col" style={{ borderColor: 'rgba(255,255,255,0.04)', background: 'rgba(0,0,0,0.12)' }}>
+          <div className="flex items-center gap-3" style={{ padding: '8px 18px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+            <button onClick={handleMeasure} disabled={measuring || sounds.length === 0}
+              className="transition-all disabled:opacity-20"
+              style={{ fontSize: '10px', padding: '3px 10px', borderRadius: '5px', border: `1px solid ${accentC}25`, color: `${accentC}90`, background: `${accentC}06`, cursor: measuring ? 'wait' : 'pointer' }}>
+              {measuring ? 'Measuring...' : displayKB ? 'Re-measure' : 'Measure Size'}
+            </button>
+            {displayKB && (
+              <span className="text-[11px] font-mono tabular-nums font-semibold" style={{ color: accentC }}>{fmtSize(displayKB)}</span>
+            )}
+            {measuredRAM && (
+              <span className="text-[10px] font-mono tabular-nums text-orange">~{measuredRAM} MB RAM</span>
+            )}
+          </div>
+          <div style={{ padding: '10px 18px', minHeight: '44px' }} />
         </div>
       )}
     </div>
